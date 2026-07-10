@@ -1,0 +1,43 @@
+:root,
+[data-theme="light"] {
+  --ink: #1b2027;
+  --ink-soft: #5b6472;
+  --bg: #eef0f3;
+  --panel: #ffffff;
+  --panel-border: #dde1e7;
+  --canvas-bg: #fbfbfc;
+  --grid-dot: #d7dbe1;
+  --accent: #2f5d8a;
+  --accent-soft: #e7eef5;
+  --selection: rgba(47, 93, 138, 0.14);
+  --danger: #c62828;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+[data-theme="dark"] {
+  --ink: #e7e9ee;
+  --ink-soft: #9aa2b1;
+  --bg: #14161a;
+  --panel: #1b1e24;
+  --panel-border: #2b2f37;
+  --canvas-bg: #17191e;
+  --grid-dot: #2a2d34;
+  --accent: #6fa3d8;
+  --accent-soft: #223244;
+  --selection: rgba(111, 163, 216, 0.18);
+  --danger: #ff6b6b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  overscroll-behavior: none;
+}

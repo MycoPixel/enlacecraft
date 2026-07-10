@@ -1,0 +1,193 @@
+import type { Molecule } from "../types/chemistry";
+import { VALENCE, ATOMIC_WEIGHT, ABBREVIATED_GROUPS, ISOTOPE_PRESETS } from "./constants";
+import { angleOf } from "./geometry";
+
+const GROUP_BY_ID = Object.fromEntries(ABBREVIATED_GROUPS.map((g) => [g.id, g]));
+const ISOTOPE_BY_ELEMENT_MASS = new Map(ISOTOPE_PRESETS.map((p) => [`${p.element}:${p.massNumber}`, p]));
+
+/** Tokenizes a simple formula string ("C5H9O2") into element counts. Only
+ * handles the flat "symbol then optional count" shape our own
+ * ABBREVIATED_GROUPS registry uses — no parentheses/nesting needed since we
+ * control every string that ever gets parsed here. */
+function parseSimpleFormula(formula: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const re = /([A-Z][a-z]?)(\d*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(formula))) {
+    const [, el, numStr] = m;
+    if (!el) continue;
+    counts[el] = (counts[el] || 0) + (numStr ? parseInt(numStr, 10) : 1);
+  }
+  return counts;
+}
+
+export function bondsOfAtom(mol: Molecule, atomId: string) {
+  return Object.values(mol.bonds).filter((b) => b.a1 === atomId || b.a2 === atomId);
+}
+
+export function neighborIds(mol: Molecule, atomId: string): string[] {
+  return bondsOfAtom(mol, atomId).map((b) => (b.a1 === atomId ? b.a2 : b.a1));
+}
+
+export function neighborAngles(mol: Molecule, atomId: string): number[] {
+  const a = mol.atoms[atomId];
+  return bondsOfAtom(mol, atomId).map((b) => {
+    const otherId = b.a1 === atomId ? b.a2 : b.a1;
+    const o = mol.atoms[otherId];
+    return angleOf(a, o);
+  });
+}
+
+/**
+ * Effective valence given charge. This is a simplified organic-chemistry
+ * approximation, not a full valence-electron model:
+ *  - heteroatoms with lone pairs (N, O, S, P) gain bonding capacity when
+ *    positively charged and lose it when negatively charged
+ *    (e.g. ammonium N+ -> 4, alkoxide O- -> 1)
+ *  - carbon-like atoms (C, Si, B) lose one bonding site per unit of charge
+ *    in either direction (e.g. carbocation / carbanion -> 3)
+ */
+export function effectiveValence(el: keyof typeof VALENCE, charge: number): number {
+  const base = VALENCE[el] ?? 4;
+  if (el === "C" || el === "Si" || el === "B") {
+    return Math.max(0, base - Math.abs(charge));
+  }
+  return Math.max(0, base + charge);
+}
+
+export function usedValence(mol: Molecule, atomId: string): number {
+  return bondsOfAtom(mol, atomId).reduce((sum, b) => sum + b.order, 0);
+}
+
+export function implicitH(mol: Molecule, atomId: string): number {
+  const a = mol.atoms[atomId];
+  // A group atom (e.g. "Boc") is a fixed, already-complete substituent —
+  // its single bond fully accounts for its one attachment point, so there's
+  // no implicit-hydrogen filling to do (see ABBREVIATED_GROUPS doc comment).
+  if (a.group) return 0;
+  const used = usedValence(mol, atomId);
+  const eff = effectiveValence(a.element, a.charge);
+  return Math.max(0, eff - used);
+}
+
+export function isOverValent(mol: Molecule, atomId: string): boolean {
+  const a = mol.atoms[atomId];
+  if (a.group) return false;
+  return usedValence(mol, atomId) > effectiveValence(a.element, a.charge);
+}
+
+export interface AtomLabelInfo {
+  /** Whether this atom shows a text label at all (vs. a bare skeletal vertex). */
+  visible: boolean;
+  /** The exact label text (e.g. "C", "OH", "NH2", "CH3"). */
+  text: string;
+  /** Superscript mass-number prefix shown before `text` (e.g. "13" before
+   * "C") — only for isotopes without their own conventional symbol; D/T
+   * are folded directly into `text` instead, since they're always written
+   * as a plain "D"/"T", never as a superscript-prefixed "H". */
+  isotopePrefix?: string;
+}
+
+/**
+ * Single source of truth for what an atom's label looks like — used both to
+ * render it (AtomView) and to know how much to shorten bonds that touch it
+ * (BondView), so the two can never disagree about where the label sits.
+ *
+ * A charge alone does NOT force the full letter+H-count label onto a bonded
+ * carbon — it's drawn as a +/- symbol next to the bare skeletal vertex
+ * instead, matching conventional skeletal-formula notation. The full label
+ * only appears when Show Hydrogens is on, the atom is a heteroatom, an
+ * isotope label is set, or it's an isolated atom with no bonds at all
+ * (nothing else to anchor it to).
+ */
+export function atomLabelInfo(mol: Molecule, atomId: string, showHydrogens: boolean, forceLabel = false): AtomLabelInfo {
+  const atom = mol.atoms[atomId];
+  if (atom.group) {
+    return { visible: true, text: GROUP_BY_ID[atom.group]?.label ?? atom.group };
+  }
+
+  const isotopePreset = atom.isotope ? ISOTOPE_BY_ELEMENT_MASS.get(`${atom.element}:${atom.isotope}`) : undefined;
+  const hasOwnSymbol = isotopePreset?.id === "D" || isotopePreset?.id === "T";
+  const displayElement = hasOwnSymbol ? isotopePreset!.label : atom.element;
+
+  const bondCount = bondsOfAtom(mol, atomId).length;
+  const hCount = implicitH(mol, atomId);
+  const isCarbon = atom.element === "C";
+  const isIsolated = bondCount === 0;
+
+  const visible = forceLabel || showHydrogens || !isCarbon || isIsolated || !!isotopePreset;
+
+  let text: string = displayElement;
+  if (isCarbon && isIsolated) {
+    text = hCount > 0 ? `${displayElement}H${hCount > 1 ? hCount : ""}` : displayElement;
+  } else if (visible && hCount > 0) {
+    text = `${displayElement}H${hCount > 1 ? hCount : ""}`;
+  }
+
+  const isotopePrefix = isotopePreset && !hasOwnSymbol ? String(isotopePreset.massNumber) : undefined;
+  return { visible, text, isotopePrefix };
+}
+
+/** Approximate on-screen half-width (plus a little padding) of an atom's label, in px. */
+export function atomLabelRadius(mol: Molecule, atomId: string, showHydrogens: boolean, forceLabel = false): number {
+  const { visible, text, isotopePrefix } = atomLabelInfo(mol, atomId, showHydrogens, forceLabel);
+  if (!visible) return 0;
+  const prefixWidth = isotopePrefix ? isotopePrefix.length * 2.6 : 0;
+  return 7 + text.length * 3.6 + prefixWidth;
+}
+
+/** Hill-system-ish molecular formula string (C, H, then the rest alphabetically). */
+export function computeFormula(mol: Molecule): string {
+  const counts: Record<string, number> = {};
+  const add = (el: string, n: number) => { counts[el] = (counts[el] || 0) + n; };
+  for (const id in mol.atoms) {
+    const a = mol.atoms[id];
+    if (a.group) {
+      const group = GROUP_BY_ID[a.group];
+      if (group) {
+        const groupCounts = parseSimpleFormula(group.formula);
+        for (const el in groupCounts) add(el, groupCounts[el]);
+      }
+      continue;
+    }
+    add(a.element, 1);
+    add("H", implicitH(mol, id));
+  }
+  if (Object.keys(counts).length === 0) return "";
+
+  const sub = (n: number) => (n > 1 ? String(n) : "");
+  const parts: string[] = [];
+  if (counts.C) {
+    parts.push(`C${sub(counts.C)}`);
+    if (counts.H) parts.push(`H${sub(counts.H)}`);
+  } else if (counts.H) {
+    parts.push(`H${sub(counts.H)}`);
+  }
+  const rest = Object.keys(counts).filter((e) => e !== "C" && e !== "H").sort();
+  for (const el of rest) parts.push(`${el}${sub(counts[el])}`);
+  return parts.join("");
+}
+
+/**
+ * Molecular weight (g/mol) from the same per-atom + implicit-hydrogen
+ * counting computeFormula uses, so the two always agree with each other.
+ * Returns 0 for an empty canvas.
+ */
+export function computeMolecularWeight(mol: Molecule): number {
+  let total = 0;
+  for (const id in mol.atoms) {
+    const a = mol.atoms[id];
+    if (a.group) {
+      const group = GROUP_BY_ID[a.group];
+      if (group) {
+        const groupCounts = parseSimpleFormula(group.formula);
+        for (const el in groupCounts) total += (ATOMIC_WEIGHT[el as keyof typeof ATOMIC_WEIGHT] ?? 0) * groupCounts[el];
+      }
+      continue;
+    }
+    const isotopePreset = a.isotope ? ISOTOPE_BY_ELEMENT_MASS.get(`${a.element}:${a.isotope}`) : undefined;
+    total += isotopePreset ? isotopePreset.mass : (ATOMIC_WEIGHT[a.element] ?? 0);
+    total += implicitH(mol, id) * ATOMIC_WEIGHT.H;
+  }
+  return total;
+}
