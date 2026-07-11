@@ -1,5 +1,5 @@
 import { useCallback, useRef, type RefObject } from "react";
-import type { Annotation, Molecule, Point } from "../types/chemistry";
+import type { Annotation, Molecule, Point, RingAttachment } from "../types/chemistry";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
@@ -185,7 +185,12 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (tool === "ring") {
       const template = RING_TEMPLATES.find((t) => t.id === store.ringTemplateId)!;
-      store.placeRing(template, pt, hitAtom || null);
+      const attachment: RingAttachment = hitAtom
+        ? { type: "atom", atomId: hitAtom }
+        : hitBond
+        ? { type: "bond", a1: molecule.bonds[hitBond].a1, a2: molecule.bonds[hitBond].a2 }
+        : { type: "none" };
+      store.placeRing(template, pt, attachment);
       return;
     }
 
@@ -215,6 +220,8 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     const pt = clientToWorld(e.clientX, e.clientY);
     const hitAtom = atomAt(store.molecule, pt);
     store.setHoverAtomId(hitAtom);
+    store.setHoverBondId(hitAtom ? null : bondAt(store.molecule, pt));
+    store.setHoverPoint(pt);
 
     const drag = dragRef.current;
     if (!drag) return;
@@ -386,5 +393,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     });
   }, [svgRef]);
 
-  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick };
+  const onPointerLeave = useCallback(() => {
+    const store = useMoleculeStore.getState();
+    // Only clear the hover-preview bits — not mid-drag state, which keeps
+    // running via pointer capture even if the cursor briefly leaves the
+    // <svg> bounds.
+    store.setHoverAtomId(null);
+    store.setHoverBondId(null);
+    store.setHoverPoint(null);
+  }, []);
+
+  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave };
 }

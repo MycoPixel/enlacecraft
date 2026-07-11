@@ -9,9 +9,10 @@ import { BracketAnnotationView, bracketPath } from "./BracketAnnotationView";
 import { AnnotationToolbar } from "./AnnotationToolbar";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
 import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
+import { previewRingLoops } from "../../engine/ringPlacement";
 import { bracketPairLayout } from "../../model/geometry";
-import { DEFAULT_BRACKET_WIDTH } from "../../model/constants";
-import type { BracketAnnotation } from "../../types/chemistry";
+import { DEFAULT_BRACKET_WIDTH, RING_TEMPLATES } from "../../model/constants";
+import type { BracketAnnotation, RingAttachment } from "../../types/chemistry";
 
 export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(_props, ref) {
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -30,9 +31,27 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const bracketPairPreview = useMoleculeStore((s) => s.bracketPairPreview);
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
+  const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
+  const hoverBondId = useMoleculeStore((s) => s.hoverBondId);
+  const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
+  const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
-  const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick } = useCanvasInteractions(svgRef);
+  const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave } = useCanvasInteractions(svgRef);
+
+  // Hover preview for the ring tool: exactly the same attachment resolution
+  // useCanvasInteractions uses on click, so what you see hovering is what
+  // you'll get — a single existing atom fuses through it, an existing bond
+  // fuses directly onto it, otherwise it drops centered on the cursor.
+  const ringTemplate = tool === "ring" ? RING_TEMPLATES.find((t) => t.id === ringTemplateId) ?? null : null;
+  const ringAttachment: RingAttachment | null = hoverAtomId
+    ? { type: "atom", atomId: hoverAtomId }
+    : hoverBondId && molecule.bonds[hoverBondId]
+    ? { type: "bond", a1: molecule.bonds[hoverBondId].a1, a2: molecule.bonds[hoverBondId].a2 }
+    : { type: "none" };
+  const ringPreviewLoops = ringTemplate && hoverPoint
+    ? previewRingLoops(molecule, ringTemplate, hoverPoint, ringAttachment)
+    : null;
 
   // Track the canvas's actual on-screen size so actions like "center a
   // searched compound in view" know the real viewport, not a guess.
@@ -61,6 +80,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={onPointerLeave}
       onDoubleClick={onDoubleClick}
       onWheel={onWheel}
       onContextMenu={(e) => e.preventDefault()}
@@ -170,6 +190,75 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             />
             {!bondPreview.targetAtomId && (
               <circle cx={bondPreview.to.x} cy={bondPreview.to.y} r={3.5} fill="var(--accent)" />
+            )}
+          </g>
+        )}
+        {tool === "atom" && hoverPoint && (
+          hoverAtomId && molecule.atoms[hoverAtomId] ? (
+            // Hovering an existing atom: clicking relabels it in place, so
+            // highlight that atom rather than showing a "new atom" ghost.
+            <circle
+              cx={molecule.atoms[hoverAtomId].x}
+              cy={molecule.atoms[hoverAtomId].y}
+              r={11}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth={1.6}
+              strokeDasharray="3 2"
+              opacity={0.8}
+              pointerEvents="none"
+              data-export-exclude="true"
+            />
+          ) : (
+            <circle
+              cx={hoverPoint.x}
+              cy={hoverPoint.y}
+              r={9}
+              fill="var(--accent)"
+              fillOpacity={0.16}
+              stroke="var(--accent)"
+              strokeWidth={1.4}
+              strokeDasharray="2 2"
+              opacity={0.75}
+              pointerEvents="none"
+              data-export-exclude="true"
+            />
+          )
+        )}
+        {ringPreviewLoops && (
+          <g opacity={0.6} pointerEvents="none" data-export-exclude="true">
+            {ringPreviewLoops.map((loop, i) => (
+              <polygon
+                key={i}
+                points={loop.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="var(--accent)"
+                fillOpacity={0.08}
+                stroke="var(--accent)"
+                strokeWidth={1.4}
+                strokeDasharray="3 2"
+              />
+            ))}
+            {hoverAtomId && molecule.atoms[hoverAtomId] && (
+              <circle
+                cx={molecule.atoms[hoverAtomId].x}
+                cy={molecule.atoms[hoverAtomId].y}
+                r={9}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth={1.8}
+              />
+            )}
+            {hoverBondId && molecule.bonds[hoverBondId] && molecule.atoms[molecule.bonds[hoverBondId].a1] && molecule.atoms[molecule.bonds[hoverBondId].a2] && (
+              <line
+                x1={molecule.atoms[molecule.bonds[hoverBondId].a1].x}
+                y1={molecule.atoms[molecule.bonds[hoverBondId].a1].y}
+                x2={molecule.atoms[molecule.bonds[hoverBondId].a2].x}
+                y2={molecule.atoms[molecule.bonds[hoverBondId].a2].y}
+                stroke="var(--accent)"
+                strokeWidth={3.5}
+                strokeLinecap="round"
+                opacity={0.6}
+              />
             )}
           </g>
         )}

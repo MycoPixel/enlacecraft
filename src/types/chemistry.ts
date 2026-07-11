@@ -94,6 +94,21 @@ export interface BondPreview {
   targetAtomId: string | null; // Set when the drag is hovering an existing atom
 }
 
+/**
+ * How a new ring attaches to what's already on the canvas — shared by the
+ * real placement (engine/ringPlacement.ts's placeRing) and its live hover
+ * preview, so the preview always matches exactly what gets placed:
+ * - "none": dropped centered at a point on empty canvas.
+ * - "atom": fused through a single existing atom, extending away from its
+ *   existing bonds.
+ * - "bond": fused directly onto an existing bond, which becomes one edge
+ *   of the new ring (both its atoms are reused, unmoved).
+ */
+export type RingAttachment =
+  | { type: "none" }
+  | { type: "atom"; atomId: string }
+  | { type: "bond"; a1: string; a2: string };
+
 export interface Molecule {
   atoms: Record<string, Atom>;
   bonds: Record<string, Bond>;

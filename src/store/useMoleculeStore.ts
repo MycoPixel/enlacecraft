@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, Element, MarqueeRect, Molecule, Point, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import * as M from "../model/molecule";
@@ -71,6 +71,13 @@ interface MoleculeStore {
   atomIsotope: string | null;
   atomEditTarget: string | null;
   hoverAtomId: string | null;
+  /** Bond currently under the cursor (only tracked when nothing's being
+   * dragged and the cursor isn't over an atom) — used for the ring tool's
+   * "fuse onto this bond" hover preview. */
+  hoverBondId: string | null;
+  /** Cursor's current world position, kept live for tools (atom, ring)
+   * that show a live preview of where the next thing will be placed. */
+  hoverPoint: Point | null;
   atomLabelRevealTargets: Set<string>;
   ringTemplateId: string;
   selected: Set<string>;
@@ -92,6 +99,8 @@ interface MoleculeStore {
   setAtomIsotope: (presetId: string | null) => void;
   setAtomEditTarget: (id: string | null) => void;
   setHoverAtomId: (id: string | null) => void;
+  setHoverBondId: (id: string | null) => void;
+  setHoverPoint: (p: Point | null) => void;
   setAtomLabelRevealTargets: (targets: Set<string>) => void;
   setRingTemplateId: (id: string) => void;
   setSelected: (s: Set<string>) => void;
@@ -158,7 +167,7 @@ interface MoleculeStore {
   deleteAtom: (id: string) => void;
   deleteBond: (id: string) => void;
   deleteSelection: () => void;
-  placeRing: (template: RingTemplate, center: Point, attachAtomId: string | null) => void;
+  placeRing: (template: RingTemplate, center: Point, attachment: RingAttachment) => void;
   loadMolecule: (mol: Molecule) => void;
   importCompound: (mol: Molecule) => void;
   pasteFragment: (fragment: { molecule: Molecule; annotations: Annotation[] }) => void;
@@ -224,6 +233,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     atomIsotope: null,
     atomEditTarget: null,
     hoverAtomId: null,
+    hoverBondId: null,
+    hoverPoint: null,
     atomLabelRevealTargets: new Set(),
     ringTemplateId: "benzene",
     selected: new Set(),
@@ -243,6 +254,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setAtomIsotope: (presetId) => set({ atomIsotope: presetId, atomGroup: null }),
     setAtomEditTarget: (id) => set({ atomEditTarget: id }),
     setHoverAtomId: (id) => set({ hoverAtomId: id }),
+    setHoverBondId: (id) => set({ hoverBondId: id }),
+    setHoverPoint: (p) => set({ hoverPoint: p }),
     setAtomLabelRevealTargets: (targets) => set({ atomLabelRevealTargets: targets }),
     setRingTemplateId: (id) => set({ ringTemplateId: id }),
     setSelected: (s) => set({ selected: s }),
@@ -319,8 +332,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       set({ selected: new Set() });
     },
 
-    placeRing: (template, center, attachAtomId) => {
-      commit((mol) => placeRingImpl(mol, template, center, attachAtomId));
+    placeRing: (template, center, attachment) => {
+      commit((mol) => placeRingImpl(mol, template, center, attachment));
     },
 
     loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set() }),
