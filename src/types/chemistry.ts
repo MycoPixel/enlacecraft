@@ -191,6 +191,14 @@ export interface RingTemplate {
 export type Theme = "light" | "dark";
 
 /**
+ * The drawing canvas's own background — independent of the light/dark app
+ * theme, since a plain white canvas is what most people want for
+ * screenshots regardless of which theme they're editing in. "theme"
+ * restores the normal themed background (with its grid-dot pattern).
+ */
+export type CanvasBackground = "white" | "theme";
+
+/**
  * Reaction-arrow variants. Rendered by ArrowAnnotationView; the marker ids
  * referenced there must stay in sync with these names.
  *  - "forward": a single straight arrow, A -> B

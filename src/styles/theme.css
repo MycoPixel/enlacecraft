@@ -28,6 +28,16 @@
   --danger: #ff6b6b;
 }
 
+/* The drawing canvas's own background, independent of the light/dark app
+   theme above (data-theme controls the app chrome; data-canvas-bg controls
+   just the canvas) — a plain white canvas is what most people want for
+   screenshots regardless of which theme they're editing in. The MoleculeCanvas
+   component itself skips rendering the grid-dot pattern in this mode (see
+   its own comment), so this only needs to override the fill color. */
+[data-canvas-bg="white"] {
+  --canvas-bg: #ffffff;
+}
+
 * {
   box-sizing: border-box;
 }

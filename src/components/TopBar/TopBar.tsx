@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Trash2, Contrast, AlertTriangle } from "lucide-react";
+import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Trash2, Contrast, AlertTriangle, Grid2x2, Square } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
@@ -21,6 +21,8 @@ export function TopBar({ svgRef }: TopBarProps) {
   const molecule = useMoleculeStore((s) => s.molecule);
   const theme = useMoleculeStore((s) => s.theme);
   const toggleTheme = useMoleculeStore((s) => s.toggleTheme);
+  const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
+  const toggleCanvasBackground = useMoleculeStore((s) => s.toggleCanvasBackground);
   const toggleLanguage = useMoleculeStore((s) => s.toggleLanguage);
   const undo = useMoleculeStore((s) => s.undo);
   const redo = useMoleculeStore((s) => s.redo);
@@ -162,6 +164,13 @@ export function TopBar({ svgRef }: TopBarProps) {
         <Divider />
         <ToolButton title={t("tool.theme")} onClick={toggleTheme}>
           {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+        </ToolButton>
+        <ToolButton
+          title={canvasBackground === "white" ? t("tool.canvasBgUseTheme") : t("tool.canvasBgUseWhite")}
+          active={canvasBackground === "white"}
+          onClick={toggleCanvasBackground}
+        >
+          {canvasBackground === "white" ? <Grid2x2 size={18} /> : <Square size={18} />}
         </ToolButton>
         <ToolButton title={t("tool.clearDrawing")} onClick={onClear}>
           <Trash2 size={18} />

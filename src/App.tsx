@@ -11,6 +11,7 @@ import { MobileToolbar } from "./components/MobileToolbar/MobileToolbar";
 
 export default function App() {
   const theme = useMoleculeStore((s) => s.theme);
+  const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const language = useMoleculeStore((s) => s.language);
   const isMobile = useIsMobile();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -21,6 +22,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-canvas-bg", canvasBackground);
+  }, [canvasBackground]);
 
   useEffect(() => {
     document.documentElement.setAttribute("lang", language);

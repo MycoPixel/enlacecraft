@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import * as M from "../model/molecule";
@@ -83,6 +83,9 @@ interface MoleculeStore {
   selected: Set<string>;
   view: ViewTransform;
   theme: Theme;
+  /** The drawing canvas's own background — separate from the light/dark
+   * app theme; see CanvasBackground's doc comment. */
+  canvasBackground: CanvasBackground;
   language: Lang;
   status: string;
   bondPreview: BondPreview | null;
@@ -106,6 +109,7 @@ interface MoleculeStore {
   setSelected: (s: Set<string>) => void;
   setView: (v: ViewTransform | ((v: ViewTransform) => ViewTransform)) => void;
   toggleTheme: () => void;
+  toggleCanvasBackground: () => void;
   toggleLanguage: () => void;
   setStatus: (s: string) => void;
   setBondPreview: (p: BondPreview | null) => void;
@@ -240,6 +244,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     selected: new Set(),
     view: { scale: 1, tx: 0, ty: 0 },
     theme: "light",
+    // Defaults to a plain white canvas (screenshot-ready out of the box);
+    // "theme" restores the normal off-white/dark themed background + grid.
+    canvasBackground: "white",
     language: detectInitialLanguage(),
     status: "status.ready",
     bondPreview: null,
@@ -261,6 +268,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setSelected: (s) => set({ selected: s }),
     setView: (v) => set((s) => ({ view: typeof v === "function" ? v(s.view) : v })),
     toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
+    toggleCanvasBackground: () => set((s) => ({ canvasBackground: s.canvasBackground === "white" ? "theme" : "white" })),
     toggleLanguage: () =>
       set((s) => {
         const next: Lang = s.language === "en" ? "es" : "en";

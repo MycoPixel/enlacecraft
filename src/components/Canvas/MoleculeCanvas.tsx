@@ -31,6 +31,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const bracketPairPreview = useMoleculeStore((s) => s.bracketPairPreview);
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
+  const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
   const hoverBondId = useMoleculeStore((s) => s.hoverBondId);
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
@@ -98,7 +99,12 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
           <path d="M 0.5,1.5 Q 7,2 9.5,5" fill="none" stroke="context-stroke" strokeWidth="1.8" strokeLinecap="round" />
         </marker>
       </defs>
-      <rect x="-6000" y="-6000" width="12000" height="12000" fill="url(#grid)" data-export-exclude="true" />
+      {/* Plain white canvas mode skips the grid-dot pattern entirely, to
+          look exactly as clean on screen as a "white background" export
+          would — see CanvasBackground's doc comment. */}
+      {canvasBackground !== "white" && (
+        <rect x="-6000" y="-6000" width="12000" height="12000" fill="url(#grid)" data-export-exclude="true" />
+      )}
       <g transform={`translate(${view.tx},${view.ty}) scale(${view.scale})`} data-export-viewport="true">
         {/*
           Everything that is actual drawing content (and should end up in an
