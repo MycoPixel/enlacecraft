@@ -38,7 +38,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
-  const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave } = useCanvasInteractions(svgRef);
+  const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown } = useCanvasInteractions(svgRef);
 
   // Hover preview for the ring tool: exactly the same attachment resolution
   // useCanvasInteractions uses on click, so what you see hovering is what
@@ -53,6 +53,24 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const ringPreviewLoops = ringTemplate && hoverPoint
     ? previewRingLoops(molecule, ringTemplate, hoverPoint, ringAttachment)
     : null;
+
+  // Free-rotation handle: shown above the current selection's bounding box
+  // whenever there's more than one atom selected (rotating a single point
+  // around itself would be a no-op) with the select tool active. Dragging
+  // it (see onRotateHandleDown) rotates by any angle, not just the
+  // sidebar's fixed ±30° nudges.
+  const rotateHandle = (() => {
+    if (tool !== "select" || selected.size < 2) return null;
+    const positions = [...selected].map((id) => molecule.atoms[id]).filter(Boolean);
+    if (positions.length < 2) return null;
+    const minX = Math.min(...positions.map((p) => p.x));
+    const maxX = Math.max(...positions.map((p) => p.x));
+    const minY = Math.min(...positions.map((p) => p.y));
+    const maxY = Math.max(...positions.map((p) => p.y));
+    const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+    const handle = { x: center.x, y: minY - 34 };
+    return { center, handle, boxTopY: minY };
+  })();
 
   // Track the canvas's actual on-screen size so actions like "center a
   // searched compound in view" know the real viewport, not a guess.
@@ -266,6 +284,31 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
                 opacity={0.6}
               />
             )}
+          </g>
+        )}
+        {rotateHandle && (
+          <g data-export-exclude="true">
+            <line
+              x1={rotateHandle.center.x}
+              y1={rotateHandle.boxTopY}
+              x2={rotateHandle.handle.x}
+              y2={rotateHandle.handle.y}
+              stroke="var(--accent)"
+              strokeWidth={1.2}
+              strokeDasharray="2 2"
+              opacity={0.7}
+              pointerEvents="none"
+            />
+            <circle
+              cx={rotateHandle.handle.x}
+              cy={rotateHandle.handle.y}
+              r={7}
+              fill="var(--panel)"
+              stroke="var(--accent)"
+              strokeWidth={1.6}
+              style={{ cursor: "grab" }}
+              onPointerDown={(e) => onRotateHandleDown(e, [...selected], rotateHandle.center)}
+            />
           </g>
         )}
         {marqueeRect && (

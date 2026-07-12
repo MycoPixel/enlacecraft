@@ -11,6 +11,7 @@ import type { BondOrder, BondStereo } from "../types/chemistry";
 type DragState =
   | { mode: "pan"; startClient: Point; startView: { scale: number; tx: number; ty: number } }
   | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
+  | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
   | { mode: "marquee"; base: Set<string>; annotationBase: Set<string>; start: Point }
   | { mode: "arrow-draw"; start: Point }
@@ -36,7 +37,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   }, [svgRef]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button === 2) return;
+    if (e.button === 2) {
+      // Right-click is a quick way back to Select/Move, matching the common
+      // "right-click to stop whatever you were doing" convention — it
+      // doesn't also act on whatever's under the cursor, just switches tools.
+      useMoleculeStore.getState().setTool("select");
+      return;
+    }
     const store = useMoleculeStore.getState();
     const { tool, molecule } = store;
 
@@ -117,6 +124,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         store.setSelectedAnnotationIds(new Set());
         store.setAtomEditTarget(null);
         const b = molecule.bonds[hitBond];
+        // Clicking a bond that's already selected (and only that bond, i.e.
+        // exactly its two atoms are the current selection) cycles its
+        // order 1 -> 2 -> 3 -> 1, instead of just re-selecting it — a
+        // quick way to change bond order without switching tools.
+        if (!e.shiftKey && store.selected.size === 2 && store.selected.has(b.a1) && store.selected.has(b.a2)) {
+          const nextOrder: BondOrder = b.order === 1 ? 2 : b.order === 2 ? 3 : 1;
+          store.setBondOrder(hitBond, nextOrder);
+          return;
+        }
         if (e.shiftKey) {
           const newSelected = new Set(store.selected);
           newSelected.add(b.a1);
@@ -242,6 +258,27 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
+    if (drag.mode === "rotate") {
+      let deltaAngle = Math.atan2(pt.y - drag.center.y, pt.x - drag.center.x) - drag.startAngle;
+      if (e.shiftKey) {
+        // Hold Shift for the classic 15°-increment snap; free (any-angle)
+        // rotation is the default, so a 4-membered ring can land exactly
+        // square instead of only ever landing on 30° steps.
+        const step = Math.PI / 12;
+        deltaAngle = Math.round(deltaAngle / step) * step;
+      }
+      const cos = Math.cos(deltaAngle);
+      const sin = Math.sin(deltaAngle);
+      const moves: Record<string, Point> = {};
+      for (const p of drag.origPositions) {
+        const dx = p.x - drag.center.x;
+        const dy = p.y - drag.center.y;
+        moves[p.id] = { x: drag.center.x + dx * cos - dy * sin, y: drag.center.y + dx * sin + dy * cos };
+      }
+      store.moveAtomsTransient(moves);
+      return;
+    }
+
     if (drag.mode === "marquee") {
       const enclosed = atomsInRect(store.molecule, drag.start, pt);
       const union = new Set(drag.base);
@@ -305,6 +342,12 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     store.setBondPreview(null);
 
     if (drag.mode === "move") {
+      store.commitCheckpoint(drag.before);
+      store.setStatus("status.ready");
+      return;
+    }
+
+    if (drag.mode === "rotate") {
       store.commitCheckpoint(drag.before);
       store.setStatus("status.ready");
       return;
@@ -393,6 +436,28 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     });
   }, [svgRef]);
 
+  /** Starts a free-angle rotation drag for `ids` around `center` — called
+   * from the rotate handle MoleculeCanvas draws above the current
+   * selection. Unlike the sidebar's fixed ±30° nudge buttons, this tracks
+   * the cursor continuously so a selection can land on any angle (e.g. a
+   * 4-membered ring rotated exactly onto a square orientation), snapping
+   * to 15° steps only while Shift is held. */
+  const onRotateHandleDown = useCallback((e: React.PointerEvent, ids: string[], center: Point) => {
+    e.stopPropagation();
+    const store = useMoleculeStore.getState();
+    const svg = svgRef.current;
+    svg?.setPointerCapture?.(e.pointerId);
+    const pt = clientToWorld(e.clientX, e.clientY);
+    dragRef.current = {
+      mode: "rotate",
+      ids,
+      center,
+      startAngle: Math.atan2(pt.y - center.y, pt.x - center.x),
+      origPositions: ids.map((id) => ({ id, x: store.molecule.atoms[id].x, y: store.molecule.atoms[id].y })),
+      before: { molecule: store.molecule, annotations: store.annotations },
+    };
+  }, [clientToWorld, svgRef]);
+
   const onPointerLeave = useCallback(() => {
     const store = useMoleculeStore.getState();
     // Only clear the hover-preview bits — not mid-drag state, which keeps
@@ -403,5 +468,5 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     store.setHoverPoint(null);
   }, []);
 
-  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave };
+  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown };
 }

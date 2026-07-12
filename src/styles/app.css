@@ -155,6 +155,7 @@
 .sidebar {
   width: 112px;
   flex-shrink: 0;
+  position: relative;
   background: var(--panel);
   border-right: 1px solid var(--panel-border);
   display: flex;
@@ -163,6 +164,22 @@
   gap: 4px;
   padding: 10px 8px;
   overflow-y: auto;
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+  background: var(--accent-soft);
 }
 
 .section-label {

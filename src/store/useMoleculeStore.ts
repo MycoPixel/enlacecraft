@@ -12,6 +12,10 @@ import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "
 const HISTORY_LIMIT = 100;
 
 const LANG_STORAGE_KEY = "molsketch-lang";
+const SIDEBAR_WIDTH_STORAGE_KEY = "molsketch-sidebar-width";
+const DEFAULT_SIDEBAR_WIDTH = 112;
+const MIN_SIDEBAR_WIDTH = 88;
+const MAX_SIDEBAR_WIDTH = 280;
 
 /** Everything undo/redo restores together. */
 interface Snapshot {
@@ -44,6 +48,17 @@ function detectInitialLanguage(): Lang {
     // localStorage unavailable (e.g. privacy mode) — fall through to browser language.
   }
   return typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("es") ? "es" : "en";
+}
+
+function detectInitialSidebarWidth(): number {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    const n = saved ? parseInt(saved, 10) : NaN;
+    if (Number.isFinite(n)) return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, n));
+  } catch {
+    // localStorage unavailable — fall through to the default.
+  }
+  return DEFAULT_SIDEBAR_WIDTH;
 }
 
 interface MoleculeStore {
@@ -87,6 +102,10 @@ interface MoleculeStore {
    * app theme; see CanvasBackground's doc comment. */
   canvasBackground: CanvasBackground;
   language: Lang;
+  /** Desktop sidebar's width in px, user-resizable by dragging its edge;
+   * persisted across sessions like language. Unused on mobile (which uses
+   * MobileToolbar instead). */
+  sidebarWidth: number;
   status: string;
   bondPreview: BondPreview | null;
   marqueeRect: MarqueeRect | null;
@@ -111,6 +130,7 @@ interface MoleculeStore {
   toggleTheme: () => void;
   toggleCanvasBackground: () => void;
   toggleLanguage: () => void;
+  setSidebarWidth: (w: number) => void;
   setStatus: (s: string) => void;
   setBondPreview: (p: BondPreview | null) => void;
   setMarqueeRect: (r: MarqueeRect | null) => void;
@@ -248,6 +268,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     // "theme" restores the normal off-white/dark themed background + grid.
     canvasBackground: "white",
     language: detectInitialLanguage(),
+    sidebarWidth: detectInitialSidebarWidth(),
     status: "status.ready",
     bondPreview: null,
     marqueeRect: null,
@@ -279,6 +300,15 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         }
         return { language: next };
       }),
+    setSidebarWidth: (w) => {
+      const clamped = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(w)));
+      try {
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped));
+      } catch {
+        // ignore — persistence is a nicety, not a requirement
+      }
+      set({ sidebarWidth: clamped });
+    },
     setStatus: (s) => set({ status: s }),
     setBondPreview: (p) => set({ bondPreview: p }),
     setMarqueeRect: (r) => set({ marqueeRect: r }),

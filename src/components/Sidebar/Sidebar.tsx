@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Trash2, Type, MoveRight, Brackets } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel } from "./ToolButton";
@@ -32,6 +33,25 @@ export function Sidebar() {
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const setArrowBarb = useMoleculeStore((s) => s.setArrowBarb);
   const t = useT();
+  const sidebarWidth = useMoleculeStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useMoleculeStore((s) => s.setSidebarWidth);
+  const resizeDrag = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const onResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    resizeDrag.current = { startX: e.clientX, startWidth: sidebarWidth };
+  };
+  const onResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizeDrag.current) return;
+    setSidebarWidth(resizeDrag.current.startWidth + (e.clientX - resizeDrag.current.startX));
+  };
+  const onResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    resizeDrag.current = null;
+    if ((e.currentTarget as Element).hasPointerCapture?.(e.pointerId)) {
+      (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+    }
+  };
 
   const onArrowVariantChange = (v: ArrowVariant) => {
     setArrowVariant(v);
@@ -61,7 +81,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ width: sidebarWidth }}>
       <SectionLabel>{t("section.select")}</SectionLabel>
       <ToolButton title={t("tool.selectHint")} active={tool === "select"} onClick={() => setTool("select")}>
         <MousePointer2 size={18} />
@@ -189,6 +209,14 @@ export function Sidebar() {
         <Trash2 size={17} />
         <span className="btn-label">{t("tool.clearLabel")}</span>
       </ToolButton>
+      <div
+        className="sidebar-resize-handle"
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+        title={t("tool.resizeSidebar")}
+      />
     </aside>
   );
 }

@@ -1,6 +1,7 @@
 import type { BondOrder, BondStereo, Element, Molecule } from "../types/chemistry";
 import { emptyMolecule, stripExplicitHydrogens } from "../model/molecule";
 import { BOND_LEN, ABBREVIATED_GROUPS, STANDARD_MASS_NUMBER } from "../model/constants";
+import { calibrateImportScale } from "./importScale";
 import { nextId } from "../model/id";
 
 const GROUP_BY_ID = Object.fromEntries(ABBREVIATED_GROUPS.map((g) => [g.id, g]));
@@ -162,26 +163,21 @@ export function importMol(text: string): Molecule {
   // click without hitting an atom instead (so double bonds etc. can't be
   // edited). Instead, measure the file's *actual* median bond length and
   // scale so that maps onto our own BOND_LEN — this self-calibrates
-  // regardless of the source's original units.
+  // regardless of the source's original units. See calibrateImportScale's
+  // doc comment for why heavy-heavy bonds are measured separately.
   const idToIndex = new Map(ids.map((id, i) => [id, i]));
-  const lengths: number[] = [];
+  const allLengths: number[] = [];
+  const heavyLengths: number[] = [];
   for (const { a1, a2 } of bondPairs) {
     const i1 = idToIndex.get(a1);
     const i2 = idToIndex.get(a2);
     if (i1 === undefined || i2 === undefined) continue;
     const d = Math.hypot(rawX[i1] - rawX[i2], rawY[i1] - rawY[i2]);
-    if (d > 1e-6) lengths.push(d);
+    if (d <= 1e-6) continue;
+    allLengths.push(d);
+    if (mol.atoms[a1].element !== "H" && mol.atoms[a2].element !== "H") heavyLengths.push(d);
   }
-  let scale: number;
-  if (lengths.length > 0) {
-    lengths.sort((a, b) => a - b);
-    const median = lengths[Math.floor(lengths.length / 2)];
-    scale = BOND_LEN / median;
-  } else {
-    // No bonds to measure (e.g. a single atom) — fall back to the
-    // conventional MDL angstrom scale.
-    scale = BOND_LEN / 1.5;
-  }
+  const scale = calibrateImportScale(allLengths, heavyLengths, 1.5);
 
   ids.forEach((id, i) => {
     mol.atoms[id].x = rawX[i] * scale;

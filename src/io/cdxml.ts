@@ -1,6 +1,7 @@
 import type { BondOrder, BondStereo, Element, Molecule } from "../types/chemistry";
 import { emptyMolecule } from "../model/molecule";
 import { BOND_LEN } from "../model/constants";
+import { calibrateImportScale } from "./importScale";
 import { nextId } from "../model/id";
 
 /**
@@ -178,21 +179,20 @@ export function importCdxml(text: string): Molecule {
   // Same self-calibration approach as the MOL/SDF importer: CDXML documents
   // don't reliably agree on what a "unit" is in practice (despite the
   // BondLength attribute's nominal meaning), so measure the file's actual
-  // median bond length and scale that onto this app's own BOND_LEN.
-  const lengths: number[] = [];
+  // median bond length and scale that onto this app's own BOND_LEN. See
+  // calibrateImportScale's doc comment for why heavy-heavy bonds are
+  // measured separately from bonds involving explicit hydrogens.
+  const allLengths: number[] = [];
+  const heavyLengths: number[] = [];
   for (const { a1, a2 } of bondPairs) {
     const x1 = rawX.get(a1), y1 = rawY.get(a1), x2 = rawX.get(a2), y2 = rawY.get(a2);
     if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) continue;
     const d = Math.hypot(x1 - x2, y1 - y2);
-    if (d > 1e-6) lengths.push(d);
+    if (d <= 1e-6) continue;
+    allLengths.push(d);
+    if (mol.atoms[a1].element !== "H" && mol.atoms[a2].element !== "H") heavyLengths.push(d);
   }
-  let scale: number;
-  if (lengths.length > 0) {
-    lengths.sort((a, b) => a - b);
-    scale = BOND_LEN / lengths[Math.floor(lengths.length / 2)];
-  } else {
-    scale = BOND_LEN / 30; // ChemDraw's conventional default bond length
-  }
+  const scale = calibrateImportScale(allLengths, heavyLengths, 30); // 30 = ChemDraw's conventional default bond length
 
   // CDXML's Y axis already increases downward, matching this app's own
   // canvas convention, so — unlike MOL/SDF import — no sign flip here.
