@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Trash2, Type, MoveRight, Brackets } from "lucide-react";
+import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, MoveRight, Brackets } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel } from "./ToolButton";
 import { BondGlyph } from "./BondGlyphs";
@@ -10,6 +10,7 @@ import { RingPicker } from "./RingPicker";
 import { ArrowVariantPicker } from "./ArrowVariantPicker";
 import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
+import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { useT } from "../../i18n/useT";
 import type { ArrowVariant, BracketVariant } from "../../types/chemistry";
 
@@ -26,7 +27,6 @@ export function Sidebar() {
   const setRingTemplateId = useMoleculeStore((s) => s.setRingTemplateId);
   const view = useMoleculeStore((s) => s.view);
   const setView = useMoleculeStore((s) => s.setView);
-  const clear = useMoleculeStore((s) => s.clear);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
   const arrowVariant = useMoleculeStore((s) => s.arrowVariant);
   const setArrowVariant = useMoleculeStore((s) => s.setArrowVariant);
@@ -75,10 +75,6 @@ export function Sidebar() {
   const zoomBy = (factor: number) =>
     setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
   const resetView = () => setView({ scale: 1, tx: 0, ty: 0 });
-
-  const onClear = () => {
-    if (confirm(t("confirm.clearDrawing"))) clear();
-  };
 
   return (
     <aside className="sidebar" style={{ width: sidebarWidth }}>
@@ -205,10 +201,7 @@ export function Sidebar() {
         <ToolButton title={t("tool.zoomOut")} onClick={() => zoomBy(1 / 1.2)}><ZoomOut size={17} /></ToolButton>
         <ToolButton title={t("tool.resetView")} onClick={resetView}><MoveDiagonal size={17} /></ToolButton>
       </div>
-      <ToolButton title={t("tool.clearDrawing")} onClick={onClear}>
-        <Trash2 size={17} />
-        <span className="btn-label">{t("tool.clearLabel")}</span>
-      </ToolButton>
+      <ClearDrawingButton withLabel />
       <div
         className="sidebar-resize-handle"
         onPointerDown={onResizePointerDown}

@@ -1,11 +1,14 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Trash2, Contrast, AlertTriangle, Grid2x2, Square } from "lucide-react";
+import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Contrast, AlertTriangle, Grid2x2, Square } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { CompoundSearch } from "./CompoundSearch";
-import { computeFormula, computeMolecularWeight, isOverValent } from "../../model/valence";
+import { ClearDrawingButton } from "../common/ClearDrawingButton";
+import { isOverValent } from "../../model/valence";
+import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
+import { Formula } from "../common/Formula";
 import { exportPNG, exportSVG } from "../../io/exportImage";
 import { exportMol, importMol } from "../../io/molfile";
 import { exportCdxml, importCdxml } from "../../io/cdxml";
@@ -29,7 +32,6 @@ export function TopBar({ svgRef }: TopBarProps) {
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
   const loadMolecule = useMoleculeStore((s) => s.loadMolecule);
-  const clear = useMoleculeStore((s) => s.clear);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
@@ -40,8 +42,7 @@ export function TopBar({ svgRef }: TopBarProps) {
   const isMobile = useIsMobile();
   const t = useT();
 
-  const formula = computeFormula(molecule);
-  const mw = computeMolecularWeight(molecule);
+  const { formula, mw } = useFormulaDisplay();
   const hasOverValence = Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id));
 
   const resolveBackground = (bg: ExportBackground): string | null => {
@@ -108,10 +109,6 @@ export function TopBar({ svgRef }: TopBarProps) {
     reader.readAsText(file);
   };
 
-  const onClear = () => {
-    if (confirm(t("confirm.clearDrawing"))) clear();
-  };
-
   return (
     <header className="topbar">
       <div className="brand">
@@ -127,7 +124,7 @@ export function TopBar({ svgRef }: TopBarProps) {
 
       {!isMobile && (
         <div className="formula">
-          {formula || "\u2014"}
+          {formula ? <Formula formula={formula} /> : "\u2014"}
           {mw > 0 && <span className="formula__mw">{mw.toFixed(2)} g/mol</span>}
         </div>
       )}
@@ -172,9 +169,7 @@ export function TopBar({ svgRef }: TopBarProps) {
         >
           {canvasBackground === "white" ? <Grid2x2 size={18} /> : <Square size={18} />}
         </ToolButton>
-        <ToolButton title={t("tool.clearDrawing")} onClick={onClear}>
-          <Trash2 size={18} />
-        </ToolButton>
+        <ClearDrawingButton />
       </div>
 
       <input

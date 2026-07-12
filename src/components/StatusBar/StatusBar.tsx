@@ -1,16 +1,15 @@
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { computeFormula, computeMolecularWeight } from "../../model/valence";
+import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useT } from "../../i18n/useT";
+import { Formula } from "../common/Formula";
 
 export function StatusBar() {
-  const molecule = useMoleculeStore((s) => s.molecule);
   const status = useMoleculeStore((s) => s.status);
   const view = useMoleculeStore((s) => s.view);
   const isMobile = useIsMobile();
   const t = useT();
-  const formula = computeFormula(molecule);
-  const mw = computeMolecularWeight(molecule);
+  const { formula, mw } = useFormulaDisplay();
 
   return (
     <div className="status-bar">
@@ -20,7 +19,7 @@ export function StatusBar() {
       <span>{t(status)}</span>
       {isMobile && (
         <span className="formula formula--mobile">
-          {formula || "\u2014"}
+          {formula ? <Formula formula={formula} /> : "\u2014"}
           {mw > 0 && ` · ${mw.toFixed(2)}`}
         </span>
       )}

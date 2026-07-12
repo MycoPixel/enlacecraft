@@ -220,6 +220,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
           // Handy for ring systems like benzene where you want the inner
           // line on a particular side.
           store.cycleDoubleBondSide(hitBond);
+        } else if (tool === "bond-1") {
+          // The single-bond tool doubles as a quick order-cycling tool on
+          // an existing bond: single -> double -> triple -> single, so you
+          // don't need to switch tools just to bump a bond's order.
+          const current = molecule.bonds[hitBond].order;
+          const nextOrder = (current === 1 ? 2 : current === 2 ? 3 : 1) as BondOrder;
+          store.setBondOrder(hitBond, nextOrder);
         } else {
           store.setBondOrder(hitBond, (tool === "bond-2" ? 2 : tool === "bond-3" ? 3 : 1) as BondOrder);
         }

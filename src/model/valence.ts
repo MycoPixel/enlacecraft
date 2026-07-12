@@ -136,12 +136,16 @@ export function atomLabelRadius(mol: Molecule, atomId: string, showHydrogens: bo
   return 7 + text.length * 3.6 + prefixWidth;
 }
 
-/** Hill-system-ish molecular formula string (C, H, then the rest alphabetically). */
-export function computeFormula(mol: Molecule): string {
+/** Hill-system-ish molecular formula string (C, H, then the rest
+ * alphabetically). Restricted to `atomIds` if given (still using the full
+ * `mol` for each atom's real bonds/implicit-H count — only which atoms get
+ * summed is restricted, not how each one's own valence is worked out). */
+export function computeFormula(mol: Molecule, atomIds?: Iterable<string>): string {
   const counts: Record<string, number> = {};
   const add = (el: string, n: number) => { counts[el] = (counts[el] || 0) + n; };
-  for (const id in mol.atoms) {
+  for (const id of atomIds ?? Object.keys(mol.atoms)) {
     const a = mol.atoms[id];
+    if (!a) continue;
     if (a.group) {
       const group = GROUP_BY_ID[a.group];
       if (group) {
@@ -169,14 +173,49 @@ export function computeFormula(mol: Molecule): string {
 }
 
 /**
+ * Every connected fragment of atoms in `mol` (grouped purely by bonds —
+ * annotations like a reaction-scheme "+" or arrow don't connect anything),
+ * ordered left-to-right by each fragment's own horizontal center so a
+ * fragment-by-fragment formula readout reads in the same order the scheme
+ * is drawn in (e.g. matching "A + B -> C" left to right).
+ */
+export function findConnectedFragments(mol: Molecule): string[][] {
+  const visited = new Set<string>();
+  const fragments: { ids: string[]; cx: number }[] = [];
+  for (const id in mol.atoms) {
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const ids: string[] = [];
+    const stack = [id];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      ids.push(cur);
+      for (const nb of neighborIds(mol, cur)) {
+        if (!visited.has(nb)) {
+          visited.add(nb);
+          stack.push(nb);
+        }
+      }
+    }
+    const cx = ids.reduce((sum, i) => sum + mol.atoms[i].x, 0) / ids.length;
+    fragments.push({ ids, cx });
+  }
+  fragments.sort((a, b) => a.cx - b.cx);
+  return fragments.map((f) => f.ids);
+}
+
+/**
  * Molecular weight (g/mol) from the same per-atom + implicit-hydrogen
  * counting computeFormula uses, so the two always agree with each other.
- * Returns 0 for an empty canvas.
+ * Restricted to `atomIds` if given (see computeFormula's doc comment for
+ * why that doesn't change each atom's own valence workings). Returns 0 for
+ * an empty canvas/selection.
  */
-export function computeMolecularWeight(mol: Molecule): number {
+export function computeMolecularWeight(mol: Molecule, atomIds?: Iterable<string>): number {
   let total = 0;
-  for (const id in mol.atoms) {
+  for (const id of atomIds ?? Object.keys(mol.atoms)) {
     const a = mol.atoms[id];
+    if (!a) continue;
     if (a.group) {
       const group = GROUP_BY_ID[a.group];
       if (group) {

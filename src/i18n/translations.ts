@@ -28,6 +28,8 @@ export const translations: Record<Lang, Dict> = {
 
     "valence.exceeded": "valence exceeded",
     "confirm.clearDrawing": "Clear the entire drawing?",
+    "confirm.cancel": "Cancel",
+    "confirm.confirmClear": "Clear",
 
     "tool.select": "Select / Move (V)",
     "tool.selectHint": "Select / Move (V) — drag empty space to marquee-select, double-click a molecule to select it all",
@@ -168,6 +170,8 @@ export const translations: Record<Lang, Dict> = {
 
     "valence.exceeded": "valencia excedida",
     "confirm.clearDrawing": "¿Borrar todo el dibujo?",
+    "confirm.cancel": "Cancelar",
+    "confirm.confirmClear": "Borrar",
 
     "tool.select": "Seleccionar / mover (V)",
     "tool.selectHint": "Seleccionar / mover (V) — arrastra en un espacio vacío para seleccionar con un rectángulo, doble clic en una molécula para seleccionarla completa",
