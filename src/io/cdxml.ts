@@ -60,7 +60,7 @@ export function exportCdxml(mol: Molecule, name = "molecule"): string {
 
   let out = `<?xml version="1.0" encoding="UTF-8" ?>\n`;
   out += `<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n`;
-  out += `<CDXML CreationProgram="MolSketch" Name="${escapeXml(name)}" BondLength="30" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10" FractionalWidths="yes" InterpretChemically="yes">\n`;
+  out += `<CDXML CreationProgram="EnlaceCraft" Name="${escapeXml(name)}" BondLength="30" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10" FractionalWidths="yes" InterpretChemically="yes">\n`;
   out += `<colortable><color r="1" g="1" b="1"/><color r="0" g="0" b="0"/></colortable>\n`;
   out += `<fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable>\n`;
   out += `<page>\n<fragment id="${nextId()}">\n`;

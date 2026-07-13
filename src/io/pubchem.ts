@@ -50,16 +50,32 @@ export interface CompoundLookupResult {
 
 const PUG_REST_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 
-async function fetchSDFRaw(name: string): Promise<string> {
-  const url = `${PUG_REST_BASE}/compound/name/${encodeURIComponent(name)}/record/SDF?record_type=2d`;
+async function fetchSDFRaw(identifier: string, namespace: "name" | "smiles"): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(url);
+    if (namespace === "smiles") {
+      // POST (with the SMILES in the body, not the URL) rather than GET —
+      // PubChem's own docs call out that some SMILES characters (notably
+      // "/", used for cis/trans double-bond geometry) can break a GET
+      // even when percent-encoded, since some routing along the way
+      // decodes the URL before PubChem's own parser sees it. POSTing the
+      // identifier as a form field sidesteps that entirely.
+      res = await fetch(`${PUG_REST_BASE}/compound/smiles/record/SDF?record_type=2d`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `smiles=${encodeURIComponent(identifier)}`,
+      });
+    } else {
+      res = await fetch(`${PUG_REST_BASE}/compound/${namespace}/${encodeURIComponent(identifier)}/record/SDF?record_type=2d`);
+    }
   } catch {
     throw new PubChemError("NETWORK");
   }
   if (!res.ok) {
-    if (res.status === 404) throw new PubChemError("NOT_FOUND", { name });
+    // PubChem returns 400 (not 404) for a SMILES it can't parse/standardize
+    // at all — from the user's point of view that's the same "this wasn't
+    // found/recognized" outcome as a real 404, so both map to NOT_FOUND.
+    if (res.status === 404 || res.status === 400) throw new PubChemError("NOT_FOUND", { name: identifier });
     throw new PubChemError("HTTP", { status: res.status });
   }
   return res.text();
@@ -74,7 +90,7 @@ export async function fetchCompoundByName(query: string): Promise<CompoundLookup
   let resolvedName = trimmed;
 
   try {
-    sdf = await fetchSDFRaw(trimmed);
+    sdf = await fetchSDFRaw(trimmed, "name");
   } catch (err) {
     // Only retry-via-translation on a genuine "not found" — network/HTTP
     // errors should surface immediately rather than triggering more requests.
@@ -84,7 +100,7 @@ export async function fetchCompoundByName(query: string): Promise<CompoundLookup
     if (!guess || normalizeText(guess) === normalizeText(trimmed)) throw err;
 
     try {
-      sdf = await fetchSDFRaw(guess);
+      sdf = await fetchSDFRaw(guess, "name");
       translatedFrom = trimmed;
       resolvedName = guess;
     } catch {
@@ -102,6 +118,40 @@ export async function fetchCompoundByName(query: string): Promise<CompoundLookup
     query: trimmed,
     resolvedName,
     translatedFrom,
+    name: extractSdfField(sdf, "PUBCHEM_IUPAC_NAME") ?? undefined,
+    formula: extractSdfField(sdf, "PUBCHEM_MOLECULAR_FORMULA") ?? undefined,
+    cid: toInt(extractSdfField(sdf, "PUBCHEM_COMPOUND_CID")),
+  };
+}
+
+/**
+ * Looks up a compound by SMILES string, the same way fetchCompoundByName
+ * looks one up by name — PubChem's PUG REST accepts a SMILES identifier
+ * directly (no Spanish-name-translation retry needed here, since a SMILES
+ * string isn't a natural-language name). This is how SMILES *import* is
+ * supported: rather than writing our own SMILES parser plus a 2D
+ * coordinate-generation algorithm (a substantial project on its own, and
+ * the 2D-layout half of it doesn't even have a "right answer" the way
+ * parsing does), PubChem is asked to resolve the SMILES to a structure and
+ * hand back the same 2D SDF format fetchCompoundByName already parses —
+ * SMILES *export* (Molecule -> string) is handled separately and locally,
+ * see io/smiles.ts, since that direction doesn't need coordinate
+ * generation at all.
+ */
+export async function fetchCompoundBySmiles(smiles: string): Promise<CompoundLookupResult> {
+  const trimmed = smiles.trim();
+  if (!trimmed) throw new PubChemError("EMPTY_QUERY");
+
+  const sdf = await fetchSDFRaw(trimmed, "smiles");
+  const molecule = importMol(sdf);
+  if (Object.keys(molecule.atoms).length === 0) {
+    throw new PubChemError("NO_STRUCTURE", { name: trimmed });
+  }
+
+  return {
+    molecule,
+    query: trimmed,
+    resolvedName: trimmed,
     name: extractSdfField(sdf, "PUBCHEM_IUPAC_NAME") ?? undefined,
     formula: extractSdfField(sdf, "PUBCHEM_MOLECULAR_FORMULA") ?? undefined,
     cid: toInt(extractSdfField(sdf, "PUBCHEM_COMPOUND_CID")),

@@ -18,15 +18,19 @@ export function RingPicker({ value, onChange, active }: RingPickerProps) {
           onClick={() => onChange(tmpl.id)}
           title={t(`ring.${tmpl.id}`)}
         >
-          {tmpl.fused ? (
-            <MiniNaphthalene />
-          ) : (
-            <MiniRing sides={tmpl.sides} aromatic={tmpl.aromatic} heteroatoms={tmpl.heteroatoms} />
-          )}
+          <RingIcon templateId={tmpl.id} />
         </button>
       ))}
     </div>
   );
+}
+
+/** The icon for one ring template — also used standalone as the collapsed
+ * dropdown trigger's icon, so the sidebar shows which ring is currently
+ * selected without needing the whole grid open. */
+export function RingIcon({ templateId }: { templateId: string }) {
+  const tmpl = RING_TEMPLATES.find((r) => r.id === templateId) ?? RING_TEMPLATES[0];
+  return tmpl.fused ? <MiniNaphthalene /> : <MiniRing sides={tmpl.sides} aromatic={tmpl.aromatic} heteroatoms={tmpl.heteroatoms} />;
 }
 
 function MiniRing({ sides, aromatic, heteroatoms }: { sides: number; aromatic: boolean; heteroatoms?: { position: number; element: string }[] }) {

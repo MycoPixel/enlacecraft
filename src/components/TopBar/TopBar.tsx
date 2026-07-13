@@ -12,6 +12,8 @@ import { Formula } from "../common/Formula";
 import { exportPNG, exportSVG } from "../../io/exportImage";
 import { exportMol, importMol } from "../../io/molfile";
 import { exportCdxml, importCdxml } from "../../io/cdxml";
+import { exportSmiles } from "../../io/smiles";
+import { exportProject, importProject, PROJECT_FILE_EXTENSION, ProjectParseError } from "../../io/project";
 import { downloadBlob } from "../../io/exportImage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useT } from "../../i18n/useT";
@@ -32,6 +34,9 @@ export function TopBar({ svgRef }: TopBarProps) {
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
   const loadMolecule = useMoleculeStore((s) => s.loadMolecule);
+  const loadProject = useMoleculeStore((s) => s.loadProject);
+  const annotations = useMoleculeStore((s) => s.annotations);
+  const view = useMoleculeStore((s) => s.view);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
@@ -93,17 +98,42 @@ export function TopBar({ svgRef }: TopBarProps) {
   };
   const doExportMol = () => downloadBlob(new Blob([exportMol(molecule)], { type: "chemical/x-mdl-molfile" }), "molecule.mol");
   const doExportCdxml = () => downloadBlob(new Blob([exportCdxml(molecule)], { type: "chemical/x-cdxml" }), "molecule.cdxml");
+  const doExportSmiles = async () => {
+    const smiles = exportSmiles(molecule);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("no clipboard API");
+      await navigator.clipboard.writeText(smiles);
+      setStatus(t("status.smilesCopied", { smiles }));
+    } catch {
+      // Clipboard access can fail (permissions, insecure context, older
+      // WebViews) — a downloaded .smi file still gets the data to the user.
+      downloadBlob(new Blob([smiles], { type: "chemical/x-daylight-smiles" }), "molecule.smi");
+      setStatus(t("status.smilesDownloaded"));
+    }
+  };
+
+  const doSaveProject = () => {
+    const json = exportProject({ molecule, annotations, view });
+    downloadBlob(new Blob([json], { type: "application/json" }), `molecule${PROJECT_FILE_EXTENSION}`);
+  };
 
   const doImportFile = (file: File) => {
     const isCdxml = /\.cdxml$/i.test(file.name);
+    const isProject = file.name.toLowerCase().endsWith(PROJECT_FILE_EXTENSION);
     const reader = new FileReader();
     reader.onload = () => {
       try {
+        if (isProject) {
+          const project = importProject(String(reader.result));
+          loadProject(project);
+          setStatus(t("status.imported", { count: Object.keys(project.molecule.atoms).length }));
+          return;
+        }
         const parsed = isCdxml ? importCdxml(String(reader.result)) : importMol(String(reader.result));
         loadMolecule(parsed);
         setStatus(t("status.imported", { count: Object.keys(parsed.atoms).length }));
-      } catch {
-        setStatus(t("status.importError", { name: file.name }));
+      } catch (err) {
+        setStatus(t(err instanceof ProjectParseError ? "status.projectImportError" : "status.importError", { name: file.name }));
       }
     };
     reader.readAsText(file);
@@ -117,7 +147,7 @@ export function TopBar({ svgRef }: TopBarProps) {
           <circle cx="9" cy="15" r="1.1" fill="currentColor" />
           <circle cx="13" cy="17.5" r="0.9" fill="currentColor" />
         </svg>
-        <span>MolSketch</span>
+        <span>EnlaceCraft</span>
       </div>
 
       <CompoundSearch />
@@ -147,7 +177,7 @@ export function TopBar({ svgRef }: TopBarProps) {
         <ToolButton title={t("tool.import")} onClick={() => fileInputRef.current?.click()}>
           <Upload size={18} />
         </ToolButton>
-        <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} />
+        <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
         <Divider />
         <ToolButton title={showHydrogens ? t("tool.hideHydrogens") : t("tool.showHydrogens")} active={showHydrogens} onClick={toggleShowHydrogens}>
           <Atom size={18} />
@@ -175,7 +205,7 @@ export function TopBar({ svgRef }: TopBarProps) {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".mol,.cdxml"
+        accept=".mol,.cdxml,.enlacecraft"
         style={{ display: "none" }}
         onChange={(e) => e.target.files?.[0] && doImportFile(e.target.files[0])}
       />

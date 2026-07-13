@@ -11,6 +11,8 @@ interface ExportMenuProps {
   onSVG: (background: ExportBackground) => void;
   onMOL: () => void;
   onCDXML: () => void;
+  onSmiles: () => void;
+  onSaveProject: () => void;
 }
 
 /**
@@ -24,7 +26,7 @@ interface ExportMenuProps {
  * button's own bounding rect sidesteps that entirely — it's never inside any
  * scrolling/clipping ancestor.
  */
-export function ExportMenu({ onPNG, onSVG, onMOL, onCDXML }: ExportMenuProps) {
+export function ExportMenu({ onPNG, onSVG, onMOL, onCDXML, onSmiles, onSaveProject }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [background, setBackground] = useState<ExportBackground>("white");
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
@@ -70,6 +72,8 @@ export function ExportMenu({ onPNG, onSVG, onMOL, onCDXML }: ExportMenuProps) {
       {open && coords &&
         createPortal(
           <div className="export-dropdown" ref={dropdownRef} style={{ top: coords.top, right: coords.right }}>
+            <button className="export-dropdown__item export-dropdown__item--primary" onClick={() => { onSaveProject(); setOpen(false); }}>{t("tool.saveProject")}</button>
+            <div className="export-dropdown__divider" />
             <div className="export-dropdown__section-label">{t("tool.exportBackground")}</div>
             <div className="export-bg-picker" role="radiogroup" aria-label={t("tool.exportBackground")}>
               {(["transparent", "white", "theme"] as const).map((mode) => (
@@ -84,11 +88,12 @@ export function ExportMenu({ onPNG, onSVG, onMOL, onCDXML }: ExportMenuProps) {
                 />
               ))}
             </div>
-            <div className="export-dropdown__divider" />
             <button className="export-dropdown__item" onClick={() => { onPNG(background); setOpen(false); }}>{t("tool.exportPNG")}</button>
             <button className="export-dropdown__item" onClick={() => { onSVG(background); setOpen(false); }}>{t("tool.exportSVG")}</button>
+            <div className="export-dropdown__divider" />
             <button className="export-dropdown__item" onClick={() => { onMOL(); setOpen(false); }}>{t("tool.exportMOL")}</button>
             <button className="export-dropdown__item" onClick={() => { onCDXML(); setOpen(false); }}>{t("tool.exportCDXML")}</button>
+            <button className="export-dropdown__item" onClick={() => { onSmiles(); setOpen(false); }}>{t("tool.exportSmiles")}</button>
           </div>,
           document.body
         )}

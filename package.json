@@ -1,5 +1,5 @@
 {
-  "name": "chemdraw-web",
+  "name": "enlacecraft",
   "version": "1.0.0",
   "description": "A browser-based molecule drawing application, inspired by ChemDraw.",
   "private": true,
@@ -36,8 +36,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.mycopixel.molsketch",
-    "productName": "MolSketch",
+    "appId": "com.mycopixel.enlacecraft",
+    "productName": "EnlaceCraft",
     "files": [
       "dist/**/*",
       "electron/**/*"

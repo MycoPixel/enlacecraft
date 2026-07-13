@@ -11,8 +11,8 @@ import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "
 
 const HISTORY_LIMIT = 100;
 
-const LANG_STORAGE_KEY = "molsketch-lang";
-const SIDEBAR_WIDTH_STORAGE_KEY = "molsketch-sidebar-width";
+const LANG_STORAGE_KEY = "enlacecraft-lang";
+const SIDEBAR_WIDTH_STORAGE_KEY = "enlacecraft-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 112;
 const MIN_SIDEBAR_WIDTH = 88;
 const MAX_SIDEBAR_WIDTH = 280;
@@ -193,6 +193,10 @@ interface MoleculeStore {
   deleteSelection: () => void;
   placeRing: (template: RingTemplate, center: Point, attachment: RingAttachment) => void;
   loadMolecule: (mol: Molecule) => void;
+  /** Reopens a full saved project (molecule + annotations + view), unlike
+   * loadMolecule which is also used for MOL/CDXML/PubChem imports that
+   * intentionally only ever bring in a molecule. See io/project.ts. */
+  loadProject: (data: { molecule: Molecule; annotations: Record<string, Annotation>; view: ViewTransform }) => void;
   importCompound: (mol: Molecule) => void;
   pasteFragment: (fragment: { molecule: Molecule; annotations: Annotation[] }) => void;
   rotateSelection: (deltaDeg: number) => void;
@@ -375,6 +379,15 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set() }),
+    loadProject: (data) => set({
+      molecule: data.molecule,
+      annotations: data.annotations,
+      view: data.view,
+      past: [],
+      future: [],
+      selected: new Set(),
+      selectedAnnotationIds: new Set(),
+    }),
 
     importCompound: (mol) => {
       if (Object.keys(mol.atoms).length === 0) return;

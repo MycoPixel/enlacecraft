@@ -105,8 +105,22 @@
   color: var(--accent);
 }
 
-.compound-search__icon {
+.compound-search__mode-toggle {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 2px;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.compound-search__mode-toggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .compound-search input {
@@ -627,6 +641,11 @@
 
 .export-dropdown__item:hover {
   background: var(--accent-soft);
+}
+
+.export-dropdown__item--primary {
+  font-weight: 650;
+  color: var(--accent);
 }
 
 .export-dropdown__section-label {

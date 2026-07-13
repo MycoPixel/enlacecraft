@@ -16,7 +16,7 @@ import type { Annotation, Molecule } from "../types/chemistry";
  * OnlyOffice (which prefers text/plain when both are present) — it would
  * paste the raw JSON as text instead of the image.
  */
-const CUSTOM_FORMAT = "web text/x-molsketch-fragment";
+const CUSTOM_FORMAT = "web text/x-enlacecraft-fragment";
 
 interface ClipboardFragment {
   molecule: Molecule;

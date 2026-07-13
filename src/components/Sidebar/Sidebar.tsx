@@ -6,7 +6,7 @@ import { BondGlyph } from "./BondGlyphs";
 import { ElementPicker } from "./ElementPicker";
 import { GroupPicker } from "./GroupPicker";
 import { IsotopePicker } from "./IsotopePicker";
-import { RingPicker } from "./RingPicker";
+import { RingPicker, RingIcon } from "./RingPicker";
 import { ArrowVariantPicker } from "./ArrowVariantPicker";
 import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
@@ -150,11 +150,17 @@ export function Sidebar() {
       </div>
 
       <SectionLabel>{t("section.rings")}</SectionLabel>
-      <RingPicker
-        value={ringTemplateId}
-        onChange={(id) => { setRingTemplateId(id); setTool("ring"); }}
-        active={tool === "ring"}
-      />
+      <div className="row">
+        <ToolDropdown title={t("tool.ring")} active={tool === "ring"} renderContent={(close) => (
+          <RingPicker
+            value={ringTemplateId}
+            onChange={(id) => { setRingTemplateId(id); setTool("ring"); close(); }}
+            active={tool === "ring"}
+          />
+        )}>
+          <RingIcon templateId={ringTemplateId} />
+        </ToolDropdown>
+      </div>
 
       <SectionLabel>{t("section.annotations")}</SectionLabel>
       <div className="row">

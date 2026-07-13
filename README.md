@@ -1,4 +1,4 @@
-# MolSketch
+# EnlaceCraft
 
 A browser-based molecule drawing application in the spirit of ChemDraw — built with React,
 TypeScript, Zustand, and SVG rendering. Runs entirely client-side; no backend required.

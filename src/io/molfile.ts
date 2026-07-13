@@ -63,7 +63,7 @@ export function exportMol(mol: Molecule, name = "molecule"): string {
   // our pixel-based canvas using an approximate 1.5 Å bond length.
   const scale = 1.5 / BOND_LEN;
 
-  let out = `${name}\n  MolSketch\n\n`;
+  let out = `${name}\n  EnlaceCraft\n\n`;
   out += `${String(atomIds.length).padStart(3)}${String(bondList.length).padStart(3)}`;
   out += "  0  0  0  0  0  0  0  0999 V2000\n";
 
