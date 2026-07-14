@@ -35,6 +35,7 @@ export function TopBar({ svgRef }: TopBarProps) {
   const canRedo = useMoleculeStore((s) => s.canRedo());
   const loadMolecule = useMoleculeStore((s) => s.loadMolecule);
   const loadProject = useMoleculeStore((s) => s.loadProject);
+  const markProjectSaved = useMoleculeStore((s) => s.markProjectSaved);
   const annotations = useMoleculeStore((s) => s.annotations);
   const view = useMoleculeStore((s) => s.view);
   const setStatus = useMoleculeStore((s) => s.setStatus);
@@ -115,6 +116,7 @@ export function TopBar({ svgRef }: TopBarProps) {
   const doSaveProject = () => {
     const json = exportProject({ molecule, annotations, view });
     downloadBlob(new Blob([json], { type: "application/json" }), `molecule${PROJECT_FILE_EXTENSION}`);
+    markProjectSaved();
   };
 
   const doImportFile = (file: File) => {
@@ -193,8 +195,9 @@ export function TopBar({ svgRef }: TopBarProps) {
           {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
         </ToolButton>
         <ToolButton
-          title={canvasBackground === "white" ? t("tool.canvasBgUseTheme") : t("tool.canvasBgUseWhite")}
-          active={canvasBackground === "white"}
+          title={theme === "dark" ? t("tool.canvasBgUnavailableDark") : (canvasBackground === "white" ? t("tool.canvasBgUseTheme") : t("tool.canvasBgUseWhite"))}
+          active={theme === "light" && canvasBackground === "white"}
+          disabled={theme === "dark"}
           onClick={toggleCanvasBackground}
         >
           {canvasBackground === "white" ? <Grid2x2 size={18} /> : <Square size={18} />}

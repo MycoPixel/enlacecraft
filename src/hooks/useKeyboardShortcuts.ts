@@ -4,7 +4,7 @@ import type { Element } from "../types/chemistry";
 
 /**
  * Keyboard shortcuts (desktop):
- *   V = select   B = bond   R = ring   E = erase   W = wedge   H = show hydrogens
+ *   V = select   B = bond   C = chain   R = ring   E = erase   W = wedge   H = show hydrogens
  *   T = text box   A = reaction arrow   K = bracket ( [ {
  *   1 / 2 / 3 = bond order   [ / ] = rotate selection left/right 30°
  *   Ctrl/Cmd+Z = undo   Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y = redo
@@ -131,6 +131,7 @@ export function useKeyboardShortcuts() {
           case "v": setTool("select"); break;
           case "h": toggleShowHydrogens(); break;
           case "b": setTool("bond-1"); break;
+          case "c": setTool("chain"); break;
           case "r": setTool("ring"); break;
           case "e": setTool("erase"); break;
           case "w": setTool("wedge"); break;

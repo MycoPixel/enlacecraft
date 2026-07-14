@@ -3,6 +3,35 @@ import { importMol } from "./molfile";
 import { lookupSpanishDictionary, normalizeText, translateSpanishToEnglish } from "./compoundTranslate";
 
 /**
+ * Live "did you mean" suggestions for the compound-name search box, from
+ * PubChem's separate auto-complete service (a fuzzy-match dictionary
+ * lookup, not a structure lookup — much cheaper/faster than actually
+ * resolving each candidate, so it's reasonable to call on every keystroke).
+ * Docs: https://pubchem.ncbi.nlm.nih.gov/docs/autocomplete
+ *
+ * Deliberately fails silently (returns []) on any error — network hiccups,
+ * rate limiting, or a response shape that doesn't match what's expected.
+ * This is a nice-to-have on top of the real search (which still runs on
+ * Enter/click regardless), so a broken suggestion fetch should never
+ * surface an error to the person or block typing/searching.
+ */
+export async function fetchCompoundSuggestions(query: string, limit = 8): Promise<string[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  try {
+    const url = `https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound/${encodeURIComponent(trimmed)}/json?limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data: unknown = await res.json();
+    const terms = (data as { dictionary_terms?: { compound?: unknown } })?.dictionary_terms?.compound;
+    if (!Array.isArray(terms)) return [];
+    return terms.filter((t): t is string => typeof t === "string");
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Looks up a compound by name against PubChem's public PUG REST API and
  * returns it as a Molecule with 2D layout coordinates already assigned by
  * PubChem — no SMILES parsing or coordinate-generation needed on our end,

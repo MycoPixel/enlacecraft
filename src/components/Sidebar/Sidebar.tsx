@@ -108,6 +108,9 @@ export function Sidebar() {
       <ToolButton title={t("tool.wavy")} active={tool === "wavy"} onClick={() => setTool("wavy")}>
         {BondGlyph.wavy}
       </ToolButton>
+      <ToolButton title={t("tool.chain")} active={tool === "chain"} onClick={() => setTool("chain")}>
+        {BondGlyph.chain}
+      </ToolButton>
 
       <SectionLabel>{t("section.atom")}</SectionLabel>
       <ElementPicker

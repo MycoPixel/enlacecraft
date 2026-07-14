@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import * as M from "../model/molecule";
@@ -108,6 +108,8 @@ interface MoleculeStore {
   sidebarWidth: number;
   status: string;
   bondPreview: BondPreview | null;
+  /** Live drag-to-grow preview for the chain tool; see engine/chainPlacement.ts. */
+  chainPreview: ChainPreview | null;
   marqueeRect: MarqueeRect | null;
   showHydrogens: boolean;
   monochromeAtoms: boolean;
@@ -133,6 +135,7 @@ interface MoleculeStore {
   setSidebarWidth: (w: number) => void;
   setStatus: (s: string) => void;
   setBondPreview: (p: BondPreview | null) => void;
+  setChainPreview: (p: ChainPreview | null) => void;
   setMarqueeRect: (r: MarqueeRect | null) => void;
   toggleShowHydrogens: () => void;
   toggleMonochromeAtoms: () => void;
@@ -173,6 +176,14 @@ interface MoleculeStore {
   // --- structural actions (committed to history) ---
   addAtom: (p: Point, element: Element, group?: string, isotope?: number) => string;
   addBond: (a1: string, a2: string, order?: BondOrder, stereo?: BondStereo) => void;
+  /**
+   * Adds a whole carbon chain in one undo step. If `fromAtomId` is null, a
+   * fresh unbonded carbon is first created at `anchor` (this alone is what
+   * a plain click with the chain tool does, `points` empty); each point in
+   * `points` then becomes a new carbon bonded to the previous one, in
+   * order. See the chain tool in useCanvasInteractions.ts.
+   */
+  addChain: (fromAtomId: string | null, anchor: Point, points: Point[]) => void;
   setAtomElementOf: (id: string, element: Element) => void;
   setAtomGroupOf: (id: string, group: string) => void;
   setAtomIsotopeOf: (id: string, presetId: string) => void;
@@ -201,6 +212,13 @@ interface MoleculeStore {
   pasteFragment: (fragment: { molecule: Molecule; annotations: Annotation[] }) => void;
   rotateSelection: (deltaDeg: number) => void;
   clear: () => void;
+  /** Whether anything's changed since the last "clean" point (page load,
+   * Clear, or opening/saving a .enlacecraft project file) — drives the
+   * close/reload warning; see App.tsx's beforeunload handler. */
+  hasUnsavedChanges: boolean;
+  /** Marks the current state as saved (called after a successful "Save
+   * project"), without otherwise touching anything. */
+  markProjectSaved: () => void;
 
   // --- drag support (position updates without spamming history) ---
   moveAtomsTransient: (moves: Record<string, Point>) => void;
@@ -213,6 +231,21 @@ interface MoleculeStore {
   canRedo: () => boolean;
 }
 
+/**
+ * The canvas background actually rendered, once the dark/light theme is
+ * factored in: dark theme's atom/bond/text colors are calibrated to sit on
+ * a dark background (light ink on dark canvas), so forcing a plain white
+ * canvas underneath them (the "white" canvasBackground setting, meant for
+ * light-theme screenshots) would make the whole molecule unreadable.
+ * "white" only ever applies in light theme; dark theme always uses its own
+ * themed background regardless of the stored preference. Shared by App.tsx
+ * (which sets the data-canvas-bg attribute) and MoleculeCanvas (which
+ * decides whether to draw the grid-dot pattern), so both agree.
+ */
+export function effectiveCanvasBackground(theme: Theme, canvasBackground: CanvasBackground): CanvasBackground {
+  return theme === "dark" ? "theme" : canvasBackground;
+}
+
 export const useMoleculeStore = create<MoleculeStore>((set, get) => {
   /** Applies a structural edit, pushing the previous state onto the undo stack. */
   const commit = (mutate: (mol: Molecule) => Molecule) => {
@@ -223,6 +256,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         molecule: next,
         past: [...s.past, { molecule: s.molecule, annotations: s.annotations }].slice(-HISTORY_LIMIT),
         future: [],
+        hasUnsavedChanges: true,
       };
     });
   };
@@ -236,6 +270,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         annotations: next,
         past: [...s.past, { molecule: s.molecule, annotations: s.annotations }].slice(-HISTORY_LIMIT),
         future: [],
+        hasUnsavedChanges: true,
       };
     });
   };
@@ -243,6 +278,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
   return {
     molecule: M.emptyMolecule(),
     past: [],
+    hasUnsavedChanges: false,
     future: [],
 
     annotations: {},
@@ -275,6 +311,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     sidebarWidth: detectInitialSidebarWidth(),
     status: "status.ready",
     bondPreview: null,
+    chainPreview: null,
     marqueeRect: null,
     showHydrogens: false,
     monochromeAtoms: false,
@@ -315,6 +352,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
     setStatus: (s) => set({ status: s }),
     setBondPreview: (p) => set({ bondPreview: p }),
+    setChainPreview: (p) => set({ chainPreview: p }),
     setMarqueeRect: (r) => set({ marqueeRect: r }),
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
     toggleMonochromeAtoms: () => set((s) => ({ monochromeAtoms: !s.monochromeAtoms })),
@@ -339,6 +377,31 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     addBond: (a1, a2, order = 1, stereo = "none") => {
       commit((mol) => M.addBond(mol, nextId(), a1, a2, order, stereo));
+    },
+
+    addChain: (fromAtomId, anchor, points) => {
+      if (fromAtomId === null && points.length === 0) {
+        // Plain click on empty canvas: just the one new carbon, same as
+        // the atom tool — no bonds, nothing else to grow yet.
+        get().addAtom(anchor, "C");
+        return;
+      }
+      if (fromAtomId !== null && points.length === 0) return; // click on an existing atom with no drag: no-op
+      commit((mol) => {
+        let next = mol;
+        let prevId = fromAtomId;
+        if (prevId === null) {
+          prevId = nextId();
+          next = M.addAtom(next, prevId, anchor, "C");
+        }
+        for (const p of points) {
+          const atomId = nextId();
+          next = M.addAtom(next, atomId, p, "C");
+          next = M.addBond(next, nextId(), prevId, atomId, 1, "none");
+          prevId = atomId;
+        }
+        return next;
+      });
     },
 
     setAtomElementOf: (id, element) => commit((mol) => M.setAtomElement(mol, id, element)),
@@ -378,7 +441,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       commit((mol) => placeRingImpl(mol, template, center, attachment));
     },
 
-    loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set() }),
+    loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set(), hasUnsavedChanges: true }),
     loadProject: (data) => set({
       molecule: data.molecule,
       annotations: data.annotations,
@@ -387,7 +450,10 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       future: [],
       selected: new Set(),
       selectedAnnotationIds: new Set(),
+      // Just opened exactly what's on disk — nothing to save yet.
+      hasUnsavedChanges: false,
     }),
+    markProjectSaved: () => set({ hasUnsavedChanges: false }),
 
     importCompound: (mol) => {
       if (Object.keys(mol.atoms).length === 0) return;
@@ -432,6 +498,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         selected: new Set(),
         selectedAnnotationIds: new Set(),
         editingTextId: null,
+        hasUnsavedChanges: false,
       }),
 
     pasteFragment: (fragment) => {
@@ -497,6 +564,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         future: [],
         selected: new Set(newAtomIds),
         selectedAnnotationIds: new Set(newAnnotationIds),
+        hasUnsavedChanges: true,
       });
     },
 
@@ -515,7 +583,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     moveAtomsTransient: (moves) => {
-      set((s) => ({ molecule: M.moveAtoms(s.molecule, moves) }));
+      set((s) => ({ molecule: M.moveAtoms(s.molecule, moves), hasUnsavedChanges: true }));
     },
 
     commitCheckpoint: (before) => {

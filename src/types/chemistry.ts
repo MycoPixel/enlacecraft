@@ -95,6 +95,21 @@ export interface BondPreview {
 }
 
 /**
+ * Live, uncommitted preview of a carbon chain being dragged out with the
+ * chain tool — see engine/chainPlacement.ts. `from` is the existing atom
+ * the chain grows from, or null if the press started on empty canvas (in
+ * which case a fresh anchor atom is what `anchor` previews and what
+ * `points` continues from). Only shown once the drag has grown at least
+ * one bonded atom — a plain click with no real drag just drops a single
+ * unbonded carbon at `anchor` with no preview needed first.
+ */
+export interface ChainPreview {
+  from: string | null;
+  anchor: Point; // Position the chain's first bond is drawn from
+  points: Point[]; // World-space positions of each new bonded atom, in order
+}
+
+/**
  * How a new ring attaches to what's already on the canvas — shared by the
  * real placement (engine/ringPlacement.ts's placeRing) and its live hover
  * preview, so the preview always matches exactly what gets placed:
@@ -136,6 +151,7 @@ export type ToolId =
   | "dash"
   | "wavy"
   | "atom"
+  | "chain"
   | "ring"
   | "charge-plus"
   | "charge-minus"

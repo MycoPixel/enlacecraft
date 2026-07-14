@@ -1,5 +1,5 @@
 import { forwardRef, useEffect } from "react";
-import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { useMoleculeStore, effectiveCanvasBackground } from "../../store/useMoleculeStore";
 import { useCanvasInteractions } from "../../hooks/useCanvasInteractions";
 import { AtomView } from "./AtomView";
 import { BondView } from "./BondView";
@@ -19,6 +19,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const selected = useMoleculeStore((s) => s.selected);
   const view = useMoleculeStore((s) => s.view);
   const bondPreview = useMoleculeStore((s) => s.bondPreview);
+  const chainPreview = useMoleculeStore((s) => s.chainPreview);
   const marqueeRect = useMoleculeStore((s) => s.marqueeRect);
   const tool = useMoleculeStore((s) => s.tool);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
@@ -32,6 +33,8 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const bracketPairPreview = useMoleculeStore((s) => s.bracketPairPreview);
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
+  const theme = useMoleculeStore((s) => s.theme);
+  const effectiveBg = effectiveCanvasBackground(theme, canvasBackground);
   const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
   const hoverBondId = useMoleculeStore((s) => s.hoverBondId);
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
@@ -120,7 +123,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
       {/* Plain white canvas mode skips the grid-dot pattern entirely, to
           look exactly as clean on screen as a "white background" export
           would — see CanvasBackground's doc comment. */}
-      {canvasBackground !== "white" && (
+      {effectiveBg !== "white" && (
         <rect x="-6000" y="-6000" width="12000" height="12000" fill="url(#grid)" data-export-exclude="true" />
       )}
       <g transform={`translate(${view.tx},${view.ty}) scale(${view.scale})`} data-export-viewport="true">
@@ -215,6 +218,40 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             {!bondPreview.targetAtomId && (
               <circle cx={bondPreview.to.x} cy={bondPreview.to.y} r={3.5} fill="var(--accent)" />
             )}
+          </g>
+        )}
+        {chainPreview && chainPreview.points.length > 0 && (
+          <g style={{ color: "var(--accent)" }} opacity={0.55} pointerEvents="none" data-export-exclude="true">
+            {chainPreview.points.map((p, i) => {
+              const isFirst = i === 0;
+              const prevPoint = isFirst ? chainPreview.anchor : chainPreview.points[i - 1];
+              // The very first segment may start from a real, already-drawn
+              // atom (r1 clears its label) — every other vertex here is
+              // just a bare preview point (radius 0, nothing to clear).
+              const a1 =
+                isFirst && chainPreview.from && molecule.atoms[chainPreview.from]
+                  ? molecule.atoms[chainPreview.from]
+                  : { id: "__chain_preview_prev__", x: prevPoint.x, y: prevPoint.y, element: "C" as const, charge: 0 };
+              const r1 =
+                isFirst && chainPreview.from
+                  ? atomLabelRadius(molecule, chainPreview.from, showHydrogens, atomLabelRevealTargets.has(chainPreview.from))
+                  : 0;
+              return (
+                <BondView
+                  key={i}
+                  bond={{ id: `__chain_preview_${i}__`, a1: "a", a2: "b", order: 1, stereo: "none", doubleSide: "center" }}
+                  a1={a1}
+                  a2={{ id: "__chain_preview_next__", x: p.x, y: p.y, element: "C", charge: 0 }}
+                  r1={r1}
+                />
+              );
+            })}
+            <circle
+              cx={chainPreview.points[chainPreview.points.length - 1].x}
+              cy={chainPreview.points[chainPreview.points.length - 1].y}
+              r={3.5}
+              fill="var(--accent)"
+            />
           </g>
         )}
         {tool === "atom" && hoverPoint && (

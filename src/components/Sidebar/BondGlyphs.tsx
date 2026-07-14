@@ -37,4 +37,9 @@ export const BondGlyph = {
       <path d="M 2 8 Q 6 4 10 8 T 18 8 T 26 8" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
     </svg>
   ),
+  chain: (
+    <svg viewBox="0 0 28 16" width="22" height="14">
+      <polyline points="2,12 8,4 14,12 20,4 26,12" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
 };

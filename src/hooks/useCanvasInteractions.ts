@@ -3,6 +3,7 @@ import type { Annotation, Molecule, Point, RingAttachment } from "../types/chemi
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
+import { computeChainPoints } from "../engine/chainPlacement";
 import { angleOf, dist, polar } from "../model/geometry";
 import { fragmentOf } from "../model/molecule";
 import { BOND_LEN, RING_TEMPLATES, ISOTOPE_PRESETS } from "../model/constants";
@@ -13,6 +14,7 @@ type DragState =
   | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
+  | { mode: "chain"; from: string | null; start: Point }
   | { mode: "marquee"; base: Set<string>; annotationBase: Set<string>; start: Point }
   | { mode: "arrow-draw"; start: Point }
   | { mode: "bracket-draw"; start: Point };
@@ -60,6 +62,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     const hitAtom = atomAt(molecule, pt);
     const hitBond = !hitAtom ? bondAt(molecule, pt) : null;
     store.setBondPreview(null);
+    store.setChainPreview(null);
 
     if (tool === "pan") {
       dragRef.current = { mode: "pan", startClient: { x: e.clientX, y: e.clientY }, startView: store.view };
@@ -176,6 +179,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
           store.addAtom(pt, store.atomElement, store.atomGroup ?? undefined);
         }
       }
+      return;
+    }
+
+    if (tool === "chain") {
+      // Nothing is committed yet — a plain click (no real drag) drops a
+      // single new carbon at the press point (see onPointerUp), same as
+      // the atom tool. Only once the drag moves past the click threshold
+      // does a bonded zig-zag chain actually start growing from here.
+      dragRef.current = { mode: "chain", from: hitAtom, start: pt };
       return;
     }
 
@@ -318,12 +330,21 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
           targetAtomId = hit;
         } else {
           const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-          const ang = bestNewAngle(store.molecule, drag.from, desired);
+          const ang = bestNewAngle(store.molecule, drag.from, desired, e.shiftKey);
           previewPoint = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
         }
         store.setBondPreview({ from: drag.from, to: previewPoint, targetAtomId });
       }
       store.setStatus("status.dragBond");
+      return;
+    }
+
+    if (drag.mode === "chain") {
+      const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
+      const anchor: Point = fromAtom ? { x: fromAtom.x, y: fromAtom.y } : drag.start;
+      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, e.shiftKey);
+      store.setChainPreview(points.length > 0 ? { from: drag.from, anchor, points } : null);
+      store.setStatus("status.dragChain");
       return;
     }
 
@@ -347,6 +368,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       try { svg.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     }
     store.setBondPreview(null);
+    store.setChainPreview(null);
 
     if (drag.mode === "move") {
       store.commitCheckpoint(drag.before);
@@ -379,7 +401,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         toAtom = hitAtom;
       } else {
         const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-        const ang = bestNewAngle(molecule, from, desired);
+        const ang = bestNewAngle(molecule, from, desired, e.shiftKey);
         const p = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
         toAtom = store.addAtom(p, "C");
       }
@@ -387,6 +409,16 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const order = (tool === "bond-2" ? 2 : tool === "bond-3" ? 3 : 1) as BondOrder;
       const stereo: BondStereo = tool === "wedge" ? "wedge" : tool === "dash" ? "dash" : tool === "wavy" ? "wavy" : "none";
       store.addBond(from, toAtom, stereo === "none" ? order : 1, stereo);
+      store.setStatus("status.ready");
+      return;
+    }
+
+    if (drag.mode === "chain") {
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
+      const anchor: Point = fromAtom ? { x: fromAtom.x, y: fromAtom.y } : drag.start;
+      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, e.shiftKey);
+      store.addChain(drag.from, anchor, points);
       store.setStatus("status.ready");
       return;
     }

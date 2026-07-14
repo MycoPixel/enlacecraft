@@ -161,6 +161,42 @@
   z-index: 20;
 }
 
+.compound-search__suggestions {
+  position: absolute;
+  top: 38px;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  z-index: 20;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.compound-search__suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.compound-search__suggestion:hover,
+.compound-search__suggestion--active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 /* ---------- Body / layout ---------- */
 
 .body {
