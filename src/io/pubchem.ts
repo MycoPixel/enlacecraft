@@ -1,6 +1,6 @@
 import type { Molecule } from "../types/chemistry";
 import { importMol } from "./molfile";
-import { lookupSpanishDictionary, normalizeText, translateSpanishToEnglish } from "./compoundTranslate";
+import { lookupSpanishDictionary, normalizeText, suggestSpanishDictionaryMatches, translateSpanishToEnglish } from "./compoundTranslate";
 
 /**
  * Live "did you mean" suggestions for the compound-name search box, from
@@ -8,6 +8,16 @@ import { lookupSpanishDictionary, normalizeText, translateSpanishToEnglish } fro
  * lookup, not a structure lookup — much cheaper/faster than actually
  * resolving each candidate, so it's reasonable to call on every keystroke).
  * Docs: https://pubchem.ncbi.nlm.nih.gov/docs/autocomplete
+ *
+ * PubChem's autocomplete dictionary is English/IUPAC-only, so a Spanish
+ * query like "cafe" or "acido" won't match anything there even though the
+ * compound exists — this augments the raw results with the same curated
+ * Spanish -> English dictionary fetchCompoundByName's search fallback
+ * uses (matched by prefix), and, only if that still finds nothing, one
+ * live translation of the whole query re-queried against PubChem. That
+ * live-translation step is gated behind "found nothing yet" specifically
+ * so it doesn't add a network round-trip to every keystroke — the curated
+ * dictionary alone already covers most common names for free.
  *
  * Deliberately fails silently (returns []) on any error — network hiccups,
  * rate limiting, or a response shape that doesn't match what's expected.
@@ -18,8 +28,30 @@ import { lookupSpanishDictionary, normalizeText, translateSpanishToEnglish } fro
 export async function fetchCompoundSuggestions(query: string, limit = 8): Promise<string[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
+
+  const suggestions = await fetchAutocomplete(trimmed, limit);
+  const addUnique = (name: string) => {
+    if (!suggestions.some((s) => s.toLowerCase() === name.toLowerCase())) suggestions.push(name);
+  };
+
+  for (const en of suggestSpanishDictionaryMatches(trimmed, limit)) {
+    if (suggestions.length >= limit) break;
+    addUnique(en);
+  }
+
+  if (suggestions.length === 0 && trimmed.length >= 3) {
+    const translated = await translateSpanishToEnglish(trimmed).catch(() => null);
+    if (translated && normalizeText(translated) !== normalizeText(trimmed)) {
+      for (const name of await fetchAutocomplete(translated, limit)) addUnique(name);
+    }
+  }
+
+  return suggestions.slice(0, limit);
+}
+
+async function fetchAutocomplete(query: string, limit: number): Promise<string[]> {
   try {
-    const url = `https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound/${encodeURIComponent(trimmed)}/json?limit=${limit}`;
+    const url = `https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound/${encodeURIComponent(query)}/json?limit=${limit}`;
     const res = await fetch(url);
     if (!res.ok) return [];
     const data: unknown = await res.json();

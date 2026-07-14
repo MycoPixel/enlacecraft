@@ -122,6 +122,31 @@ export function lookupSpanishDictionary(query: string): string | null {
   return ES_TO_EN[normalizeText(query)] ?? null;
 }
 
+/**
+ * Prefix-matches `query` against the curated dictionary's Spanish keys —
+ * and each individual word within a multi-word key, so typing "acetico"
+ * alone still matches "acido acetico" — returning up to `limit` of their
+ * English targets, deduplicated. Used to feed Spanish input into the
+ * compound-search suggestions dropdown, which would otherwise only ever
+ * suggest from PubChem's English/IUPAC autocomplete dictionary.
+ */
+export function suggestSpanishDictionaryMatches(query: string, limit = 8): string[] {
+  const q = normalizeText(query);
+  if (!q) return [];
+  const seen = new Set<string>();
+  const results: string[] = [];
+  for (const [key, en] of Object.entries(ES_TO_EN)) {
+    if (seen.has(en)) continue;
+    const words = key.split(" ");
+    if (key.startsWith(q) || words.some((w) => w.startsWith(q))) {
+      seen.add(en);
+      results.push(en);
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
+}
+
 /** Live fallback translation via MyMemory (free, no API key, CORS-enabled). */
 export async function translateSpanishToEnglish(query: string): Promise<string | null> {
   try {

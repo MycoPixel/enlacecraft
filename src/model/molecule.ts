@@ -145,6 +145,20 @@ export function setBondStereo(mol: Molecule, id: string, stereo: BondStereo): Mo
   return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, stereo, order: 1, doubleSide: "auto" } } };
 }
 
+/**
+ * Swaps a bond's two endpoints. A wedge/dash's narrow end is always a1 and
+ * its wide end a2 (see BondView), so this is what flips which atom a
+ * wedge/dash points from — the two atoms and the bond itself are otherwise
+ * unchanged. Clicking the wedge/dash tool again on a bond that's already
+ * that stereo uses this to flip it in place, since there's nothing else
+ * left for a repeat click on it to usefully do.
+ */
+export function flipBondDirection(mol: Molecule, id: string): Molecule {
+  const b = mol.bonds[id];
+  if (!b) return mol;
+  return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, a1: b.a2, a2: b.a1 } } };
+}
+
 /** Rotates the given atoms around `center` by `angleRad` radians. Bonds are unaffected (they follow their atoms). */
 export function rotateAtoms(mol: Molecule, atomIds: string[], center: Point, angleRad: number): Molecule {
   const cos = Math.cos(angleRad);

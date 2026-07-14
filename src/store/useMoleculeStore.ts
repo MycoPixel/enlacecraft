@@ -198,9 +198,20 @@ interface MoleculeStore {
   toggleAtomRadical: (id: string) => void;
   setBondOrder: (id: string, order: BondOrder) => void;
   setBondStereo: (id: string, stereo: BondStereo) => void;
+  /** Swaps a wedge/dash bond's narrow and wide ends in place. */
+  flipBondDirection: (id: string) => void;
   cycleDoubleBondSide: (id: string) => void;
   deleteAtom: (id: string) => void;
   deleteBond: (id: string) => void;
+  /**
+   * Same deletions as deleteAtom/deleteBond, but without pushing an undo
+   * step each time — for the erase tool's click-and-drag, which erases
+   * everything under the cursor as you drag and should undo as one single
+   * stroke (via commitCheckpoint), not one step per atom/bond touched. See
+   * moveAtomsTransient for the same pattern applied to dragging atoms.
+   */
+  deleteAtomTransient: (id: string) => void;
+  deleteBondTransient: (id: string) => void;
   deleteSelection: () => void;
   placeRing: (template: RingTemplate, center: Point, attachment: RingAttachment) => void;
   loadMolecule: (mol: Molecule) => void;
@@ -422,9 +433,16 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     toggleAtomRadical: (id) => commit((mol) => M.toggleAtomRadical(mol, id)),
     setBondOrder: (id, order) => commit((mol) => M.setBondOrder(mol, id, order)),
     setBondStereo: (id, stereo) => commit((mol) => M.setBondStereo(mol, id, stereo)),
+    flipBondDirection: (id) => commit((mol) => M.flipBondDirection(mol, id)),
     cycleDoubleBondSide: (id) => commit((mol) => M.cycleDoubleBondSide(mol, id)),
     deleteAtom: (id) => commit((mol) => M.deleteAtom(mol, id)),
     deleteBond: (id) => commit((mol) => M.deleteBond(mol, id)),
+    deleteAtomTransient: (id) => {
+      set((s) => ({ molecule: M.deleteAtom(s.molecule, id), hasUnsavedChanges: true }));
+    },
+    deleteBondTransient: (id) => {
+      set((s) => ({ molecule: M.deleteBond(s.molecule, id), hasUnsavedChanges: true }));
+    },
 
     deleteSelection: () => {
       const { selected } = get();

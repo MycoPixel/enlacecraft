@@ -9,7 +9,7 @@ export function StatusBar() {
   const view = useMoleculeStore((s) => s.view);
   const isMobile = useIsMobile();
   const t = useT();
-  const { formula, mw } = useFormulaDisplay();
+  const { fragments } = useFormulaDisplay();
 
   return (
     <div className="status-bar">
@@ -19,8 +19,14 @@ export function StatusBar() {
       <span>{t(status)}</span>
       {isMobile && (
         <span className="formula formula--mobile">
-          {formula ? <Formula formula={formula} /> : "\u2014"}
-          {mw > 0 && ` · ${mw.toFixed(2)}`}
+          {fragments.length === 0 && "\u2014"}
+          {fragments.map((f, i) => (
+            <span className="formula__fragment" key={i}>
+              {i > 0 && <span className="formula__sep">{"\u2013"}</span>}
+              <Formula formula={f.formula} />
+              {f.mw > 0 && ` \u00b7 ${f.mw.toFixed(2)}`}
+            </span>
+          ))}
         </span>
       )}
       <span className="zoom-readout">{Math.round(view.scale * 100)}%</span>

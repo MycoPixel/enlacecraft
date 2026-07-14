@@ -48,7 +48,7 @@ export function TopBar({ svgRef }: TopBarProps) {
   const isMobile = useIsMobile();
   const t = useT();
 
-  const { formula, mw } = useFormulaDisplay();
+  const { fragments } = useFormulaDisplay();
   const hasOverValence = Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id));
 
   const resolveBackground = (bg: ExportBackground): string | null => {
@@ -156,8 +156,14 @@ export function TopBar({ svgRef }: TopBarProps) {
 
       {!isMobile && (
         <div className="formula">
-          {formula ? <Formula formula={formula} /> : "\u2014"}
-          {mw > 0 && <span className="formula__mw">{mw.toFixed(2)} g/mol</span>}
+          {fragments.length === 0 && "\u2014"}
+          {fragments.map((f, i) => (
+            <span className="formula__fragment" key={i}>
+              {i > 0 && <span className="formula__sep">{"\u2013"}</span>}
+              <Formula formula={f.formula} />
+              {f.mw > 0 && <span className="formula__mw">{f.mw.toFixed(2)} g/mol</span>}
+            </span>
+          ))}
         </div>
       )}
 

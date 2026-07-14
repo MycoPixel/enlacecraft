@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#1b2027" />
     <meta name="description" content="EnlaceCraft — a browser-based molecule drawing application." />
+    <!-- iOS Safari doesn't act on the web manifest for "Add to Home Screen"
+         the way Chrome/Edge/Android do — it needs these meta tags directly
+         to open as a standalone app (no browser chrome) with its own icon. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="EnlaceCraft" />
+    <link rel="apple-touch-icon" href="/pwa-192.png" />
     <title>EnlaceCraft</title>
   </head>
   <body>

@@ -2,6 +2,11 @@ import { useMemo } from "react";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { computeFormula, computeMolecularWeight, findConnectedFragments } from "../model/valence";
 
+export interface FormulaFragment {
+  formula: string;
+  mw: number;
+}
+
 /**
  * Formula + molecular weight to display in the UI. A bare sum over every
  * atom on the canvas is only meaningful when there's a single molecule
@@ -12,24 +17,30 @@ import { computeFormula, computeMolecularWeight, findConnectedFragments } from "
  *    (handy for checking a substructure on its own).
  *  - Otherwise, split the canvas into its connected fragments (by bonds
  *    only — a reaction scheme's "+" or arrow annotation doesn't connect
- *    anything) and show each fragment's own formula, left-to-right,
- *    separated with a dash — so a scheme reads like "C6H6 – HNO3" instead
- *    of one fused formula. A single molecule on the canvas is just the
- *    one-fragment case, so this looks identical to before.
- * The combined weight is still a plain sum across the whole canvas in the
- * multi-fragment case, since mass (unlike a formula string) is legitimately
- * additive regardless of connectivity.
+ *    anything) and treat each fragment as its own molecule.
+ * `fragments` carries each one's own formula and molar mass — the same
+ * reasoning that keeps their formulas from being fused applies to their
+ * masses too, so callers that want to display "C6H6 (78.11) – C6H14
+ * (86.18)" rather than one combined number should use it instead of the
+ * flat `mw`. `formula`/`mw` are still provided as the dash-joined string
+ * and the plain sum, for callers that just want a single readout.
  */
-export function useFormulaDisplay(): { formula: string; mw: number } {
+export function useFormulaDisplay(): { formula: string; mw: number; fragments: FormulaFragment[] } {
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
 
   return useMemo(() => {
     if (selected.size > 0) {
-      return { formula: computeFormula(molecule, selected), mw: computeMolecularWeight(molecule, selected) };
+      const formula = computeFormula(molecule, selected);
+      const mw = computeMolecularWeight(molecule, selected);
+      return { formula, mw, fragments: formula ? [{ formula, mw }] : [] };
     }
-    const fragments = findConnectedFragments(molecule);
-    const formula = fragments.map((ids) => computeFormula(molecule, ids)).filter(Boolean).join(" \u2013 ");
-    return { formula, mw: computeMolecularWeight(molecule) };
+    const fragmentAtomIds = findConnectedFragments(molecule);
+    const fragments = fragmentAtomIds
+      .map((ids) => ({ formula: computeFormula(molecule, ids), mw: computeMolecularWeight(molecule, ids) }))
+      .filter((f) => f.formula);
+    const formula = fragments.map((f) => f.formula).join(" \u2013 ");
+    const mw = fragments.reduce((sum, f) => sum + f.mw, 0);
+    return { formula, mw, fragments };
   }, [molecule, selected]);
 }

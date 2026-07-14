@@ -15,6 +15,7 @@ type DragState =
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
   | { mode: "chain"; from: string | null; start: Point }
+  | { mode: "erase"; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "marquee"; base: Set<string>; annotationBase: Set<string>; start: Point }
   | { mode: "arrow-draw"; start: Point }
   | { mode: "bracket-draw"; start: Point };
@@ -158,8 +159,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
 
     if (tool === "erase") {
-      if (hitAtom) store.deleteAtom(hitAtom);
-      else if (hitBond) store.deleteBond(hitBond);
+      // Snapshot before erasing anything, so the whole click-and-drag
+      // stroke undoes as a single step (see the "erase" branches in
+      // onPointerMove/onPointerUp) instead of one undo per atom/bond.
+      const before = { molecule, annotations: store.annotations };
+      if (hitAtom) store.deleteAtomTransient(hitAtom);
+      else if (hitBond) store.deleteBondTransient(hitBond);
+      dragRef.current = { mode: "erase", before };
       return;
     }
 
@@ -224,8 +230,18 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (tool.startsWith("bond") || tool === "wedge" || tool === "dash" || tool === "wavy") {
       if (hitBond) {
-        if (tool === "wedge" || tool === "dash" || tool === "wavy") {
-          store.setBondStereo(hitBond, tool as BondStereo);
+        if (tool === "wedge" || tool === "dash") {
+          // Clicking the wedge/dash tool again on a bond that's already
+          // that stereo has nothing new to set, so instead flip which atom
+          // is the narrow/wide end — the only other thing repeat-clicking
+          // could usefully mean here.
+          if (molecule.bonds[hitBond].stereo === tool) {
+            store.flipBondDirection(hitBond);
+          } else {
+            store.setBondStereo(hitBond, tool);
+          }
+        } else if (tool === "wavy") {
+          store.setBondStereo(hitBond, "wavy");
         } else if (tool === "bond-2" && molecule.bonds[hitBond].order === 2) {
           // Clicking the double-bond tool again on an existing double bond
           // cycles the second line: center -> left -> right -> center.
@@ -265,6 +281,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const dx = e.clientX - drag.startClient.x;
       const dy = e.clientY - drag.startClient.y;
       store.setView({ ...drag.startView, tx: drag.startView.tx + dx, ty: drag.startView.ty + dy });
+      return;
+    }
+
+    if (drag.mode === "erase") {
+      if (hitAtom) store.deleteAtomTransient(hitAtom);
+      else {
+        const hitBond = bondAt(store.molecule, pt);
+        if (hitBond) store.deleteBondTransient(hitBond);
+      }
       return;
     }
 
@@ -369,6 +394,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
     store.setBondPreview(null);
     store.setChainPreview(null);
+
+    if (drag.mode === "erase") {
+      // Only push an undo step if something was actually erased — a plain
+      // click on empty canvas with the erase tool shouldn't clutter the
+      // undo stack with a no-op entry.
+      if (store.molecule !== drag.before.molecule) store.commitCheckpoint(drag.before);
+      store.setStatus("status.ready");
+      return;
+    }
 
     if (drag.mode === "move") {
       store.commitCheckpoint(drag.before);
