@@ -4,6 +4,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useClipboard } from "./hooks/useClipboard";
 import { useIsMobile } from "./hooks/useIsMobile";
 import { TopBar } from "./components/TopBar/TopBar";
+import { TabBar } from "./components/TabBar/TabBar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { MoleculeCanvas } from "./components/Canvas/MoleculeCanvas";
 import { StatusBar } from "./components/StatusBar/StatusBar";
@@ -33,13 +34,16 @@ export default function App() {
 
   useEffect(() => {
     // Warns before closing/reloading/navigating away if there's anything
-    // that hasn't been saved via "Save project" yet (see hasUnsavedChanges's
-    // doc comment in the store for exactly what counts as dirty). Reads the
-    // latest state at fire-time via getState() rather than depending on a
-    // stale `hasUnsavedChanges` closure value, so this only needs to be
-    // registered once.
+    // that hasn't been saved via "Save project" yet in ANY tab (see
+    // hasUnsavedChanges's doc comment in the store for exactly what counts
+    // as dirty, and why it alone isn't enough here — an inactive tab with
+    // its own unsaved edits wouldn't otherwise be caught). Reads the latest
+    // state at fire-time via getState() rather than depending on a stale
+    // closure value, so this only needs to be registered once.
     const handler = (e: BeforeUnloadEvent) => {
-      if (!useMoleculeStore.getState().hasUnsavedChanges) return;
+      const s = useMoleculeStore.getState();
+      const anyUnsaved = s.hasUnsavedChanges || Object.values(s.tabDocuments).some((doc) => doc.hasUnsavedChanges);
+      if (!anyUnsaved) return;
       e.preventDefault();
       e.returnValue = ""; // Chrome requires returnValue to be set to show the native prompt
     };
@@ -50,6 +54,7 @@ export default function App() {
   return (
     <div className="app">
       <TopBar svgRef={svgRef} />
+      <TabBar />
       <div className="body">
         {!isMobile && <Sidebar />}
         <main className="canvas-wrap">

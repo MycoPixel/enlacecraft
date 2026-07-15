@@ -3,6 +3,7 @@ import type {
   Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
+import { translate } from "../i18n/translate";
 import * as M from "../model/molecule";
 import { nextId } from "../model/id";
 import { placeRing as placeRingImpl } from "../engine/ringPlacement";
@@ -10,6 +11,12 @@ import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "../model/constants";
 
 const HISTORY_LIMIT = 100;
+
+const DEFAULT_VIEW: ViewTransform = { scale: 1, tx: 0, ty: 0 };
+
+/** The very first tab every session starts with — there must always be at
+ * least one, so this exists outside the store's own id generation flow. */
+const INITIAL_TAB_ID = `tab-${nextId()}`;
 
 const LANG_STORAGE_KEY = "enlacecraft-lang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "enlacecraft-sidebar-width";
@@ -21,6 +28,47 @@ const MAX_SIDEBAR_WIDTH = 280;
 interface Snapshot {
   molecule: Molecule;
   annotations: Record<string, Annotation>;
+}
+
+/**
+ * A whole tab's worth of document state — everything Snapshot covers, plus
+ * the pan/zoom and undo/redo history, which are also naturally per-document
+ * (switching tabs shouldn't let you undo into a different drawing, and
+ * each drawing should reopen at whatever pan/zoom it was left at).
+ *
+ * Only INACTIVE tabs are stored this way, in `tabDocuments`; the active
+ * tab's copy of this same data instead lives directly in the store's
+ * top-level `molecule`/`annotations`/`view`/`past`/`future` fields — which
+ * is what every existing action/component already reads and writes, so
+ * none of that code needed to change to support multiple tabs. addTab /
+ * switchToTab / closeTab move data between the two representations at the
+ * moment of switching, rather than keeping tabDocuments continuously
+ * synced (which would mean re-serializing on every keystroke for no
+ * benefit, since nothing reads an inactive tab's data in between).
+ */
+interface TabDocument {
+  molecule: Molecule;
+  annotations: Record<string, Annotation>;
+  view: ViewTransform;
+  past: Snapshot[];
+  future: Snapshot[];
+  hasUnsavedChanges: boolean;
+}
+
+/** What the tab strip UI needs for every tab, active or not. */
+export interface TabInfo {
+  id: string;
+  title: string;
+}
+
+/** One tab's full data as it appears in a saved .enlacecraft project file
+ * (or is handed back out when saving one) — see io/project.ts. */
+export interface SavedTab {
+  id: string;
+  title: string;
+  molecule: Molecule;
+  annotations: Record<string, Annotation>;
+  view: ViewTransform;
 }
 
 const DEFAULT_TEXT_WIDTH = 160;
@@ -66,6 +114,14 @@ interface MoleculeStore {
   molecule: Molecule;
   past: Snapshot[];
   future: Snapshot[];
+
+  // --- tabs: multiple drawings within one project. Only the active tab's
+  // document lives in the top-level molecule/annotations/view/past/future
+  // fields above/below (see TabDocument's doc comment); tabDocuments holds
+  // the rest. ---
+  tabs: TabInfo[];
+  activeTabId: string;
+  tabDocuments: Record<string, TabDocument>;
 
   // --- annotation state (reaction arrows / text boxes) ---
   annotations: Record<string, Annotation>;
@@ -215,20 +271,38 @@ interface MoleculeStore {
   deleteSelection: () => void;
   placeRing: (template: RingTemplate, center: Point, attachment: RingAttachment) => void;
   loadMolecule: (mol: Molecule) => void;
-  /** Reopens a full saved project (molecule + annotations + view), unlike
-   * loadMolecule which is also used for MOL/CDXML/PubChem imports that
-   * intentionally only ever bring in a molecule. See io/project.ts. */
-  loadProject: (data: { molecule: Molecule; annotations: Record<string, Annotation>; view: ViewTransform }) => void;
+  /** Reopens a full saved project — every tab it had, unlike loadMolecule
+   * which is also used for MOL/CDXML/PubChem imports that intentionally
+   * only ever bring in a molecule into the current tab. See io/project.ts. */
+  loadProject: (data: { activeTabId: string; tabs: SavedTab[] }) => void;
+  /** Assembles every tab's current data (the active tab's from the live
+   * top-level fields, everything else from tabDocuments) for "Save
+   * project" to write out — see io/project.ts. */
+  getAllTabsForSave: () => SavedTab[];
+  /** Adds a new, blank tab and switches to it. */
+  addTab: () => void;
+  /** Switches to a tab that already exists (a no-op if `id` isn't one of `tabs`). */
+  switchToTab: (id: string) => void;
+  /** Closes a tab. Refuses to close the last remaining one — there must
+   * always be something to draw on — so callers should hide/disable the
+   * close affordance when `tabs.length <= 1`. Closing the active tab
+   * switches to a neighbor first. Doesn't ask for confirmation itself;
+   * that's on the caller (TabBar), the same way ClearDrawingButton owns
+   * its own confirmation rather than the store deciding when to prompt. */
+  closeTab: (id: string) => void;
+  renameTab: (id: string, title: string) => void;
   importCompound: (mol: Molecule) => void;
   pasteFragment: (fragment: { molecule: Molecule; annotations: Annotation[] }) => void;
   rotateSelection: (deltaDeg: number) => void;
   clear: () => void;
-  /** Whether anything's changed since the last "clean" point (page load,
-   * Clear, or opening/saving a .enlacecraft project file) — drives the
-   * close/reload warning; see App.tsx's beforeunload handler. */
+  /** Whether the *active tab* has changed since its last "clean" point
+   * (page load, Clear, or opening/saving a .enlacecraft project file).
+   * Inactive tabs track the same thing in their own tabDocuments entry.
+   * App.tsx's close/reload warning (and Electron's) checks both — this
+   * alone, plus every tabDocuments entry, since either can be dirty. */
   hasUnsavedChanges: boolean;
-  /** Marks the current state as saved (called after a successful "Save
-   * project"), without otherwise touching anything. */
+  /** Marks the active tab AND every other tab as saved (called after a
+   * successful "Save project", which writes out all of them at once). */
   markProjectSaved: () => void;
 
   // --- drag support (position updates without spamming history) ---
@@ -286,11 +360,54 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     });
   };
 
+  /** Tab titles default to "Tab N"; N counts up from however many tabs
+   * have ever existed this session (not the current tab count), so
+   * closing "Tab 2" and adding a new one doesn't confusingly reuse the
+   * name of a tab that's still open elsewhere. */
+  let tabNumberCounter = 1;
+
+  /** Packages the active tab's live top-level fields into the same shape
+   * tabDocuments stores inactive tabs in — used when a tab stops being
+   * active (see addTab/switchToTab/closeTab). */
+  const snapshotActiveDocument = (s: MoleculeStore): TabDocument => ({
+    molecule: s.molecule,
+    annotations: s.annotations,
+    view: s.view,
+    past: s.past,
+    future: s.future,
+    hasUnsavedChanges: s.hasUnsavedChanges,
+  });
+
+  /** Selection/hover/in-progress-edit state is inherently tied to whatever
+   * tab it was set in (it's all atom/annotation ids, or a preview anchored
+   * to one) — carrying it across a tab switch would either point at
+   * nothing or, worse, at a same-numbered id that means something
+   * different in the new tab. Every tab switch clears all of it. */
+  const transientResetFields = () => ({
+    selected: new Set<string>(),
+    selectedAnnotationIds: new Set<string>(),
+    hoverAtomId: null,
+    hoverBondId: null,
+    hoverPoint: null,
+    atomEditTarget: null,
+    editingTextId: null,
+    atomLabelRevealTargets: new Set<string>(),
+    bondPreview: null,
+    chainPreview: null,
+    marqueeRect: null,
+    bracketPairPreview: null,
+    arrowPreview: null,
+  });
+
   return {
     molecule: M.emptyMolecule(),
     past: [],
     hasUnsavedChanges: false,
     future: [],
+
+    tabs: [{ id: INITIAL_TAB_ID, title: translate(detectInitialLanguage(), "tab.defaultTitle", { n: 1 }) }],
+    activeTabId: INITIAL_TAB_ID,
+    tabDocuments: {},
 
     annotations: {},
     selectedAnnotationIds: new Set(),
@@ -460,18 +577,131 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set(), hasUnsavedChanges: true }),
-    loadProject: (data) => set({
-      molecule: data.molecule,
-      annotations: data.annotations,
-      view: data.view,
-      past: [],
-      future: [],
-      selected: new Set(),
-      selectedAnnotationIds: new Set(),
-      // Just opened exactly what's on disk — nothing to save yet.
-      hasUnsavedChanges: false,
-    }),
-    markProjectSaved: () => set({ hasUnsavedChanges: false }),
+    loadProject: (data) => {
+      const active = data.tabs.find((tb) => tb.id === data.activeTabId) ?? data.tabs[0];
+      const tabDocuments: Record<string, TabDocument> = {};
+      for (const tb of data.tabs) {
+        if (tb.id === active.id) continue; // lives in the top-level fields below instead
+        tabDocuments[tb.id] = { molecule: tb.molecule, annotations: tb.annotations, view: tb.view, past: [], future: [], hasUnsavedChanges: false };
+      }
+      set({
+        tabs: data.tabs.map((tb) => ({ id: tb.id, title: tb.title })),
+        activeTabId: active.id,
+        tabDocuments,
+        molecule: active.molecule,
+        annotations: active.annotations,
+        view: active.view,
+        past: [],
+        future: [],
+        // Just opened exactly what's on disk — nothing to save yet, in this
+        // tab or any other.
+        hasUnsavedChanges: false,
+        ...transientResetFields(),
+      });
+    },
+    getAllTabsForSave: () => {
+      const s = get();
+      return s.tabs.map((tb) => {
+        if (tb.id === s.activeTabId) return { id: tb.id, title: tb.title, molecule: s.molecule, annotations: s.annotations, view: s.view };
+        const doc = s.tabDocuments[tb.id];
+        return {
+          id: tb.id,
+          title: tb.title,
+          molecule: doc?.molecule ?? M.emptyMolecule(),
+          annotations: doc?.annotations ?? {},
+          view: doc?.view ?? DEFAULT_VIEW,
+        };
+      });
+    },
+    addTab: () => {
+      tabNumberCounter += 1;
+      const id = `tab-${nextId()}`;
+      const title = translate(get().language, "tab.defaultTitle", { n: tabNumberCounter });
+      set((s) => ({
+        tabs: [...s.tabs, { id, title }],
+        tabDocuments: {
+          ...s.tabDocuments,
+          [s.activeTabId]: snapshotActiveDocument(s),
+          [id]: { molecule: M.emptyMolecule(), annotations: {}, view: DEFAULT_VIEW, past: [], future: [], hasUnsavedChanges: false },
+        },
+        activeTabId: id,
+        molecule: M.emptyMolecule(),
+        annotations: {},
+        view: DEFAULT_VIEW,
+        past: [],
+        future: [],
+        hasUnsavedChanges: false,
+        ...transientResetFields(),
+      }));
+    },
+    switchToTab: (id) => {
+      const s = get();
+      if (id === s.activeTabId || !s.tabs.some((tb) => tb.id === id)) return;
+      const incoming = s.tabDocuments[id];
+      if (!incoming) return;
+      set((s2) => ({
+        tabDocuments: { ...s2.tabDocuments, [s2.activeTabId]: snapshotActiveDocument(s2) },
+        activeTabId: id,
+        molecule: incoming.molecule,
+        annotations: incoming.annotations,
+        view: incoming.view,
+        past: incoming.past,
+        future: incoming.future,
+        hasUnsavedChanges: incoming.hasUnsavedChanges,
+        ...transientResetFields(),
+      }));
+    },
+    closeTab: (id) => {
+      const s = get();
+      if (s.tabs.length <= 1) return; // there must always be at least one tab
+      const idx = s.tabs.findIndex((tb) => tb.id === id);
+      if (idx === -1) return;
+
+      if (id !== s.activeTabId) {
+        // Closing a tab that isn't the active one doesn't touch the
+        // top-level fields at all — just drop its stored data.
+        set((s2) => {
+          const tabDocuments = { ...s2.tabDocuments };
+          delete tabDocuments[id];
+          return { tabs: s2.tabs.filter((tb) => tb.id !== id), tabDocuments };
+        });
+        return;
+      }
+
+      // Closing the active tab: step to its neighbor (preferring the one
+      // before it, so closing rightmost tabs steps left — the direction
+      // most browsers/editors use) before dropping it, the same way
+      // switchToTab would, since there's no "no tab active" state.
+      const neighborId = s.tabs[idx > 0 ? idx - 1 : idx + 1].id;
+      const incoming = s.tabDocuments[neighborId];
+      if (!incoming) return;
+      set((s2) => {
+        const tabDocuments = { ...s2.tabDocuments };
+        delete tabDocuments[id];
+        return {
+          tabs: s2.tabs.filter((tb) => tb.id !== id),
+          tabDocuments,
+          activeTabId: neighborId,
+          molecule: incoming.molecule,
+          annotations: incoming.annotations,
+          view: incoming.view,
+          past: incoming.past,
+          future: incoming.future,
+          hasUnsavedChanges: incoming.hasUnsavedChanges,
+          ...transientResetFields(),
+        };
+      });
+    },
+    renameTab: (id, title) => {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      set((s) => ({ tabs: s.tabs.map((tb) => (tb.id === id ? { ...tb, title: trimmed } : tb)) }));
+    },
+    markProjectSaved: () =>
+      set((s) => ({
+        hasUnsavedChanges: false,
+        tabDocuments: Object.fromEntries(Object.entries(s.tabDocuments).map(([id, doc]) => [id, { ...doc, hasUnsavedChanges: false }])),
+      })),
 
     importCompound: (mol) => {
       if (Object.keys(mol.atoms).length === 0) return;

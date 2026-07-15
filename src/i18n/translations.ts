@@ -41,6 +41,13 @@ export const translations: Record<Lang, Dict> = {
     "confirm.clearDrawing": "Clear the entire drawing?",
     "confirm.cancel": "Cancel",
     "confirm.confirmClear": "Clear",
+    "confirm.closeTab": "Close \"{{title}}\"? It has unsaved changes that will be lost.",
+    "confirm.confirmCloseTab": "Close tab",
+
+    "tab.add": "New tab",
+    "tab.close": "Close tab",
+    "tab.unsaved": "Unsaved changes",
+    "tab.defaultTitle": "Tab {{n}}",
 
     "tool.select": "Select / Move (V)",
     "tool.selectHint": "Select / Move (V) — drag empty space to marquee-select, double-click a molecule to select it all",
@@ -112,6 +119,7 @@ export const translations: Record<Lang, Dict> = {
     "annotation.italic": "Italic",
     "annotation.subscript": "Subscript",
     "annotation.superscript": "Superscript",
+    "annotation.insertDelta": "Insert Δ (heat/reflux)",
     "annotation.fontSize": "Font size",
     "annotation.increaseFontSize": "Increase text size",
     "annotation.decreaseFontSize": "Decrease text size",
@@ -199,6 +207,13 @@ export const translations: Record<Lang, Dict> = {
     "confirm.clearDrawing": "¿Borrar todo el dibujo?",
     "confirm.cancel": "Cancelar",
     "confirm.confirmClear": "Borrar",
+    "confirm.closeTab": "¿Cerrar \"{{title}}\"? Tiene cambios sin guardar que se perderán.",
+    "confirm.confirmCloseTab": "Cerrar pestaña",
+
+    "tab.add": "Nueva pestaña",
+    "tab.close": "Cerrar pestaña",
+    "tab.unsaved": "Cambios sin guardar",
+    "tab.defaultTitle": "Pestaña {{n}}",
 
     "tool.select": "Seleccionar / mover (V)",
     "tool.selectHint": "Seleccionar / mover (V) — arrastra en un espacio vacío para seleccionar con un rectángulo, doble clic en una molécula para seleccionarla completa",
@@ -270,6 +285,7 @@ export const translations: Record<Lang, Dict> = {
     "annotation.italic": "Cursiva",
     "annotation.subscript": "Subíndice",
     "annotation.superscript": "Superíndice",
+    "annotation.insertDelta": "Insertar Δ (calor/reflujo)",
     "annotation.fontSize": "Tamaño de texto",
     "annotation.increaseFontSize": "Aumentar tamaño de texto",
     "annotation.decreaseFontSize": "Reducir tamaño de texto",

@@ -36,8 +36,6 @@ export function TopBar({ svgRef }: TopBarProps) {
   const loadMolecule = useMoleculeStore((s) => s.loadMolecule);
   const loadProject = useMoleculeStore((s) => s.loadProject);
   const markProjectSaved = useMoleculeStore((s) => s.markProjectSaved);
-  const annotations = useMoleculeStore((s) => s.annotations);
-  const view = useMoleculeStore((s) => s.view);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
@@ -114,7 +112,8 @@ export function TopBar({ svgRef }: TopBarProps) {
   };
 
   const doSaveProject = () => {
-    const json = exportProject({ molecule, annotations, view });
+    const store = useMoleculeStore.getState();
+    const json = exportProject({ activeTabId: store.activeTabId, tabs: store.getAllTabsForSave() });
     downloadBlob(new Blob([json], { type: "application/json" }), `molecule${PROJECT_FILE_EXTENSION}`);
     markProjectSaved();
   };
@@ -128,7 +127,8 @@ export function TopBar({ svgRef }: TopBarProps) {
         if (isProject) {
           const project = importProject(String(reader.result));
           loadProject(project);
-          setStatus(t("status.imported", { count: Object.keys(project.molecule.atoms).length }));
+          const atomCount = project.tabs.reduce((sum, tb) => sum + Object.keys(tb.molecule.atoms).length, 0);
+          setStatus(t("status.imported", { count: atomCount }));
           return;
         }
         const parsed = isCdxml ? importCdxml(String(reader.result)) : importMol(String(reader.result));

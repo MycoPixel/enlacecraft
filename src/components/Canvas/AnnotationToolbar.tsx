@@ -55,6 +55,16 @@ export function AnnotationToolbar() {
     notifyInput();
   };
 
+  // Reaction conditions conventionally use Δ for "heat"/reflux over an
+  // arrow (e.g. "Δ, EtOH"), which isn't a character most keyboards can
+  // type directly — insertText both replaces a selection (matching what
+  // typing a character would do) and inserts at the caret otherwise.
+  const insertSymbol = (symbol: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    document.execCommand("insertText", false, symbol);
+    notifyInput();
+  };
+
   const stepFontSize = (delta: number) => (e: React.MouseEvent) => {
     e.preventDefault();
     const sel = window.getSelection();
@@ -95,6 +105,10 @@ export function AnnotationToolbar() {
       </button>
       <button onMouseDown={runCommand("superscript")} title={t("annotation.superscript")} aria-label={t("annotation.superscript")}>
         <Superscript size={14} />
+      </button>
+      <span className="annotation-toolbar__divider" />
+      <button onMouseDown={insertSymbol("\u0394")} className="annotation-toolbar__symbol" title={t("annotation.insertDelta")} aria-label={t("annotation.insertDelta")}>
+        {"\u0394"}
       </button>
       <span className="annotation-toolbar__divider" />
       <button onMouseDown={stepFontSize(-FONT_STEP)} title={t("annotation.decreaseFontSize")} aria-label={t("annotation.decreaseFontSize")}>
