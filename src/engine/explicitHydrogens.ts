@@ -24,7 +24,7 @@ export interface ExplicitHydrogen {
 }
 
 /**
- * Computes where every atom's implicit hydrogens would be drawn if made
+ * Computes where every carbon's implicit hydrogens would be drawn if made
  * explicit, fanned out into the open space around each atom:
  *  - An atom with no existing bonds (e.g. a bare "C" standing for methane)
  *    gets its hydrogens spread evenly around the full circle.
@@ -34,13 +34,20 @@ export interface ExplicitHydrogen {
  *    and an interior -CH2-'s two H's fan out to whichever side has more
  *    room, matching how these are conventionally drawn by hand.
  * Bond length matches every other bond in the app, for visual consistency.
+ *
+ * Carbon-only: heteroatoms (O, N, S, ...) already show their own hydrogen
+ * count as part of their label text regardless of this toggle — an -OH or
+ * -NH2 is always spelled out, since a heteroatom is never an implicit,
+ * label-less vertex the way a plain carbon is. Fanning out separate H
+ * bonds for them too would just duplicate what's already shown.
  */
 export function computeExplicitHydrogens(mol: Molecule): ExplicitHydrogen[] {
   const result: ExplicitHydrogen[] = [];
   for (const atomId in mol.atoms) {
+    const atom = mol.atoms[atomId];
+    if (atom.element !== "C") continue;
     const count = implicitH(mol, atomId);
     if (count === 0) continue;
-    const atom = mol.atoms[atomId];
     const existing = neighborAngles(mol, atomId);
     for (const angle of fanAngles(existing, count)) {
       const p: Point = polar(atom.x, atom.y, BOND_LEN, angle);

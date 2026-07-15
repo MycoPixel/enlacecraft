@@ -24,7 +24,7 @@ export function ArrowVariantPicker({ value, onChange, active, barb, onBarbChange
             onClick={() => onChange(v)}
             title={t(`arrow.${v}`)}
           >
-            <MiniArrow variant={v} barb="full" />
+            <MiniArrow variant={v} barb={barb} />
           </button>
         ))}
       </div>
@@ -40,7 +40,7 @@ export function ArrowVariantPicker({ value, onChange, active, barb, onBarbChange
             onClick={() => onBarbChange(b)}
             title={t(`arrow.barb.${b}`)}
           >
-            <MiniArrow variant="curved" barb={b} />
+            <MiniArrow variant={value} barb={b} />
           </button>
         ))}
       </div>

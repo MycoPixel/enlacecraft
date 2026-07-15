@@ -55,10 +55,30 @@ export function Sidebar() {
       (e.currentTarget as Element).releasePointerCapture(e.pointerId);
     }
   };
+  const annotations = useMoleculeStore((s) => s.annotations);
+  const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
+  const setArrowVariantOf = useMoleculeStore((s) => s.setArrowVariantOf);
+  const setArrowBarbOf = useMoleculeStore((s) => s.setArrowBarbOf);
+  const singleSelectedAnnotationId = selectedAnnotationIds.size === 1 ? [...selectedAnnotationIds][0] : null;
+  const selectedArrowId =
+    singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "arrow" ? singleSelectedAnnotationId : null;
 
+  // These two set the shape/barb a *newly drawn* arrow will use. But if an
+  // existing arrow is selected when you change either one — the whole
+  // reason the picker is even reachable while a placed arrow is selected —
+  // that arrow itself needs to actually change too, not just silently wait
+  // for the next arrow you draw from scratch. Picking "curved" here is
+  // exactly how you'd turn an already-placed straight fishhook into a
+  // curved one, so both branches have to run together.
   const onArrowVariantChange = (v: ArrowVariant) => {
     setArrowVariant(v);
     setTool("arrow");
+    if (selectedArrowId) setArrowVariantOf(selectedArrowId, v);
+  };
+  const onArrowBarbChange = (b: "full" | "single") => {
+    setArrowBarb(b);
+    setTool("arrow");
+    if (selectedArrowId) setArrowBarbOf(selectedArrowId, b);
   };
 
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
@@ -69,11 +89,8 @@ export function Sidebar() {
     setTool("bracket");
   };
 
-  const annotations = useMoleculeStore((s) => s.annotations);
-  const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const addReagentText = useMoleculeStore((s) => s.addReagentText);
-  const singleSelectedAnnotationId = selectedAnnotationIds.size === 1 ? [...selectedAnnotationIds][0] : null;
-  const canAddReagentText = !!singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "arrow";
+  const canAddReagentText = !!selectedArrowId;
 
   const zoomBy = (factor: number) =>
     setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
@@ -187,7 +204,7 @@ export function Sidebar() {
           <Type size={18} />
         </ToolButton>
         <ToolDropdown title={t("tool.arrow")} active={tool === "arrow"} renderContent={(close) => (
-          <ArrowVariantPicker value={arrowVariant} onChange={(v) => { onArrowVariantChange(v); close(); }} active={tool === "arrow"} barb={arrowBarb} onBarbChange={(b) => { setArrowBarb(b); setTool("arrow"); close(); }} />
+          <ArrowVariantPicker value={arrowVariant} onChange={(v) => { onArrowVariantChange(v); close(); }} active={tool === "arrow"} barb={arrowBarb} onBarbChange={(b) => { onArrowBarbChange(b); close(); }} />
         )}>
           <MoveRight size={18} />
         </ToolDropdown>

@@ -168,13 +168,16 @@ interface MoleculeStore {
   chainPreview: ChainPreview | null;
   marqueeRect: MarqueeRect | null;
   showHydrogens: boolean;
-  /** Draws every implicit hydrogen as a real bond + "H" label fanned out
-   * around its atom — a full "expanded structural formula" view, as
+  /** Draws every carbon's implicit hydrogens as real bonds + "H" labels
+   * fanned out around it — a full "expanded structural formula" view, as
    * opposed to showHydrogens which only adds compact "CH3"-style text to
-   * existing atom labels. Purely a rendering toggle (see
-   * engine/explicitHydrogens.ts): never touches the actual Molecule, so
-   * it has no effect on undo/redo, valence checks, or any export format
-   * other than making the extra bonds/labels visible in it too. */
+   * existing atom labels. Carbon-only: heteroatoms already spell out their
+   * own H count in their label ("OH", "NH2", ...) regardless of this
+   * toggle, so there's nothing more for it to add there — see
+   * engine/explicitHydrogens.ts. Purely a rendering toggle: never touches
+   * the actual Molecule, so it has no effect on undo/redo, valence checks,
+   * or any export format other than making the extra bonds/labels visible
+   * in it too. */
   showExpandedFormula: boolean;
   monochromeAtoms: boolean;
   /** Current on-screen pixel size of the canvas <svg>, kept in sync by MoleculeCanvas via ResizeObserver. */
@@ -234,6 +237,7 @@ interface MoleculeStore {
   updateArrowEndpointTransient: (id: string, which: "start" | "end", p: Point) => void;
   updateArrowCurvatureTransient: (id: string, curvature: number) => void;
   setArrowVariantOf: (id: string, variant: ArrowVariant) => void;
+  setArrowBarbOf: (id: string, barb: "full" | "single") => void;
   deleteAnnotation: (id: string) => void;
   deleteAnnotations: (ids: Set<string>) => void;
   snapshotBefore: () => Snapshot;
@@ -1102,6 +1106,14 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const ann = anns[id];
         if (!ann || ann.kind !== "arrow") return anns;
         return { ...anns, [id]: { ...ann, variant } };
+      });
+    },
+
+    setArrowBarbOf: (id, barb) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "arrow") return anns;
+        return { ...anns, [id]: { ...ann, barb } };
       });
     },
 

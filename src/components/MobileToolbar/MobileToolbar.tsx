@@ -8,7 +8,7 @@ import { RingPicker } from "../Sidebar/RingPicker";
 import { ArrowVariantPicker } from "../Sidebar/ArrowVariantPicker";
 import { BracketVariantPicker } from "../Sidebar/BracketVariantPicker";
 import { useT } from "../../i18n/useT";
-import type { ToolId } from "../../types/chemistry";
+import type { ArrowVariant, ToolId } from "../../types/chemistry";
 
 type MobilePanel = "bonds" | "atoms" | "rings" | "arrows" | "brackets" | null;
 
@@ -29,11 +29,34 @@ export function MobileToolbar() {
   const setArrowVariant = useMoleculeStore((s) => s.setArrowVariant);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const setArrowBarb = useMoleculeStore((s) => s.setArrowBarb);
+  const setArrowVariantOf = useMoleculeStore((s) => s.setArrowVariantOf);
+  const setArrowBarbOf = useMoleculeStore((s) => s.setArrowBarbOf);
+  const annotations = useMoleculeStore((s) => s.annotations);
+  const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
+  const singleSelectedAnnotationId = selectedAnnotationIds.size === 1 ? [...selectedAnnotationIds][0] : null;
+  const selectedArrowId =
+    singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "arrow" ? singleSelectedAnnotationId : null;
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const setBracketVariant = useMoleculeStore((s) => s.setBracketVariant);
   const t = useT();
 
   const choose = (toolId: ToolId) => { setTool(toolId); setPanel(null); };
+
+  // Same reasoning as the sidebar's identical pair: these set what a
+  // newly-drawn arrow will look like, but if an arrow is already selected
+  // (how you'd reach this panel to begin with, to change an existing
+  // arrow's curve/barb rather than draw a new one) that arrow needs to be
+  // updated in place too.
+  const onArrowVariantChange = (v: ArrowVariant) => {
+    setArrowVariant(v);
+    choose("arrow");
+    if (selectedArrowId) setArrowVariantOf(selectedArrowId, v);
+  };
+  const onArrowBarbChange = (b: "full" | "single") => {
+    setArrowBarb(b);
+    choose("arrow");
+    if (selectedArrowId) setArrowBarbOf(selectedArrowId, b);
+  };
 
   return (
     <div className="mobile-toolbar">
@@ -46,7 +69,7 @@ export function MobileToolbar() {
             <RingPicker value={ringTemplateId} onChange={(id) => { setRingTemplateId(id); choose("ring"); }} active />
           )}
           {panel === "arrows" && (
-            <ArrowVariantPicker value={arrowVariant} onChange={(v) => { setArrowVariant(v); choose("arrow"); }} active barb={arrowBarb} onBarbChange={(b) => { setArrowBarb(b); choose("arrow"); }} />
+            <ArrowVariantPicker value={arrowVariant} onChange={onArrowVariantChange} active barb={arrowBarb} onBarbChange={onArrowBarbChange} />
           )}
           {panel === "brackets" && (
             <BracketVariantPicker
