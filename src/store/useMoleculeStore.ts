@@ -168,6 +168,14 @@ interface MoleculeStore {
   chainPreview: ChainPreview | null;
   marqueeRect: MarqueeRect | null;
   showHydrogens: boolean;
+  /** Draws every implicit hydrogen as a real bond + "H" label fanned out
+   * around its atom — a full "expanded structural formula" view, as
+   * opposed to showHydrogens which only adds compact "CH3"-style text to
+   * existing atom labels. Purely a rendering toggle (see
+   * engine/explicitHydrogens.ts): never touches the actual Molecule, so
+   * it has no effect on undo/redo, valence checks, or any export format
+   * other than making the extra bonds/labels visible in it too. */
+  showExpandedFormula: boolean;
   monochromeAtoms: boolean;
   /** Current on-screen pixel size of the canvas <svg>, kept in sync by MoleculeCanvas via ResizeObserver. */
   canvasSize: { width: number; height: number };
@@ -194,6 +202,7 @@ interface MoleculeStore {
   setChainPreview: (p: ChainPreview | null) => void;
   setMarqueeRect: (r: MarqueeRect | null) => void;
   toggleShowHydrogens: () => void;
+  toggleShowExpandedFormula: () => void;
   toggleMonochromeAtoms: () => void;
   setCanvasSize: (size: { width: number; height: number }) => void;
   selectAll: () => void;
@@ -442,6 +451,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     chainPreview: null,
     marqueeRect: null,
     showHydrogens: false,
+    showExpandedFormula: false,
     monochromeAtoms: false,
     canvasSize: { width: 800, height: 600 },
 
@@ -483,6 +493,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setChainPreview: (p) => set({ chainPreview: p }),
     setMarqueeRect: (r) => set({ marqueeRect: r }),
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
+    toggleShowExpandedFormula: () => set((s) => ({ showExpandedFormula: !s.showExpandedFormula })),
     toggleMonochromeAtoms: () => set((s) => ({ monochromeAtoms: !s.monochromeAtoms })),
     setCanvasSize: (size) => set({ canvasSize: size }),
     selectAll: () => set((s) => ({ selected: new Set(Object.keys(s.molecule.atoms)) })),

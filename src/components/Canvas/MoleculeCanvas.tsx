@@ -1,4 +1,4 @@
-import { forwardRef, useEffect } from "react";
+import { forwardRef, useEffect, useMemo } from "react";
 import { useMoleculeStore, effectiveCanvasBackground } from "../../store/useMoleculeStore";
 import { useCanvasInteractions } from "../../hooks/useCanvasInteractions";
 import { AtomView } from "./AtomView";
@@ -10,6 +10,7 @@ import { AnnotationToolbar } from "./AnnotationToolbar";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
 import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
 import { previewRingLoops } from "../../engine/ringPlacement";
+import { computeExplicitHydrogens } from "../../engine/explicitHydrogens";
 import { bracketPairLayout } from "../../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, RING_TEMPLATES } from "../../model/constants";
 import type { BracketAnnotation, RingAttachment } from "../../types/chemistry";
@@ -23,6 +24,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const marqueeRect = useMoleculeStore((s) => s.marqueeRect);
   const tool = useMoleculeStore((s) => s.tool);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
+  const showExpandedFormula = useMoleculeStore((s) => s.showExpandedFormula);
   const atomLabelRevealTargets = useMoleculeStore((s) => s.atomLabelRevealTargets);
   const setCanvasSize = useMoleculeStore((s) => s.setCanvasSize);
   const annotations = useMoleculeStore((s) => s.annotations);
@@ -42,6 +44,11 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
   const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown } = useCanvasInteractions(svgRef);
+
+  const explicitHydrogens = useMemo(
+    () => (showExpandedFormula ? computeExplicitHydrogens(molecule) : []),
+    [showExpandedFormula, molecule]
+  );
 
   // Hover preview for the ring tool: exactly the same attachment resolution
   // useCanvasInteractions uses on click, so what you see hovering is what
@@ -150,8 +157,34 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
               />
             </g>
           ))}
+          {explicitHydrogens.map((h, i) => (
+            <BondView
+              key={`h-bond-${i}`}
+              bond={{ id: `h-bond-${i}`, a1: "a", a2: "b", order: 1, stereo: "none", doubleSide: "center" }}
+              a1={molecule.atoms[h.atomId]}
+              a2={{ id: `h-atom-${i}`, x: h.x, y: h.y, element: "H", charge: 0 }}
+              r1={atomLabelRadius(molecule, h.atomId, showHydrogens, atomLabelRevealTargets.has(h.atomId))}
+              r2={10.6}
+            />
+          ))}
           {Object.values(molecule.atoms).map((a) => (
             <AtomView key={a.id} atom={a} mol={molecule} selected={selected.has(a.id)} overValent={isOverValent(molecule, a.id)} svgRef={svgRef} />
+          ))}
+          {explicitHydrogens.map((h, i) => (
+            <text
+              key={`h-label-${i}`}
+              x={h.x}
+              y={h.y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize="14.5"
+              fontWeight="500"
+              fill="var(--ink)"
+              className="atom-label"
+              pointerEvents="none"
+            >
+              H
+            </text>
           ))}
           {Object.values(annotations).map((ann) =>
             ann.kind === "arrow" ? (

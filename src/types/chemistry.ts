@@ -251,7 +251,7 @@ export interface ArrowAnnotation {
   barb?: "full" | "single";
 }
 
-export type BracketVariant = "paren" | "square" | "curly";
+export type BracketVariant = "paren" | "square";
 /** Which way the glyph opens: "open" renders ( [ { , "close" renders ) ] } */
 export type BracketFacing = "open" | "close";
 

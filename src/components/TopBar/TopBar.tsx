@@ -39,6 +39,8 @@ export function TopBar({ svgRef }: TopBarProps) {
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
+  const showExpandedFormula = useMoleculeStore((s) => s.showExpandedFormula);
+  const toggleShowExpandedFormula = useMoleculeStore((s) => s.toggleShowExpandedFormula);
   const monochromeAtoms = useMoleculeStore((s) => s.monochromeAtoms);
   const toggleMonochromeAtoms = useMoleculeStore((s) => s.toggleMonochromeAtoms);
 
@@ -190,6 +192,13 @@ export function TopBar({ svgRef }: TopBarProps) {
         <ToolButton title={showHydrogens ? t("tool.hideHydrogens") : t("tool.showHydrogens")} active={showHydrogens} onClick={toggleShowHydrogens}>
           <Atom size={18} />
         </ToolButton>
+        <ToolButton
+          title={showExpandedFormula ? t("tool.hideExpandedFormula") : t("tool.showExpandedFormula")}
+          active={showExpandedFormula}
+          onClick={toggleShowExpandedFormula}
+        >
+          <ExpandedFormulaIcon />
+        </ToolButton>
         <ToolButton title={monochromeAtoms ? t("tool.monochromeOff") : t("tool.monochromeOn")} active={monochromeAtoms} onClick={toggleMonochromeAtoms}>
           <Contrast size={18} />
         </ToolButton>
@@ -219,5 +228,25 @@ export function TopBar({ svgRef }: TopBarProps) {
         onChange={(e) => e.target.files?.[0] && doImportFile(e.target.files[0])}
       />
     </header>
+  );
+}
+
+/** A central vertex fanned out to three explicit substituents — evokes the
+ * "expanded structural formula" view (implicit hydrogens drawn as real
+ * bonds) without depicting any one specific element, since the toggle
+ * applies to whatever's on the canvas. Deliberately distinct from the
+ * plain-atom "Atom" icon used for the showHydrogens (text-only) toggle
+ * right next to it. */
+function ExpandedFormulaIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+      <circle cx="12" cy="14" r="1.6" fill="currentColor" stroke="none" />
+      <line x1="12" y1="14" x2="12" y2="4" />
+      <line x1="12" y1="14" x2="20" y2="18" />
+      <line x1="12" y1="14" x2="4" y2="18" />
+      <circle cx="12" cy="4" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="20" cy="18" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="18" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
   );
 }
