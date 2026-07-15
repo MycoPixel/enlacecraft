@@ -136,6 +136,7 @@ export const translations: Record<Lang, Dict> = {
     "section.charge": "Charge",
     "section.rings": "Rings",
     "tool.ring": "Ring template",
+    "tool.structures": "Pre-made structures (sugars, etc.)",
     "section.view": "View",
     "section.transform": "Transform",
 
@@ -302,6 +303,7 @@ export const translations: Record<Lang, Dict> = {
     "section.charge": "Carga",
     "section.rings": "Anillos",
     "tool.ring": "Plantilla de anillo",
+    "tool.structures": "Estructuras prediseñadas (azúcares, etc.)",
     "section.view": "Vista",
     "section.transform": "Transformar",
 

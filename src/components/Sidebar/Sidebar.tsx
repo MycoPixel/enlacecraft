@@ -7,6 +7,8 @@ import { ElementPicker } from "./ElementPicker";
 import { GroupPicker } from "./GroupPicker";
 import { IsotopePicker } from "./IsotopePicker";
 import { RingPicker, RingIcon } from "./RingPicker";
+import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
+import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { ArrowVariantPicker } from "./ArrowVariantPicker";
 import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
@@ -25,6 +27,7 @@ export function Sidebar() {
   const setAtomElement = useMoleculeStore((s) => s.setAtomElement);
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
   const setRingTemplateId = useMoleculeStore((s) => s.setRingTemplateId);
+  const pasteFragment = useMoleculeStore((s) => s.pasteFragment);
   const view = useMoleculeStore((s) => s.view);
   const setView = useMoleculeStore((s) => s.setView);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
@@ -163,6 +166,19 @@ export function Sidebar() {
         )}>
           <RingIcon templateId={ringTemplateId} />
         </ToolDropdown>
+        {STRUCTURE_TEMPLATES.length > 0 && (
+          <ToolDropdown title={t("tool.structures")} active={false} renderContent={(close) => (
+            <StructureTemplatePicker
+              onChoose={(id) => {
+                const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
+                if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+                close();
+              }}
+            />
+          )}>
+            <StructureTemplateIcon />
+          </ToolDropdown>
+        )}
       </div>
 
       <SectionLabel>{t("section.annotations")}</SectionLabel>
