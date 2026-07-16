@@ -568,9 +568,9 @@
   gap: 3px;
 }
 
-.arrow-barb-grid {
+.arrow-headsize-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 3px;
   margin-top: 6px;
   padding-top: 6px;

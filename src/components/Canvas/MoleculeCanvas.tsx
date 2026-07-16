@@ -32,6 +32,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const editingTextId = useMoleculeStore((s) => s.editingTextId);
   const arrowPreview = useMoleculeStore((s) => s.arrowPreview);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
+  const arrowHeadSize = useMoleculeStore((s) => s.arrowHeadSize);
   const bracketPairPreview = useMoleculeStore((s) => s.bracketPairPreview);
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
@@ -117,7 +118,13 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
         <pattern id="grid" width={24} height={24} patternUnits="userSpaceOnUse">
           <circle cx={1} cy={1} r={1} fill="var(--grid-dot)" />
         </pattern>
-        <marker id="arrowhead" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <marker id="arrowhead-small" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
+        </marker>
+        <marker id="arrowhead-medium" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
+        </marker>
+        <marker id="arrowhead-large" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="10.5" markerHeight="10.5" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
         </marker>
         <marker id="arrowhead-fishhook" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
@@ -211,7 +218,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             stroke="var(--accent)"
             strokeWidth={1.6}
             opacity={0.65}
-            markerEnd={`url(#${arrowBarb === "single" ? "arrowhead-fishhook" : "arrowhead"})`}
+            markerEnd={`url(#${arrowBarb === "single" ? "arrowhead-fishhook" : `arrowhead-${arrowHeadSize}`})`}
             pointerEvents="none"
             data-export-exclude="true"
           />

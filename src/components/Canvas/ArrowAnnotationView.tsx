@@ -137,7 +137,7 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
     }
   }, [annotation.id, deleteAnnotation]);
 
-  const markerId = annotation.barb === "single" ? "arrowhead-fishhook" : "arrowhead";
+  const markerId = annotation.barb === "single" ? "arrowhead-fishhook" : `arrowhead-${annotation.headSize ?? "medium"}`;
   // Always the arrow's real color — selection is shown with separate,
   // export-excluded handles below, never by recoloring the arrow itself.
   // Otherwise a copy/export made while the arrow happens to be selected

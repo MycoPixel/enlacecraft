@@ -463,7 +463,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       // A near-zero drag still places a reasonable default-length arrow
       // pointing right, rather than a degenerate zero-length one.
       const end = dist(drag.start, pt) > 8 ? pt : { x: drag.start.x + BOND_LEN * 1.5, y: drag.start.y };
-      const id = store.addArrowAnnotation(drag.start, end, store.arrowVariant, store.arrowBarb);
+      const id = store.addArrowAnnotation(drag.start, end, store.arrowVariant, store.arrowBarb, store.arrowHeadSize);
       store.setSelectedAnnotationIds(new Set([id]));
       store.setTool("select");
       return;

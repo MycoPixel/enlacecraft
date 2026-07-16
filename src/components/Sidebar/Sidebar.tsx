@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, MoveRight, Brackets } from "lucide-react";
+import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel } from "./ToolButton";
 import { BondGlyph } from "./BondGlyphs";
@@ -9,12 +9,12 @@ import { IsotopePicker } from "./IsotopePicker";
 import { RingPicker, RingIcon } from "./RingPicker";
 import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
-import { ArrowVariantPicker } from "./ArrowVariantPicker";
+import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
 import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { useT } from "../../i18n/useT";
-import type { ArrowVariant, BracketVariant } from "../../types/chemistry";
+import type { ArrowHeadSize, ArrowVariant, BracketVariant } from "../../types/chemistry";
 
 export function Sidebar() {
   const tool = useMoleculeStore((s) => s.tool);
@@ -35,6 +35,8 @@ export function Sidebar() {
   const setArrowVariant = useMoleculeStore((s) => s.setArrowVariant);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const setArrowBarb = useMoleculeStore((s) => s.setArrowBarb);
+  const arrowHeadSize = useMoleculeStore((s) => s.arrowHeadSize);
+  const setArrowHeadSize = useMoleculeStore((s) => s.setArrowHeadSize);
   const t = useT();
   const sidebarWidth = useMoleculeStore((s) => s.sidebarWidth);
   const setSidebarWidth = useMoleculeStore((s) => s.setSidebarWidth);
@@ -59,26 +61,39 @@ export function Sidebar() {
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const setArrowVariantOf = useMoleculeStore((s) => s.setArrowVariantOf);
   const setArrowBarbOf = useMoleculeStore((s) => s.setArrowBarbOf);
+  const setArrowHeadSizeOf = useMoleculeStore((s) => s.setArrowHeadSizeOf);
   const singleSelectedAnnotationId = selectedAnnotationIds.size === 1 ? [...selectedAnnotationIds][0] : null;
   const selectedArrowId =
     singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "arrow" ? singleSelectedAnnotationId : null;
 
-  // These two set the shape/barb a *newly drawn* arrow will use. But if an
-  // existing arrow is selected when you change either one — the whole
-  // reason the picker is even reachable while a placed arrow is selected —
-  // that arrow itself needs to actually change too, not just silently wait
-  // for the next arrow you draw from scratch. Picking "curved" here is
-  // exactly how you'd turn an already-placed straight fishhook into a
-  // curved one, so both branches have to run together.
-  const onArrowVariantChange = (v: ArrowVariant) => {
-    setArrowVariant(v);
+  // Sets both the shape and barb a *newly drawn* arrow will use. But if an
+  // existing arrow is selected when you pick one — the whole reason the
+  // picker is even reachable while a placed arrow is selected — that arrow
+  // itself needs to actually change too, not just silently wait for the
+  // next arrow you draw from scratch. Picking "curved" here is exactly how
+  // you'd turn an already-placed straight fishhook into a curved one.
+  const chooseArrow = (variant: ArrowVariant, barb: "full" | "single") => {
+    setArrowVariant(variant);
+    setArrowBarb(barb);
     setTool("arrow");
-    if (selectedArrowId) setArrowVariantOf(selectedArrowId, v);
+    if (selectedArrowId) {
+      setArrowVariantOf(selectedArrowId, variant);
+      setArrowBarbOf(selectedArrowId, barb);
+    }
   };
-  const onArrowBarbChange = (b: "full" | "single") => {
-    setArrowBarb(b);
+
+  // Head size only applies to the full-arrowhead style, so picking one
+  // here also switches barb to "full" — otherwise picking a size while a
+  // fishhook happened to be the active style would silently do nothing
+  // visible, which would look like the picker was broken.
+  const chooseArrowHeadSize = (headSize: ArrowHeadSize) => {
+    setArrowHeadSize(headSize);
+    setArrowBarb("full");
     setTool("arrow");
-    if (selectedArrowId) setArrowBarbOf(selectedArrowId, b);
+    if (selectedArrowId) {
+      setArrowHeadSizeOf(selectedArrowId, headSize);
+      setArrowBarbOf(selectedArrowId, "full");
+    }
   };
 
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
@@ -203,10 +218,41 @@ export function Sidebar() {
         <ToolButton title={t("tool.text")} active={tool === "text"} onClick={() => setTool("text")}>
           <Type size={18} />
         </ToolButton>
-        <ToolDropdown title={t("tool.arrow")} active={tool === "arrow"} renderContent={(close) => (
-          <ArrowVariantPicker value={arrowVariant} onChange={(v) => { onArrowVariantChange(v); close(); }} active={tool === "arrow"} barb={arrowBarb} onBarbChange={(b) => { onArrowBarbChange(b); close(); }} />
-        )}>
-          <MoveRight size={18} />
+        <ToolDropdown
+          title={t("tool.arrowFull")}
+          active={tool === "arrow" && arrowBarb === "full"}
+          renderContent={(close) => (
+            <div>
+              <ArrowShapePicker
+                value={arrowBarb === "full" ? arrowVariant : "curved"}
+                barb="full"
+                headSize={arrowHeadSize}
+                active={tool === "arrow" && arrowBarb === "full"}
+                onChange={(v) => { chooseArrow(v, "full"); close(); }}
+              />
+              <ArrowHeadSizePicker
+                value={arrowHeadSize}
+                active={tool === "arrow" && arrowBarb === "full"}
+                onChange={(s) => { chooseArrowHeadSize(s); close(); }}
+              />
+            </div>
+          )}
+        >
+          <MiniArrow variant={arrowBarb === "full" ? arrowVariant : "curved"} barb="full" headSize={arrowHeadSize} />
+        </ToolDropdown>
+        <ToolDropdown
+          title={t("tool.arrowFishhook")}
+          active={tool === "arrow" && arrowBarb === "single"}
+          renderContent={(close) => (
+            <ArrowShapePicker
+              value={arrowBarb === "single" ? arrowVariant : "curved"}
+              barb="single"
+              active={tool === "arrow" && arrowBarb === "single"}
+              onChange={(v) => { chooseArrow(v, "single"); close(); }}
+            />
+          )}
+        >
+          <MiniArrow variant={arrowBarb === "single" ? arrowVariant : "curved"} barb="single" />
         </ToolDropdown>
         <ToolDropdown title={t("tool.bracket")} active={tool === "bracket"} renderContent={(close) => (
           <BracketVariantPicker variant={bracketVariant} onChange={(v) => { onBracketChange(v); close(); }} active={tool === "bracket"} />

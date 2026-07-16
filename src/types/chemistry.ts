@@ -226,6 +226,10 @@ export type CanvasBackground = "white" | "theme";
  */
 export type ArrowVariant = "forward" | "equilibrium" | "resonance" | "curved" | "curvedReverse";
 
+/** Full-arrowhead (electron pair) size. Doesn't apply to the fishhook
+ * (single-electron) style, which only ever comes in one size. */
+export type ArrowHeadSize = "small" | "medium" | "large";
+
 export interface ArrowAnnotation {
   id: string;
   kind: "arrow";
@@ -249,6 +253,14 @@ export interface ArrowAnnotation {
    * backward compatibility; absent means "full".
    */
   barb?: "full" | "single";
+  /**
+   * Full-arrowhead size — small/medium/large. Only meaningful when `barb`
+   * is "full" (or absent, which also means "full"); ignored for fishhooks.
+   * Optional for backward compatibility; absent means "medium", which is
+   * also the only size that existed before this field did, so old
+   * annotations render identically to how they always did.
+   */
+  headSize?: ArrowHeadSize;
 }
 
 export type BracketVariant = "paren" | "square";

@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { MousePointer2, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, MoveRight, AlignLeft, Brackets, Plus } from "lucide-react";
+import { MousePointer2, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { BondGlyph } from "../Sidebar/BondGlyphs";
 import { ElementPicker } from "../Sidebar/ElementPicker";
 import { RingPicker } from "../Sidebar/RingPicker";
-import { ArrowVariantPicker } from "../Sidebar/ArrowVariantPicker";
+import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "../Sidebar/ArrowVariantPicker";
 import { BracketVariantPicker } from "../Sidebar/BracketVariantPicker";
 import { useT } from "../../i18n/useT";
-import type { ArrowVariant, ToolId } from "../../types/chemistry";
+import type { ArrowHeadSize, ArrowVariant, ToolId } from "../../types/chemistry";
 
-type MobilePanel = "bonds" | "atoms" | "rings" | "arrows" | "brackets" | null;
+type MobilePanel = "bonds" | "atoms" | "rings" | "arrowsFull" | "arrowsFishhook" | "brackets" | null;
 
 export function MobileToolbar() {
   const [panel, setPanel] = useState<MobilePanel>(null);
@@ -29,8 +29,11 @@ export function MobileToolbar() {
   const setArrowVariant = useMoleculeStore((s) => s.setArrowVariant);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const setArrowBarb = useMoleculeStore((s) => s.setArrowBarb);
+  const arrowHeadSize = useMoleculeStore((s) => s.arrowHeadSize);
+  const setArrowHeadSize = useMoleculeStore((s) => s.setArrowHeadSize);
   const setArrowVariantOf = useMoleculeStore((s) => s.setArrowVariantOf);
   const setArrowBarbOf = useMoleculeStore((s) => s.setArrowBarbOf);
+  const setArrowHeadSizeOf = useMoleculeStore((s) => s.setArrowHeadSizeOf);
   const annotations = useMoleculeStore((s) => s.annotations);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const singleSelectedAnnotationId = selectedAnnotationIds.size === 1 ? [...selectedAnnotationIds][0] : null;
@@ -42,20 +45,33 @@ export function MobileToolbar() {
 
   const choose = (toolId: ToolId) => { setTool(toolId); setPanel(null); };
 
-  // Same reasoning as the sidebar's identical pair: these set what a
+  // Same reasoning as the sidebar's identical helper: this sets what a
   // newly-drawn arrow will look like, but if an arrow is already selected
   // (how you'd reach this panel to begin with, to change an existing
   // arrow's curve/barb rather than draw a new one) that arrow needs to be
   // updated in place too.
-  const onArrowVariantChange = (v: ArrowVariant) => {
-    setArrowVariant(v);
+  const chooseArrow = (variant: ArrowVariant, barb: "full" | "single") => {
+    setArrowVariant(variant);
+    setArrowBarb(barb);
     choose("arrow");
-    if (selectedArrowId) setArrowVariantOf(selectedArrowId, v);
+    if (selectedArrowId) {
+      setArrowVariantOf(selectedArrowId, variant);
+      setArrowBarbOf(selectedArrowId, barb);
+    }
   };
-  const onArrowBarbChange = (b: "full" | "single") => {
-    setArrowBarb(b);
+
+  // Head size only applies to the full-arrowhead style, so picking one
+  // here also switches barb to "full" — otherwise picking a size while a
+  // fishhook happened to be the active style would silently do nothing
+  // visible, which would look like the picker was broken.
+  const chooseArrowHeadSize = (headSize: ArrowHeadSize) => {
+    setArrowHeadSize(headSize);
+    setArrowBarb("full");
     choose("arrow");
-    if (selectedArrowId) setArrowBarbOf(selectedArrowId, b);
+    if (selectedArrowId) {
+      setArrowHeadSizeOf(selectedArrowId, headSize);
+      setArrowBarbOf(selectedArrowId, "full");
+    }
   };
 
   return (
@@ -68,8 +84,25 @@ export function MobileToolbar() {
           {panel === "rings" && (
             <RingPicker value={ringTemplateId} onChange={(id) => { setRingTemplateId(id); choose("ring"); }} active />
           )}
-          {panel === "arrows" && (
-            <ArrowVariantPicker value={arrowVariant} onChange={onArrowVariantChange} active barb={arrowBarb} onBarbChange={onArrowBarbChange} />
+          {panel === "arrowsFull" && (
+            <div>
+              <ArrowShapePicker
+                value={arrowBarb === "full" ? arrowVariant : "curved"}
+                barb="full"
+                headSize={arrowHeadSize}
+                active
+                onChange={(v) => chooseArrow(v, "full")}
+              />
+              <ArrowHeadSizePicker value={arrowHeadSize} active onChange={chooseArrowHeadSize} />
+            </div>
+          )}
+          {panel === "arrowsFishhook" && (
+            <ArrowShapePicker
+              value={arrowBarb === "single" ? arrowVariant : "curved"}
+              barb="single"
+              active
+              onChange={(v) => chooseArrow(v, "single")}
+            />
           )}
           {panel === "brackets" && (
             <BracketVariantPicker
@@ -110,8 +143,21 @@ export function MobileToolbar() {
         <ToolButton big title={t("tool.text")} active={tool === "text"} onClick={() => choose("text")}>
           <AlignLeft size={20} />
         </ToolButton>
-        <ToolButton big title={t("tool.arrow")} active={panel === "arrows" || tool === "arrow"} onClick={() => setPanel(panel === "arrows" ? null : "arrows")}>
-          <MoveRight size={20} />
+        <ToolButton
+          big
+          title={t("tool.arrowFull")}
+          active={(panel === "arrowsFull") || (tool === "arrow" && arrowBarb === "full")}
+          onClick={() => setPanel(panel === "arrowsFull" ? null : "arrowsFull")}
+        >
+          <MiniArrow variant={arrowBarb === "full" ? arrowVariant : "curved"} barb="full" headSize={arrowHeadSize} />
+        </ToolButton>
+        <ToolButton
+          big
+          title={t("tool.arrowFishhook")}
+          active={(panel === "arrowsFishhook") || (tool === "arrow" && arrowBarb === "single")}
+          onClick={() => setPanel(panel === "arrowsFishhook" ? null : "arrowsFishhook")}
+        >
+          <MiniArrow variant={arrowBarb === "single" ? arrowVariant : "curved"} barb="single" />
         </ToolButton>
         <ToolButton big title={t("tool.bracket")} active={panel === "brackets" || tool === "bracket"} onClick={() => setPanel(panel === "brackets" ? null : "brackets")}>
           <Brackets size={20} />

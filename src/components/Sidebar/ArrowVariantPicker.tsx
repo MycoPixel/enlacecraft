@@ -1,59 +1,97 @@
-import type { ArrowVariant } from "../../types/chemistry";
+import type { ArrowHeadSize, ArrowVariant } from "../../types/chemistry";
 import { useT } from "../../i18n/useT";
 
-interface ArrowVariantPickerProps {
+interface ArrowShapePickerProps {
   value: ArrowVariant;
   onChange: (v: ArrowVariant) => void;
   active: boolean;
+  /** Fixed for this picker instance — barb (full electron-pair arrowhead
+   * vs. single-electron fishhook) is chosen by which of the two arrow
+   * tools you opened this from (see Sidebar/MobileToolbar), not by
+   * anything in here. Only used to preview each shape with the right
+   * arrowhead. */
   barb: "full" | "single";
-  onBarbChange: (b: "full" | "single") => void;
+  /** Only affects the preview when barb is "full" — a fishhook only ever
+   * comes in one size. Defaults to "medium" so callers that don't care
+   * (the fishhook picker) can omit it entirely. */
+  headSize?: ArrowHeadSize;
 }
 
 const VARIANTS: ArrowVariant[] = ["forward", "equilibrium", "resonance", "curved", "curvedReverse"];
-const BARBS: ("full" | "single")[] = ["full", "single"];
+const HEAD_SIZES: ArrowHeadSize[] = ["small", "medium", "large"];
 
-export function ArrowVariantPicker({ value, onChange, active, barb, onBarbChange }: ArrowVariantPickerProps) {
+/** Just the shape grid (straight, equilibrium, resonance, curved either
+ * way) for one fixed barb style. Barb itself is now the top-level choice
+ * — see ArrowFull/ArrowFishhook's two separate tool buttons — rather than
+ * a second row in here, since crossing "which arrow tool did I open" with
+ * "which barb is currently active" made it unclear which one you were
+ * about to change. */
+export function ArrowShapePicker({ value, onChange, active, barb, headSize = "medium" }: ArrowShapePickerProps) {
   const t = useT();
   return (
-    <div>
-      <div className="arrow-variant-grid">
-        {VARIANTS.map((v) => (
-          <button
-            key={v}
-            className={`arrow-variant-btn ${active && value === v ? "arrow-variant-btn--active" : ""}`}
-            onClick={() => onChange(v)}
-            title={t(`arrow.${v}`)}
-          >
-            <MiniArrow variant={v} barb={barb} />
-          </button>
-        ))}
-      </div>
-      {/* Arrowhead style: full (electron pair) vs fishhook (single electron)
-          — this is the mechanism-arrow distinction, orthogonal to the shape
-          chosen above (most relevant for "curved"/"curvedReverse", but
-          applies to any variant). */}
-      <div className="arrow-barb-grid">
-        {BARBS.map((b) => (
-          <button
-            key={b}
-            className={`arrow-variant-btn ${active && barb === b ? "arrow-variant-btn--active" : ""}`}
-            onClick={() => onBarbChange(b)}
-            title={t(`arrow.barb.${b}`)}
-          >
-            <MiniArrow variant={value} barb={b} />
-          </button>
-        ))}
-      </div>
+    <div className="arrow-variant-grid">
+      {VARIANTS.map((v) => (
+        <button
+          key={v}
+          className={`arrow-variant-btn ${active && value === v ? "arrow-variant-btn--active" : ""}`}
+          onClick={() => onChange(v)}
+          title={t(`arrow.${v}`)}
+        >
+          <MiniArrow variant={v} barb={barb} headSize={headSize} />
+        </button>
+      ))}
     </div>
   );
 }
 
-function MiniArrow({ variant, barb }: { variant: ArrowVariant; barb: "full" | "single" }) {
-  const markerId = `mini-arrowhead-${variant}-${barb}`;
+/**
+ * Full-arrowhead size picker — small/medium/large. Rendered only inside
+ * the electron-pair arrow tool's dropdown (see Sidebar/MobileToolbar); a
+ * fishhook has no size options, so this never applies to that one.
+ */
+export function ArrowHeadSizePicker({
+  value,
+  onChange,
+  active,
+}: {
+  value: ArrowHeadSize;
+  onChange: (s: ArrowHeadSize) => void;
+  active: boolean;
+}) {
+  const t = useT();
+  return (
+    <div className="arrow-headsize-grid">
+      {HEAD_SIZES.map((s) => (
+        <button
+          key={s}
+          className={`arrow-variant-btn ${active && value === s ? "arrow-variant-btn--active" : ""}`}
+          onClick={() => onChange(s)}
+          title={t(`arrow.headSize.${s}`)}
+        >
+          <MiniArrow variant="forward" barb="full" headSize={s} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const MINI_HEAD_SIZE: Record<ArrowHeadSize, number> = { small: 4, medium: 6, large: 9 };
+
+export function MiniArrow({
+  variant,
+  barb,
+  headSize = "medium",
+}: {
+  variant: ArrowVariant;
+  barb: "full" | "single";
+  headSize?: ArrowHeadSize;
+}) {
+  const markerId = `mini-arrowhead-${variant}-${barb}-${headSize}`;
+  const markerSize = barb === "full" ? MINI_HEAD_SIZE[headSize] : 6;
   return (
     <svg width="28" height="18" viewBox="0 0 28 18">
       <defs>
-        <marker id={markerId} viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <marker id={markerId} viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth={markerSize} markerHeight={markerSize} orient="auto-start-reverse">
           {barb === "full"
             ? <path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
             : <path d="M 0.5,1.5 Q 7,2 9.5,5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />}

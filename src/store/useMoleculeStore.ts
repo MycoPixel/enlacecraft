@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
@@ -129,6 +129,8 @@ interface MoleculeStore {
   editingTextId: string | null;
   arrowVariant: ArrowVariant;
   arrowBarb: "full" | "single";
+  /** Full-arrowhead size for newly-drawn arrows; see ArrowAnnotation.headSize. */
+  arrowHeadSize: ArrowHeadSize;
   arrowPreview: ArrowPreview | null;
   /** Live drag-to-place preview for the paired open/close bracket tool (see addBracketPair). */
   bracketPairPreview: ArrowPreview | null;
@@ -216,12 +218,13 @@ interface MoleculeStore {
   setEditingTextId: (id: string | null) => void;
   setArrowVariant: (v: ArrowVariant) => void;
   setArrowBarb: (b: "full" | "single") => void;
+  setArrowHeadSize: (s: ArrowHeadSize) => void;
   setArrowPreview: (p: ArrowPreview | null) => void;
   setBracketPairPreview: (p: ArrowPreview | null) => void;
   setBracketVariant: (v: BracketVariant) => void;
   setBracketFacing: (f: BracketFacing) => void;
   addTextAnnotation: (p: Point) => string;
-  addArrowAnnotation: (p1: Point, p2: Point, variant: ArrowVariant, barb?: "full" | "single") => string;
+  addArrowAnnotation: (p1: Point, p2: Point, variant: ArrowVariant, barb?: "full" | "single", headSize?: ArrowHeadSize) => string;
   addBracketAnnotation: (p: Point, variant: BracketVariant, facing: BracketFacing) => string;
   addBracketPair: (corner1: Point, corner2: Point, variant: BracketVariant) => { openId: string; closeId: string };
   addPlusAnnotation: (p: Point) => string;
@@ -238,6 +241,7 @@ interface MoleculeStore {
   updateArrowCurvatureTransient: (id: string, curvature: number) => void;
   setArrowVariantOf: (id: string, variant: ArrowVariant) => void;
   setArrowBarbOf: (id: string, barb: "full" | "single") => void;
+  setArrowHeadSizeOf: (id: string, headSize: ArrowHeadSize) => void;
   deleteAnnotation: (id: string) => void;
   deleteAnnotations: (ids: Set<string>) => void;
   snapshotBefore: () => Snapshot;
@@ -427,6 +431,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     editingTextId: null,
     arrowVariant: "forward",
     arrowBarb: "full",
+    arrowHeadSize: "medium",
     arrowPreview: null,
     bracketPairPreview: null,
     bracketVariant: "paren",
@@ -507,6 +512,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setEditingTextId: (id) => set({ editingTextId: id }),
     setArrowVariant: (v) => set({ arrowVariant: v }),
     setArrowBarb: (b) => set({ arrowBarb: b }),
+    setArrowHeadSize: (s) => set({ arrowHeadSize: s }),
     setArrowPreview: (p) => set({ arrowPreview: p }),
     setBracketPairPreview: (p) => set({ bracketPairPreview: p }),
     setBracketVariant: (v) => set({ bracketVariant: v }),
@@ -874,10 +880,10 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       return id;
     },
 
-    addArrowAnnotation: (p1, p2, variant, barb) => {
+    addArrowAnnotation: (p1, p2, variant, barb, headSize) => {
       const id = nextId();
       const curvature = Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.22;
-      const ann: ArrowAnnotation = { id, kind: "arrow", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, variant, curvature, barb };
+      const ann: ArrowAnnotation = { id, kind: "arrow", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, variant, curvature, barb, headSize };
       commitAnnotations((anns) => ({ ...anns, [id]: ann }));
       return id;
     },
@@ -1114,6 +1120,14 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const ann = anns[id];
         if (!ann || ann.kind !== "arrow") return anns;
         return { ...anns, [id]: { ...ann, barb } };
+      });
+    },
+
+    setArrowHeadSizeOf: (id, headSize) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "arrow") return anns;
+        return { ...anns, [id]: { ...ann, headSize } };
       });
     },
 
