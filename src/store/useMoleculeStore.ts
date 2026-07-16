@@ -159,6 +159,10 @@ interface MoleculeStore {
   /** The drawing canvas's own background — separate from the light/dark
    * app theme; see CanvasBackground's doc comment. */
   canvasBackground: CanvasBackground;
+  /** Overlay square grid lines on the canvas — independent of
+   * canvasBackground (works with either a white or themed background).
+   * Off by default; purely a visual drawing aid, no effect on the model. */
+  showGrid: boolean;
   language: Lang;
   /** Desktop sidebar's width in px, user-resizable by dragging its edge;
    * persisted across sessions like language. Unused on mobile (which uses
@@ -200,6 +204,7 @@ interface MoleculeStore {
   setView: (v: ViewTransform | ((v: ViewTransform) => ViewTransform)) => void;
   toggleTheme: () => void;
   toggleCanvasBackground: () => void;
+  toggleShowGrid: () => void;
   toggleLanguage: () => void;
   setSidebarWidth: (w: number) => void;
   setStatus: (s: string) => void;
@@ -453,6 +458,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     // Defaults to a plain white canvas (screenshot-ready out of the box);
     // "theme" restores the normal off-white/dark themed background + grid.
     canvasBackground: "white",
+    showGrid: false,
     language: detectInitialLanguage(),
     sidebarWidth: detectInitialSidebarWidth(),
     status: "status.ready",
@@ -478,6 +484,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setView: (v) => set((s) => ({ view: typeof v === "function" ? v(s.view) : v })),
     toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
     toggleCanvasBackground: () => set((s) => ({ canvasBackground: s.canvasBackground === "white" ? "theme" : "white" })),
+    toggleShowGrid: () => set((s) => ({ showGrid: !s.showGrid })),
     toggleLanguage: () =>
       set((s) => {
         const next: Lang = s.language === "en" ? "es" : "en";

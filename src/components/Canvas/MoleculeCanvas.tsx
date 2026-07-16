@@ -36,6 +36,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const bracketPairPreview = useMoleculeStore((s) => s.bracketPairPreview);
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
+  const showGrid = useMoleculeStore((s) => s.showGrid);
   const theme = useMoleculeStore((s) => s.theme);
   const effectiveBg = effectiveCanvasBackground(theme, canvasBackground);
   const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
@@ -118,6 +119,9 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
         <pattern id="grid" width={24} height={24} patternUnits="userSpaceOnUse">
           <circle cx={1} cy={1} r={1} fill="var(--grid-dot)" />
         </pattern>
+        <pattern id="line-grid" width={24} height={24} patternUnits="userSpaceOnUse">
+          <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--grid-line)" strokeWidth="1" />
+        </pattern>
         <marker id="arrowhead-small" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
         </marker>
@@ -139,6 +143,12 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
           would — see CanvasBackground's doc comment. */}
       {effectiveBg !== "white" && (
         <rect x="-6000" y="-6000" width="12000" height="12000" fill="url(#grid)" data-export-exclude="true" />
+      )}
+      {/* Independent of canvasBackground — a plain optional square-grid
+          overlay, off by default, that works over either a white or themed
+          canvas (see showGrid's doc comment in the store). */}
+      {showGrid && (
+        <rect x="-6000" y="-6000" width="12000" height="12000" fill="url(#line-grid)" data-export-exclude="true" pointerEvents="none" />
       )}
       <g transform={`translate(${view.tx},${view.ty}) scale(${view.scale})`} data-export-viewport="true">
         {/*

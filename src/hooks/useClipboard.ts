@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useMoleculeStore } from "../store/useMoleculeStore";
+import { useT } from "../i18n/useT";
 import * as M from "../model/molecule";
 import { exportSelectionPNGBlob } from "../io/exportImage";
 import type { Annotation, Molecule } from "../types/chemistry";
@@ -55,6 +56,8 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
   const annotations = useMoleculeStore((s) => s.annotations);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const pasteFragment = useMoleculeStore((s) => s.pasteFragment);
+  const setStatus = useMoleculeStore((s) => s.setStatus);
+  const t = useT();
 
   useEffect(() => {
     /** Returns true if there was actually something to copy. */
@@ -90,14 +93,40 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
     };
 
     const pasteFromClipboard = async () => {
-      if (!navigator.clipboard?.read) return;
+      if (!navigator.clipboard?.read) {
+        // Notably: Firefox has never implemented reading arbitrary
+        // clipboard formats (only readText()) — our fragment is stored
+        // under a custom format precisely so copying into other apps
+        // stays clean (see CUSTOM_FORMAT's doc comment), so there's no
+        // fallback read path that would find it there either.
+        setStatus(t("clipboard.readUnsupported"));
+        return;
+      }
+
+      // A very common real-world cause of clipboard.read() rejecting is
+      // simply that the document/window doesn't have focus yet — e.g.
+      // right after switching back to an installed PWA window. Nudge focus
+      // first rather than immediately failing on something self-correctable.
+      if (!document.hasFocus()) {
+        window.focus();
+      }
+
       let items: ClipboardItems;
       try {
         items = await navigator.clipboard.read();
       } catch (err) {
+        const name = err instanceof DOMException ? err.name : "";
+        if (name === "NotAllowedError") {
+          setStatus(t("clipboard.permissionDenied"));
+        } else if (!document.hasFocus()) {
+          setStatus(t("clipboard.notFocused"));
+        } else {
+          setStatus(t("clipboard.readFailed"));
+        }
         console.warn("Clipboard read failed", err);
         return;
       }
+
       for (const item of items) {
         if (!item.types.includes(CUSTOM_FORMAT)) continue;
         try {
@@ -105,12 +134,16 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
           const text = await blob.text();
           const fragment = JSON.parse(text) as ClipboardFragment;
           pasteFragment(fragment);
-        } catch {
-          // Present but not valid fragment JSON after all — ignore rather than throw.
+        } catch (err) {
+          setStatus(t("clipboard.pasteFailed"));
+          console.warn("Pasted clipboard data wasn't a valid fragment", err);
         }
         return;
       }
-      // Our format wasn't found — clipboard holds something else entirely; do nothing.
+      // Our format wasn't found — clipboard holds something else entirely
+      // (or a copy from this app that predates this format). Say so rather
+      // than doing nothing with no explanation.
+      setStatus(t("clipboard.nothingToPaste"));
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -129,5 +162,5 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [selected, molecule, annotations, selectedAnnotationIds, pasteFragment, svgRef]);
+  }, [selected, molecule, annotations, selectedAnnotationIds, pasteFragment, svgRef, setStatus, t]);
 }

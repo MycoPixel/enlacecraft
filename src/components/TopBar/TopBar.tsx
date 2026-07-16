@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Contrast, AlertTriangle, Grid2x2, Square } from "lucide-react";
+import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Contrast, AlertTriangle, Grid2x2, Square, Grid3x3 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
@@ -28,6 +28,8 @@ export function TopBar({ svgRef }: TopBarProps) {
   const toggleTheme = useMoleculeStore((s) => s.toggleTheme);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const toggleCanvasBackground = useMoleculeStore((s) => s.toggleCanvasBackground);
+  const showGrid = useMoleculeStore((s) => s.showGrid);
+  const toggleShowGrid = useMoleculeStore((s) => s.toggleShowGrid);
   const toggleLanguage = useMoleculeStore((s) => s.toggleLanguage);
   const undo = useMoleculeStore((s) => s.undo);
   const redo = useMoleculeStore((s) => s.redo);
@@ -216,6 +218,13 @@ export function TopBar({ svgRef }: TopBarProps) {
           onClick={toggleCanvasBackground}
         >
           {canvasBackground === "white" ? <Grid2x2 size={18} /> : <Square size={18} />}
+        </ToolButton>
+        <ToolButton
+          title={showGrid ? t("tool.gridOff") : t("tool.gridOn")}
+          active={showGrid}
+          onClick={toggleShowGrid}
+        >
+          <Grid3x3 size={18} />
         </ToolButton>
         <ClearDrawingButton />
       </div>
