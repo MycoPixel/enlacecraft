@@ -24,6 +24,28 @@ interface ClipboardFragment {
   annotations: Annotation[];
 }
 
+/**
+ * In-memory fallback clipboard, alongside the real OS clipboard.
+ *
+ * The OS clipboard path (CUSTOM_FORMAT via the async Clipboard API) turns
+ * out to be unreliable in practice across browsers in a way no amount of
+ * error handling on our end can fix:
+ *  - Firefox has never supported custom/arbitrary clipboard MIME types at
+ *    all (only a fixed set: text/plain, text/html, image/png) — writing a
+ *    ClipboardItem with our custom type either drops that entry or rejects
+ *    the whole write silently, so there's simply nothing for a later paste
+ *    to find, permissions aside entirely.
+ *  - Some Chromium-based browsers (observed in Vivaldi) deny
+ *    clipboard-read outright with no permission prompt at all, unlike
+ *    Chrome/Brave/Edge which prompt the user and then work.
+ * Keeping our own copy in memory means same-session copy/paste (by far the
+ * common case — duplicating part of the current drawing) always works
+ * regardless of any of that, while the OS clipboard remains a bonus for
+ * genuinely cross-app or cross-tab pasting on browsers that support it.
+ * Resets on reload, same as any other in-memory state.
+ */
+let internalClipboard: ClipboardFragment | null = null;
+
 function isEditableTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -45,10 +67,13 @@ function isEditableTarget(target: EventTarget | null): boolean {
  *    CUSTOM_FORMAT above), plus a rendered PNG under the normal
  *    "image/png" — so pasting back into this app restores an editable
  *    structure, while pasting into any other app just gets a clean picture.
- *  - Paste: look for that private format and, if present, drop the
- *    fragment onto the canvas via pasteFragment (fresh ids, offset next to
- *    whatever's already drawn). If it's absent — clipboard holds something
- *    else entirely — do nothing, rather than guessing.
+ *    Also always kept in an in-memory fallback (see internalClipboard)
+ *    since the OS clipboard path is unreliable across browsers.
+ *  - Paste: look for that private format on the OS clipboard first; if
+ *    it's missing, unsupported, or blocked, fall back to the in-memory
+ *    copy from the last copy in this same session. If neither has
+ *    anything, say so via a status message rather than doing nothing with
+ *    no explanation.
  */
 export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
   const selected = useMoleculeStore((s) => s.selected);
@@ -70,6 +95,7 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
       if (Object.keys(moleculeFragment.atoms).length === 0 && selectedAnnotations.length === 0) return false;
 
       const fragment: ClipboardFragment = { molecule: moleculeFragment, annotations: selectedAnnotations };
+      internalClipboard = fragment;
       const text = JSON.stringify(fragment);
       const bondIds = new Set(Object.keys(moleculeFragment.bonds));
       const annotationIds = new Set(selectedAnnotations.map((a) => a.id));
@@ -85,21 +111,40 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
               [CUSTOM_FORMAT]: new Blob([text], { type: CUSTOM_FORMAT }),
             }),
           ])
-          .catch((err) => {
-            console.warn("Clipboard write failed", err);
+          .catch(async (err) => {
+            // Some browsers reject the *entire* write() call if they don't
+            // recognize one of a ClipboardItem's representations — Firefox
+            // in particular only accepts a short fixed whitelist of MIME
+            // types (see internalClipboard's doc comment), so bundling our
+            // custom format in with the image can take the image down with
+            // it, breaking even pasting into another app. Retry with just
+            // the image alone so that still works even when the custom
+            // format doesn't.
+            console.warn("Clipboard write with custom format failed, retrying with image only", err);
+            try {
+              await navigator.clipboard.write([new ClipboardItem({ "image/png": pngPromise })]);
+            } catch (err2) {
+              console.warn("Clipboard image-only write also failed", err2);
+            }
           });
       }
       return true;
     };
 
     const pasteFromClipboard = async () => {
+      /** Tries the in-memory fallback; returns whether it actually pasted something. */
+      const tryInternalFallback = (): boolean => {
+        if (!internalClipboard) return false;
+        pasteFragment(internalClipboard);
+        return true;
+      };
+
       if (!navigator.clipboard?.read) {
-        // Notably: Firefox has never implemented reading arbitrary
-        // clipboard formats (only readText()) — our fragment is stored
-        // under a custom format precisely so copying into other apps
-        // stays clean (see CUSTOM_FORMAT's doc comment), so there's no
-        // fallback read path that would find it there either.
-        setStatus(t("clipboard.readUnsupported"));
+        // Notably: Firefox has never implemented reading (or, as it turns
+        // out, writing) arbitrary clipboard formats — see
+        // internalClipboard's doc comment for why that's exactly what the
+        // fallback below is for.
+        if (!tryInternalFallback()) setStatus(t("clipboard.readUnsupported"));
         return;
       }
 
@@ -115,6 +160,7 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
       try {
         items = await navigator.clipboard.read();
       } catch (err) {
+        if (tryInternalFallback()) return;
         const name = err instanceof DOMException ? err.name : "";
         if (name === "NotAllowedError") {
           setStatus(t("clipboard.permissionDenied"));
@@ -135,14 +181,16 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
           const fragment = JSON.parse(text) as ClipboardFragment;
           pasteFragment(fragment);
         } catch (err) {
+          if (tryInternalFallback()) return;
           setStatus(t("clipboard.pasteFailed"));
           console.warn("Pasted clipboard data wasn't a valid fragment", err);
         }
         return;
       }
-      // Our format wasn't found — clipboard holds something else entirely
-      // (or a copy from this app that predates this format). Say so rather
-      // than doing nothing with no explanation.
+      // Our format wasn't found on the OS clipboard — try our own
+      // in-memory copy before giving up (see internalClipboard's doc
+      // comment for why the OS clipboard alone can't be relied on).
+      if (tryInternalFallback()) return;
       setStatus(t("clipboard.nothingToPaste"));
     };
 
