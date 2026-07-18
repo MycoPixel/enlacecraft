@@ -1,5 +1,5 @@
 import { useCallback, useRef, type RefObject } from "react";
-import type { Annotation, Molecule, Point, RingAttachment } from "../types/chemistry";
+import type { Annotation, Molecule, Point, RingAttachment, FunctionalGroupAttachment } from "../types/chemistry";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
@@ -7,6 +7,7 @@ import { computeChainPoints } from "../engine/chainPlacement";
 import { angleOf, dist, polar } from "../model/geometry";
 import { fragmentOf } from "../model/molecule";
 import { BOND_LEN, RING_TEMPLATES, ISOTOPE_PRESETS } from "../model/constants";
+import { FUNCTIONAL_GROUP_TEMPLATES } from "../model/functionalGroupTemplates";
 import type { BondOrder, BondStereo } from "../types/chemistry";
 
 type DragState =
@@ -225,6 +226,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         ? { type: "bond", a1: molecule.bonds[hitBond].a1, a2: molecule.bonds[hitBond].a2 }
         : { type: "none" };
       store.placeRing(template, pt, attachment);
+      return;
+    }
+
+    if (tool === "functional-group") {
+      const template = FUNCTIONAL_GROUP_TEMPLATES.find((t) => t.id === store.functionalGroupTemplateId)!;
+      const attachment: FunctionalGroupAttachment = hitAtom ? { type: "atom", atomId: hitAtom } : { type: "none" };
+      store.placeFunctionalGroup(template, pt, attachment);
       return;
     }
 

@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
 import * as M from "../model/molecule";
 import { nextId } from "../model/id";
 import { placeRing as placeRingImpl } from "../engine/ringPlacement";
+import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "../model/constants";
 
@@ -153,6 +154,7 @@ interface MoleculeStore {
   hoverPoint: Point | null;
   atomLabelRevealTargets: Set<string>;
   ringTemplateId: string;
+  functionalGroupTemplateId: string;
   selected: Set<string>;
   view: ViewTransform;
   theme: Theme;
@@ -200,6 +202,7 @@ interface MoleculeStore {
   setHoverPoint: (p: Point | null) => void;
   setAtomLabelRevealTargets: (targets: Set<string>) => void;
   setRingTemplateId: (id: string) => void;
+  setFunctionalGroupTemplateId: (id: string) => void;
   setSelected: (s: Set<string>) => void;
   setView: (v: ViewTransform | ((v: ViewTransform) => ViewTransform)) => void;
   toggleTheme: () => void;
@@ -292,6 +295,7 @@ interface MoleculeStore {
   deleteBondTransient: (id: string) => void;
   deleteSelection: () => void;
   placeRing: (template: RingTemplate, center: Point, attachment: RingAttachment) => void;
+  placeFunctionalGroup: (template: FunctionalGroupTemplate, center: Point, attachment: FunctionalGroupAttachment) => void;
   loadMolecule: (mol: Molecule) => void;
   /** Reopens a full saved project — every tab it had, unlike loadMolecule
    * which is also used for MOL/CDXML/PubChem imports that intentionally
@@ -452,6 +456,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     hoverPoint: null,
     atomLabelRevealTargets: new Set(),
     ringTemplateId: "benzene",
+    functionalGroupTemplateId: "carboxylic-acid",
     selected: new Set(),
     view: { scale: 1, tx: 0, ty: 0 },
     theme: "light",
@@ -480,6 +485,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setHoverPoint: (p) => set({ hoverPoint: p }),
     setAtomLabelRevealTargets: (targets) => set({ atomLabelRevealTargets: targets }),
     setRingTemplateId: (id) => set({ ringTemplateId: id }),
+    setFunctionalGroupTemplateId: (id) => set({ functionalGroupTemplateId: id }),
     setSelected: (s) => set({ selected: s }),
     setView: (v) => set((s) => ({ view: typeof v === "function" ? v(s.view) : v })),
     toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
@@ -602,6 +608,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     placeRing: (template, center, attachment) => {
       commit((mol) => placeRingImpl(mol, template, center, attachment));
+    },
+    placeFunctionalGroup: (template, center, attachment) => {
+      commit((mol) => placeFunctionalGroupImpl(mol, template, center, attachment));
     },
 
     loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set(), hasUnsavedChanges: true }),

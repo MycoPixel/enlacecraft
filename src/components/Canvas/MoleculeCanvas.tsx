@@ -10,10 +10,12 @@ import { AnnotationToolbar } from "./AnnotationToolbar";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
 import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
 import { previewRingLoops } from "../../engine/ringPlacement";
+import { previewFunctionalGroupSegments } from "../../engine/functionalGroupPlacement";
 import { computeExplicitHydrogens } from "../../engine/explicitHydrogens";
 import { bracketPairLayout } from "../../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, RING_TEMPLATES } from "../../model/constants";
-import type { BracketAnnotation, RingAttachment } from "../../types/chemistry";
+import { FUNCTIONAL_GROUP_TEMPLATES } from "../../model/functionalGroupTemplates";
+import type { BracketAnnotation, RingAttachment, FunctionalGroupAttachment } from "../../types/chemistry";
 
 export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(_props, ref) {
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -43,6 +45,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const hoverBondId = useMoleculeStore((s) => s.hoverBondId);
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
+  const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
   const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown } = useCanvasInteractions(svgRef);
@@ -64,6 +67,19 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
     : { type: "none" };
   const ringPreviewLoops = ringTemplate && hoverPoint
     ? previewRingLoops(molecule, ringTemplate, hoverPoint, ringAttachment)
+    : null;
+
+  // Hover preview for the functional-group tool: same idea as the ring
+  // preview above (no "bond" attachment case here — fusing a functional
+  // group onto an existing bond isn't a chemically sensible operation the
+  // way ring-fusion is, so it only ever attaches through a single atom or
+  // drops free on an empty canvas).
+  const functionalGroupTemplate = tool === "functional-group"
+    ? FUNCTIONAL_GROUP_TEMPLATES.find((t) => t.id === functionalGroupTemplateId) ?? null
+    : null;
+  const functionalGroupAttachment: FunctionalGroupAttachment = hoverAtomId ? { type: "atom", atomId: hoverAtomId } : { type: "none" };
+  const functionalGroupPreviewSegments = functionalGroupTemplate && hoverPoint
+    ? previewFunctionalGroupSegments(molecule, functionalGroupTemplate, hoverPoint, functionalGroupAttachment)
     : null;
 
   // Free-rotation handle: shown above the current selection's bounding box
@@ -369,6 +385,33 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
                 strokeWidth={3.5}
                 strokeLinecap="round"
                 opacity={0.6}
+              />
+            )}
+          </g>
+        )}
+        {functionalGroupPreviewSegments && (
+          <g opacity={0.6} pointerEvents="none" data-export-exclude="true">
+            {functionalGroupPreviewSegments.map((seg, i) => (
+              <line
+                key={i}
+                x1={seg.x1}
+                y1={seg.y1}
+                x2={seg.x2}
+                y2={seg.y2}
+                stroke="var(--accent)"
+                strokeWidth={1.6}
+                strokeDasharray="3 2"
+                strokeLinecap="round"
+              />
+            ))}
+            {hoverAtomId && molecule.atoms[hoverAtomId] && (
+              <circle
+                cx={molecule.atoms[hoverAtomId].x}
+                cy={molecule.atoms[hoverAtomId].y}
+                r={9}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth={1.8}
               />
             )}
           </g>

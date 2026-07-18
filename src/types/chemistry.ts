@@ -153,6 +153,7 @@ export type ToolId =
   | "atom"
   | "chain"
   | "ring"
+  | "functional-group"
   | "charge-plus"
   | "charge-minus"
   | "lone-pair"
@@ -203,6 +204,57 @@ export interface RingTemplate {
    */
   fused?: boolean;
 }
+
+/** One atom in a FunctionalGroupTemplate's local layout — see that type's
+ * doc comment for the coordinate convention. */
+export interface FunctionalGroupAtom {
+  /** Local id, unique within this template only (freely reused across
+   * different templates) — referenced by FunctionalGroupBond.from/to and
+   * by the template's own attachKey. */
+  key: string;
+  element: Element;
+  x: number;
+  y: number;
+  /** Formal charge, for groups that need one (e.g. nitro's N+/O-).
+   * Omitted (0) for everything else. */
+  charge?: number;
+}
+
+export interface FunctionalGroupBond {
+  from: string;
+  to: string;
+  order: BondOrder;
+}
+
+/**
+ * A pre-made functional group (carboxylic acid, ketone, amine, ...)
+ * insertable via the sidebar's functional-group tool, attached through a
+ * single point — either fused onto an existing atom (extending away from
+ * its existing bonds, the same convention as a single-ring RingTemplate's
+ * atom attachment) or dropped centered on an empty-canvas click.
+ *
+ * Coordinate convention: `attachKey` names the local atom that plays the
+ * role of the attachment point. Local coordinates are otherwise free-form
+ * (drawn however reads clearly at BOND_LEN scale), but by convention
+ * `attachKey` sits at local (0, 0) and the group extends toward +x (i.e.
+ * its own bonded neighbor(s) have positive local x) — placeFunctionalGroup
+ * figures out the real-world rotation from that, mirroring how
+ * engine/ringPlacement.ts orients a ring off an attach atom.
+ *
+ * When attaching onto an existing atom, that atom's own element/identity
+ * is left untouched (attachKey is a template-only placeholder for wherever
+ * the attachment lands) — same reasoning as RingTemplate.heteroatoms'
+ * "don't overwrite an existing atom" rule.
+ */
+export interface FunctionalGroupTemplate {
+  id: string;
+  label: string;
+  atoms: FunctionalGroupAtom[];
+  bonds: FunctionalGroupBond[];
+  attachKey: string;
+}
+
+export type FunctionalGroupAttachment = { type: "none" } | { type: "atom"; atomId: string };
 
 export type Theme = "light" | "dark";
 

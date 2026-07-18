@@ -7,6 +7,7 @@ import { ElementPicker } from "./ElementPicker";
 import { GroupPicker } from "./GroupPicker";
 import { IsotopePicker } from "./IsotopePicker";
 import { RingPicker, RingIcon } from "./RingPicker";
+import { FunctionalGroupPicker, FunctionalGroupBadge } from "./FunctionalGroupPicker";
 import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
@@ -27,6 +28,8 @@ export function Sidebar() {
   const setAtomElement = useMoleculeStore((s) => s.setAtomElement);
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
   const setRingTemplateId = useMoleculeStore((s) => s.setRingTemplateId);
+  const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
+  const setFunctionalGroupTemplateId = useMoleculeStore((s) => s.setFunctionalGroupTemplateId);
   const pasteFragment = useMoleculeStore((s) => s.pasteFragment);
   const view = useMoleculeStore((s) => s.view);
   const setView = useMoleculeStore((s) => s.setView);
@@ -197,6 +200,15 @@ export function Sidebar() {
           />
         )}>
           <RingIcon templateId={ringTemplateId} />
+        </ToolDropdown>
+        <ToolDropdown title={t("tool.functionalGroup")} active={tool === "functional-group"} renderContent={(close) => (
+          <FunctionalGroupPicker
+            value={functionalGroupTemplateId}
+            onChange={(id) => { setFunctionalGroupTemplateId(id); setTool("functional-group"); close(); }}
+            active={tool === "functional-group"}
+          />
+        )}>
+          <FunctionalGroupBadge templateId={functionalGroupTemplateId} />
         </ToolDropdown>
         {STRUCTURE_TEMPLATES.length > 0 && (
           <ToolDropdown title={t("tool.structures")} active={false} renderContent={(close) => (
