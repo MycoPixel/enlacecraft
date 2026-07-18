@@ -1,14 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMoleculeStore, effectiveCanvasBackground } from "./store/useMoleculeStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useClipboard } from "./hooks/useClipboard";
 import { useIsMobile } from "./hooks/useIsMobile";
+import { useAutosave } from "./hooks/useAutosave";
 import { TopBar } from "./components/TopBar/TopBar";
 import { TabBar } from "./components/TabBar/TabBar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { MoleculeCanvas } from "./components/Canvas/MoleculeCanvas";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { MobileToolbar } from "./components/MobileToolbar/MobileToolbar";
+import { ShortcutsOverlay } from "./components/common/ShortcutsOverlay";
 
 export default function App() {
   const theme = useMoleculeStore((s) => s.theme);
@@ -16,9 +18,24 @@ export default function App() {
   const language = useMoleculeStore((s) => s.language);
   const isMobile = useIsMobile();
   const svgRef = useRef<SVGSVGElement>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useKeyboardShortcuts();
   useClipboard(svgRef);
+  useAutosave();
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -53,7 +70,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopBar svgRef={svgRef} />
+      <TopBar svgRef={svgRef} onOpenShortcuts={() => setShortcutsOpen(true)} />
       <TabBar />
       <div className="body">
         {!isMobile && <Sidebar />}
@@ -63,6 +80,7 @@ export default function App() {
         </main>
       </div>
       {isMobile && <MobileToolbar />}
+      <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }

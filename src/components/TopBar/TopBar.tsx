@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Contrast, AlertTriangle, Grid2x2, Square, Grid3x3 } from "lucide-react";
+import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Contrast, AlertTriangle, Grid2x2, Square, Grid3x3, HelpCircle } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
@@ -20,9 +20,10 @@ import { useT } from "../../i18n/useT";
 
 interface TopBarProps {
   svgRef: React.RefObject<SVGSVGElement>;
+  onOpenShortcuts: () => void;
 }
 
-export function TopBar({ svgRef }: TopBarProps) {
+export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const molecule = useMoleculeStore((s) => s.molecule);
   const theme = useMoleculeStore((s) => s.theme);
   const toggleTheme = useMoleculeStore((s) => s.toggleTheme);
@@ -225,6 +226,9 @@ export function TopBar({ svgRef }: TopBarProps) {
           onClick={toggleShowGrid}
         >
           <Grid3x3 size={18} />
+        </ToolButton>
+        <ToolButton title={t("tool.shortcuts")} onClick={onOpenShortcuts}>
+          <HelpCircle size={18} />
         </ToolButton>
         <ClearDrawingButton />
       </div>
