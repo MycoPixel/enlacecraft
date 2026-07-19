@@ -43,9 +43,3 @@ export function FunctionalGroupPicker({ value, onChange, active }: FunctionalGro
     </div>
   );
 }
-
-/** Badge for whichever group is currently selected — used as the
- * collapsed dropdown trigger's own label, mirroring RingIcon/RingPicker. */
-export function FunctionalGroupBadge({ templateId }: { templateId: string }) {
-  return <span className="fgroup-trigger-badge">{BADGE[templateId] ?? "?"}</span>;
-}

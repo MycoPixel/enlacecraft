@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets } from "lucide-react";
+import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel } from "./ToolButton";
 import { BondGlyph } from "./BondGlyphs";
@@ -7,7 +7,7 @@ import { ElementPicker } from "./ElementPicker";
 import { GroupPicker } from "./GroupPicker";
 import { IsotopePicker } from "./IsotopePicker";
 import { RingPicker, RingIcon } from "./RingPicker";
-import { FunctionalGroupPicker, FunctionalGroupBadge } from "./FunctionalGroupPicker";
+import { FunctionalGroupPicker } from "./FunctionalGroupPicker";
 import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
@@ -158,11 +158,31 @@ export function Sidebar() {
       />
 
       <SectionLabel>{t("section.groups")}</SectionLabel>
-      <GroupPicker
-        value={atomGroup}
-        onChange={(g) => { setAtomGroup(g); setTool("atom"); }}
-        active={tool === "atom" && !!atomGroup}
-      />
+      <div className="row">
+        <ToolDropdown
+          title={t("tool.groups")}
+          active={(tool === "atom" && !!atomGroup) || tool === "functional-group"}
+          renderContent={(close) => (
+            <div className="groups-menu">
+              <SectionLabel>{t("section.groupsAbbreviated")}</SectionLabel>
+              <GroupPicker
+                value={atomGroup}
+                onChange={(g) => { setAtomGroup(g); setTool("atom"); close(); }}
+                active={tool === "atom" && !!atomGroup}
+              />
+              <SectionLabel>{t("section.groupsFunctional")}</SectionLabel>
+              <FunctionalGroupPicker
+                value={functionalGroupTemplateId}
+                onChange={(id) => { setFunctionalGroupTemplateId(id); setTool("functional-group"); close(); }}
+                active={tool === "functional-group"}
+              />
+              <p className="groups-menu__hint">{t("fgroup.rotateHint")}</p>
+            </div>
+          )}
+        >
+          <Group size={18} />
+        </ToolDropdown>
+      </div>
 
       <SectionLabel>{t("section.isotope")}</SectionLabel>
       <IsotopePicker
@@ -200,15 +220,6 @@ export function Sidebar() {
           />
         )}>
           <RingIcon templateId={ringTemplateId} />
-        </ToolDropdown>
-        <ToolDropdown title={t("tool.functionalGroup")} active={tool === "functional-group"} renderContent={(close) => (
-          <FunctionalGroupPicker
-            value={functionalGroupTemplateId}
-            onChange={(id) => { setFunctionalGroupTemplateId(id); setTool("functional-group"); close(); }}
-            active={tool === "functional-group"}
-          />
-        )}>
-          <FunctionalGroupBadge templateId={functionalGroupTemplateId} />
         </ToolDropdown>
         {STRUCTURE_TEMPLATES.length > 0 && (
           <ToolDropdown title={t("tool.structures")} active={false} renderContent={(close) => (

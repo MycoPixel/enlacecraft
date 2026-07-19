@@ -46,6 +46,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
   const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
+  const functionalGroupRotation = useMoleculeStore((s) => s.functionalGroupRotation);
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
   const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown } = useCanvasInteractions(svgRef);
@@ -79,7 +80,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
     : null;
   const functionalGroupAttachment: FunctionalGroupAttachment = hoverAtomId ? { type: "atom", atomId: hoverAtomId } : { type: "none" };
   const functionalGroupPreviewSegments = functionalGroupTemplate && hoverPoint
-    ? previewFunctionalGroupSegments(molecule, functionalGroupTemplate, hoverPoint, functionalGroupAttachment)
+    ? previewFunctionalGroupSegments(molecule, functionalGroupTemplate, hoverPoint, functionalGroupAttachment, functionalGroupRotation)
     : null;
 
   // Free-rotation handle: shown above the current selection's bounding box

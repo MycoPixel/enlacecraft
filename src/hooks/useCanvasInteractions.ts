@@ -503,12 +503,24 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    const store = useMoleculeStore.getState();
+
+    if (store.tool === "functional-group") {
+      // While placing a functional group, scrolling adjusts its angle
+      // instead of zooming — the group's automatic "point away from
+      // existing bonds" orientation isn't always the one actually wanted,
+      // and this lets it be dialed in before committing with a click. 15°
+      // per notch matches the app's other rotation step (rotateSelection).
+      const step = Math.PI / 12;
+      store.setFunctionalGroupRotation((r) => r + (e.deltaY < 0 ? step : -step));
+      return;
+    }
+
     const svg = svgRef.current!;
     const rect = svg.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    const store = useMoleculeStore.getState();
     store.setView((v) => {
       const newScale = Math.min(4, Math.max(0.25, v.scale * factor));
       const tx = mx - ((mx - v.tx) / v.scale) * newScale;

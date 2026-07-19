@@ -3,9 +3,22 @@ import type { Element, RingTemplate } from "../types/chemistry";
 /** Canonical bond length in SVG user units at zoom = 1. */
 export const BOND_LEN = 42;
 
+/** All elements the app can place on an atom, common ones first — used
+ * wherever the full set is genuinely needed (e.g. isotopes, molfile
+ * import). For the sidebar picker itself, see COMMON_ELEMENTS/
+ * EXTENDED_ELEMENTS below, which split this into an always-visible set
+ * plus an expandable "more" set. */
 export const ELEMENTS: Element[] = [
   "C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H", "B", "Si",
 ];
+
+/** Shown directly in the sidebar's element picker, no expansion needed —
+ * the handful of elements that come up in the overwhelming majority of
+ * structures. */
+export const COMMON_ELEMENTS: Element[] = ["C", "N", "O", "H", "Cl", "F", "Br"];
+
+/** Everything else, tucked behind the picker's "more elements" toggle. */
+export const EXTENDED_ELEMENTS: Element[] = ELEMENTS.filter((el) => !COMMON_ELEMENTS.includes(el));
 
 /** Approximate CPK-style coloring for atom labels. */
 export const ELEMENT_COLOR: Record<Element, string> = {
