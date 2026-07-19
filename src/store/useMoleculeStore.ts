@@ -160,7 +160,25 @@ interface MoleculeStore {
    * top of the automatic "point away from existing bonds" orientation —
    * see engine/functionalGroupPlacement.ts. Resets to 0 whenever a
    * different template is picked. */
-  functionalGroupRotation: number;
+  /** Explicit angle (radians) for the pending functional-group placement,
+   * set by dragging out from the attach point/click before releasing —
+   * the same press-drag-release interaction as drawing a bond (see
+   * useCanvasInteractions' "functional-group" drag mode). Null means no
+   * explicit angle was dragged, so placement falls back to the automatic
+   * "point away from existing bonds" orientation — see
+   * engine/functionalGroupPlacement.ts. Reset to null after every
+   * placement and whenever a different template is picked. */
+  functionalGroupDesiredAngle: number | null;
+  /** Set for the duration of a functional-group drag (see
+   * useCanvasInteractions' "functional-group" drag mode) to the attach
+   * point/atom fixed at press time — mirrors bond-dragging keeping its
+   * `from` atom fixed while only the angle changes as the cursor moves.
+   * MoleculeCanvas's hover/drag preview uses this instead of the live
+   * hover position while it's set, so the preview doesn't jump to a
+   * different atom if the cursor happens to drift over one mid-drag. Null
+   * whenever nothing's being dragged (a plain hover, or not using the
+   * tool at all). */
+  functionalGroupPendingPlacement: { template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point } | null;
   selected: Set<string>;
   view: ViewTransform;
   theme: Theme;
@@ -209,7 +227,8 @@ interface MoleculeStore {
   setAtomLabelRevealTargets: (targets: Set<string>) => void;
   setRingTemplateId: (id: string) => void;
   setFunctionalGroupTemplateId: (id: string) => void;
-  setFunctionalGroupRotation: (rad: number | ((r: number) => number)) => void;
+  setFunctionalGroupDesiredAngle: (angle: number | null) => void;
+  setFunctionalGroupPendingPlacement: (p: { template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point } | null) => void;
   setSelected: (s: Set<string>) => void;
   setView: (v: ViewTransform | ((v: ViewTransform) => ViewTransform)) => void;
   toggleTheme: () => void;
@@ -464,7 +483,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     atomLabelRevealTargets: new Set(),
     ringTemplateId: "benzene",
     functionalGroupTemplateId: "carboxylic-acid",
-    functionalGroupRotation: 0,
+    functionalGroupDesiredAngle: null,
+    functionalGroupPendingPlacement: null,
     selected: new Set(),
     view: { scale: 1, tx: 0, ty: 0 },
     theme: "light",
@@ -493,9 +513,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setHoverPoint: (p) => set({ hoverPoint: p }),
     setAtomLabelRevealTargets: (targets) => set({ atomLabelRevealTargets: targets }),
     setRingTemplateId: (id) => set({ ringTemplateId: id }),
-    setFunctionalGroupTemplateId: (id) => set({ functionalGroupTemplateId: id, functionalGroupRotation: 0 }),
-    setFunctionalGroupRotation: (rad) =>
-      set((s) => ({ functionalGroupRotation: typeof rad === "function" ? rad(s.functionalGroupRotation) : rad })),
+    setFunctionalGroupTemplateId: (id) => set({ functionalGroupTemplateId: id, functionalGroupDesiredAngle: null }),
+    setFunctionalGroupDesiredAngle: (angle) => set({ functionalGroupDesiredAngle: angle }),
+    setFunctionalGroupPendingPlacement: (p) => set({ functionalGroupPendingPlacement: p }),
     setSelected: (s) => set({ selected: s }),
     setView: (v) => set((s) => ({ view: typeof v === "function" ? v(s.view) : v })),
     toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
@@ -620,7 +640,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       commit((mol) => placeRingImpl(mol, template, center, attachment));
     },
     placeFunctionalGroup: (template, center, attachment) => {
-      commit((mol) => placeFunctionalGroupImpl(mol, template, center, attachment, get().functionalGroupRotation));
+      commit((mol) => placeFunctionalGroupImpl(mol, template, center, attachment, get().functionalGroupDesiredAngle));
     },
 
     loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set(), hasUnsavedChanges: true }),

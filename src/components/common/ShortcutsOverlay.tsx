@@ -59,7 +59,7 @@ const GROUPS: ShortcutGroup[] = [
     titleKey: "shortcuts.group.view",
     items: [
       { keys: "Scroll", descKey: "shortcuts.zoom" },
-      { keys: "Scroll (Functional group tool)", descKey: "shortcuts.rotateFunctionalGroup" },
+      { keys: "Drag (Functional group tool)", descKey: "shortcuts.rotateFunctionalGroup" },
       { keys: "Middle-click drag", descKey: "shortcuts.panMiddle" },
       { keys: "Right-click", descKey: "shortcuts.rightClickSelect" },
       { keys: "Shift + click", descKey: "shortcuts.addToSelection" },

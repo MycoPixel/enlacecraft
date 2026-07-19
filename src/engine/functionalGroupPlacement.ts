@@ -15,18 +15,20 @@ function rotate(p: Point, cos: number, sin: number): Point {
  * previewFunctionalGroupSegments (which just draws it), so the hover
  * preview always matches exactly where the group will actually land.
  *
- * `rotationOffset` (radians) is added on top of the automatic "point away
- * from existing bonds" orientation — the manual adjustment a person can
- * dial in by scrolling while hovering with the functional-group tool (see
- * useCanvasInteractions' onWheel), for the cases the automatic choice
- * isn't the angle they actually want.
+ * `desiredDir` (radians), when given, is used directly as the group's
+ * growth direction instead of the automatic "point away from existing
+ * bonds" default — the angle a person drags out before releasing, the
+ * same press-drag-release interaction drawing a bond already uses (see
+ * useCanvasInteractions' "functional-group" drag mode, which is also
+ * responsible for snapping it to 30° unless freeform). Pass null for the
+ * plain automatic orientation (e.g. a click with no drag).
  */
 function resolveFunctionalGroupTransform(
   mol: Molecule,
   template: FunctionalGroupTemplate,
   center: Point,
   attachment: FunctionalGroupAttachment,
-  rotationOffset: number
+  desiredDir: number | null
 ): { worldOf: (p: Point) => Point; attachAtomId: string | null } {
   const local: Record<string, Point> = {};
   for (const a of template.atoms) local[a.key] = { x: a.x, y: a.y };
@@ -47,7 +49,7 @@ function resolveFunctionalGroupTransform(
   if (attachment.type === "atom") {
     const atom = mol.atoms[attachment.atomId];
     const existingAngles = neighborAngles(mol, attachment.atomId);
-    const dir = (existingAngles.length ? existingAngles[0] + Math.PI : -Math.PI / 2) + rotationOffset;
+    const dir = desiredDir ?? (existingAngles.length ? existingAngles[0] + Math.PI : -Math.PI / 2);
     theta = dir - localGrowthAngle;
     const cos = Math.cos(theta);
     const sin = Math.sin(theta);
@@ -58,8 +60,8 @@ function resolveFunctionalGroupTransform(
   } else {
     // No existing atom to point away from: default to pointing "up",
     // matching every other template/tool's empty-canvas default in this
-    // app (rings, chains, ...), then apply the same manual offset.
-    const dir = -Math.PI / 2 + rotationOffset;
+    // app (rings, chains, ...), unless a direction was explicitly dragged.
+    const dir = desiredDir ?? -Math.PI / 2;
     theta = dir - localGrowthAngle;
     const cos = Math.cos(theta);
     const sin = Math.sin(theta);
@@ -82,9 +84,9 @@ function resolveFunctionalGroupTransform(
  * (extending away from its existing bonds, same convention as a
  * single-ring RingTemplate's atom attachment — see
  * engine/ringPlacement.ts) or dropped on an empty-canvas click.
- * `rotationOffset` (radians) is the manual angle adjustment described in
- * resolveFunctionalGroupTransform's doc comment; pass 0 for the plain
- * automatic orientation.
+ * `desiredDir` is the manually-dragged angle described in
+ * resolveFunctionalGroupTransform's doc comment; pass null (the default)
+ * for the plain automatic orientation.
  *
  * On an empty canvas, the template's attachKey position isn't
  * materialized as a real atom at all — the group is placed as if
@@ -99,9 +101,9 @@ export function placeFunctionalGroup(
   template: FunctionalGroupTemplate,
   center: Point,
   attachment: FunctionalGroupAttachment,
-  rotationOffset: number = 0
+  desiredDir: number | null = null
 ): Molecule {
-  const { worldOf, attachAtomId } = resolveFunctionalGroupTransform(mol, template, center, attachment, rotationOffset);
+  const { worldOf, attachAtomId } = resolveFunctionalGroupTransform(mol, template, center, attachment, desiredDir);
 
   let working = mol;
   const ids: Record<string, string> = {};
@@ -136,8 +138,8 @@ export function placeFunctionalGroup(
 
 /**
  * Computes the line segments a functional group template would produce for
- * `attachment` and `rotationOffset`, without touching the molecule — for
- * the functional-group tool's hover preview. Each segment is a plain
+ * `attachment` and `desiredDir`, without touching the molecule — for the
+ * functional-group tool's hover/drag preview. Each segment is a plain
  * world-space line (bond order isn't distinguished visually here — a
  * single translucent line per bond is enough for a placement preview,
  * unlike the real BondView rendering).
@@ -147,9 +149,9 @@ export function previewFunctionalGroupSegments(
   template: FunctionalGroupTemplate,
   center: Point,
   attachment: FunctionalGroupAttachment,
-  rotationOffset: number = 0
+  desiredDir: number | null = null
 ): { x1: number; y1: number; x2: number; y2: number }[] {
-  const { worldOf, attachAtomId } = resolveFunctionalGroupTransform(mol, template, center, attachment, rotationOffset);
+  const { worldOf, attachAtomId } = resolveFunctionalGroupTransform(mol, template, center, attachment, desiredDir);
   const local: Record<string, Point> = {};
   for (const a of template.atoms) local[a.key] = { x: a.x, y: a.y };
 

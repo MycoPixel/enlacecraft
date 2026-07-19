@@ -46,7 +46,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
   const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
-  const functionalGroupRotation = useMoleculeStore((s) => s.functionalGroupRotation);
+  const functionalGroupDesiredAngle = useMoleculeStore((s) => s.functionalGroupDesiredAngle);
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
   const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown } = useCanvasInteractions(svgRef);
@@ -75,12 +75,24 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   // group onto an existing bond isn't a chemically sensible operation the
   // way ring-fusion is, so it only ever attaches through a single atom or
   // drops free on an empty canvas).
-  const functionalGroupTemplate = tool === "functional-group"
+  const functionalGroupPending = useMoleculeStore((s) => s.functionalGroupPendingPlacement);
+  const functionalGroupTemplate = functionalGroupPending
+    ? functionalGroupPending.template
+    : tool === "functional-group"
     ? FUNCTIONAL_GROUP_TEMPLATES.find((t) => t.id === functionalGroupTemplateId) ?? null
     : null;
-  const functionalGroupAttachment: FunctionalGroupAttachment = hoverAtomId ? { type: "atom", atomId: hoverAtomId } : { type: "none" };
-  const functionalGroupPreviewSegments = functionalGroupTemplate && hoverPoint
-    ? previewFunctionalGroupSegments(molecule, functionalGroupTemplate, hoverPoint, functionalGroupAttachment, functionalGroupRotation)
+  // While a placement is being dragged, the attach point/atom and center
+  // stay fixed at whatever they were at press time (functionalGroupPending
+  // — set by useCanvasInteractions) rather than following the live hover,
+  // exactly like a bond-drag keeps its own `from` atom fixed while only
+  // the angle changes. Only the plain (not-yet-dragging) hover preview
+  // uses the live hoverAtomId/hoverPoint.
+  const functionalGroupAttachment: FunctionalGroupAttachment = functionalGroupPending
+    ? functionalGroupPending.attachment
+    : hoverAtomId ? { type: "atom", atomId: hoverAtomId } : { type: "none" };
+  const functionalGroupCenter = functionalGroupPending ? functionalGroupPending.center : hoverPoint;
+  const functionalGroupPreviewSegments = functionalGroupTemplate && functionalGroupCenter
+    ? previewFunctionalGroupSegments(molecule, functionalGroupTemplate, functionalGroupCenter, functionalGroupAttachment, functionalGroupDesiredAngle)
     : null;
 
   // Free-rotation handle: shown above the current selection's bounding box

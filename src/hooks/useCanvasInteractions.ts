@@ -1,10 +1,10 @@
 import { useCallback, useRef, type RefObject } from "react";
-import type { Annotation, Molecule, Point, RingAttachment, FunctionalGroupAttachment } from "../types/chemistry";
+import type { Annotation, Molecule, Point, RingAttachment, FunctionalGroupAttachment, FunctionalGroupTemplate } from "../types/chemistry";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
 import { computeChainPoints } from "../engine/chainPlacement";
-import { angleOf, dist, polar } from "../model/geometry";
+import { angleOf, dist, polar, snapAngle } from "../model/geometry";
 import { fragmentOf } from "../model/molecule";
 import { BOND_LEN, RING_TEMPLATES, ISOTOPE_PRESETS } from "../model/constants";
 import { FUNCTIONAL_GROUP_TEMPLATES } from "../model/functionalGroupTemplates";
@@ -15,6 +15,7 @@ type DragState =
   | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
+  | { mode: "functional-group"; template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point }
   | { mode: "chain"; from: string | null; start: Point }
   | { mode: "erase"; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "marquee"; base: Set<string>; annotationBase: Set<string>; start: Point }
@@ -232,7 +233,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (tool === "functional-group") {
       const template = FUNCTIONAL_GROUP_TEMPLATES.find((t) => t.id === store.functionalGroupTemplateId)!;
       const attachment: FunctionalGroupAttachment = hitAtom ? { type: "atom", atomId: hitAtom } : { type: "none" };
-      store.placeFunctionalGroup(template, pt, attachment);
+      // Same press-drag-release interaction as drawing a bond: a plain
+      // click places the group at its automatic angle, but dragging first
+      // lets you set the angle yourself before it's committed (see
+      // onPointerMove/onPointerUp's "functional-group" branches).
+      dragRef.current = { mode: "functional-group", template, attachment, center: pt };
+      store.setFunctionalGroupDesiredAngle(null);
+      store.setFunctionalGroupPendingPlacement({ template, attachment, center: pt });
       return;
     }
 
@@ -372,6 +379,16 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
+    if (drag.mode === "functional-group") {
+      // Same interaction as dragging out a bond: no explicit angle until
+      // the cursor's actually moved away from the press point, then it
+      // snaps to 30° (Shift for the exact freeform angle instead).
+      const movedEnough = dist(drag.center, pt) > 12;
+      store.setFunctionalGroupDesiredAngle(movedEnough ? (e.shiftKey ? angleOf(drag.center, pt) : snapAngle(angleOf(drag.center, pt))) : null);
+      store.setStatus("status.dragFunctionalGroup");
+      return;
+    }
+
     if (drag.mode === "chain") {
       const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
       const anchor: Point = fromAtom ? { x: fromAtom.x, y: fromAtom.y } : drag.start;
@@ -455,6 +472,16 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
+    if (drag.mode === "functional-group") {
+      // placeFunctionalGroup reads the angle onPointerMove just set (or
+      // null, for a plain click with no drag) directly from the store.
+      store.placeFunctionalGroup(drag.template, drag.center, drag.attachment);
+      store.setFunctionalGroupDesiredAngle(null);
+      store.setFunctionalGroupPendingPlacement(null);
+      store.setStatus("status.ready");
+      return;
+    }
+
     if (drag.mode === "chain") {
       const pt = clientToWorld(e.clientX, e.clientY);
       const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
@@ -504,18 +531,6 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const store = useMoleculeStore.getState();
-
-    if (store.tool === "functional-group") {
-      // While placing a functional group, scrolling adjusts its angle
-      // instead of zooming — the group's automatic "point away from
-      // existing bonds" orientation isn't always the one actually wanted,
-      // and this lets it be dialed in before committing with a click. 15°
-      // per notch matches the app's other rotation step (rotateSelection).
-      const step = Math.PI / 12;
-      store.setFunctionalGroupRotation((r) => r + (e.deltaY < 0 ? step : -step));
-      return;
-    }
-
     const svg = svgRef.current!;
     const rect = svg.getBoundingClientRect();
     const mx = e.clientX - rect.left;
