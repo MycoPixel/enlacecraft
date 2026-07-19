@@ -40,13 +40,26 @@ export function ConfirmPopover({
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
     const left = Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - 8);
-    setCoords({ top: rect.bottom + 8, left: Math.max(8, left) });
+    // Prefer the popover's real measured height once mounted; fall back to
+    // an estimate for the very first open. Flips the popover above the
+    // anchor when it wouldn't fit below, so triggers near the bottom of the
+    // viewport don't open a popover that's invisible off-screen.
+    const estimatedHeight = popoverRef.current?.offsetHeight ?? 110;
+    const fitsBelow = rect.bottom + 8 + estimatedHeight <= window.innerHeight - 8;
+    const top = fitsBelow ? rect.bottom + 8 : Math.max(8, rect.top - estimatedHeight - 8);
+    setCoords({ top, left: Math.max(8, left) });
   };
 
   useLayoutEffect(() => {
     if (open) reposition();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Re-run once mounted so the flip-above check uses the real height.
+  useLayoutEffect(() => {
+    if (open && coords) reposition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, !!coords]);
 
   useEffect(() => {
     if (!open) return;

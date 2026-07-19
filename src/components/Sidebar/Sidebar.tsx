@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { ToolButton, SectionLabel } from "./ToolButton";
+import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
 import { BondGlyph } from "./BondGlyphs";
 import { ElementPicker } from "./ElementPicker";
 import { GroupPicker } from "./GroupPicker";
@@ -116,6 +116,8 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar" style={{ width: sidebarWidth }}>
+      {/* Tools: how you interact with the canvas itself (as opposed to what
+          you draw with it) — select/move, pan, erase. */}
       <SectionLabel>{t("section.select")}</SectionLabel>
       <ToolButton title={t("tool.selectHint")} active={tool === "select"} onClick={() => setTool("select")}>
         <MousePointer2 size={18} />
@@ -126,6 +128,8 @@ export function Sidebar() {
       <ToolButton title={t("tool.erase")} active={tool === "erase"} onClick={() => setTool("erase")}>
         <Eraser size={18} />
       </ToolButton>
+
+      <div className="sidebar-divider" />
 
       <SectionLabel>{t("section.bonds")}</SectionLabel>
       <ToolButton title={t("tool.bondSingle")} active={tool === "bond-1"} onClick={() => setTool("bond-1")}>
@@ -150,6 +154,14 @@ export function Sidebar() {
         {BondGlyph.chain}
       </ToolButton>
 
+      <div className="sidebar-divider" />
+
+      {/* Atom: everything that configures what gets placed on an atom —
+          element, abbreviated/functional groups, isotopes, and the small
+          marks (charge, lone pairs, radicals, stereo labels). These used to
+          be four separate top-level sections; grouping them under one
+          header with lighter sub-labels makes it read as one place to go
+          for "atom stuff" instead of four unrelated stops. */}
       <SectionLabel>{t("section.atom")}</SectionLabel>
       <ElementPicker
         value={atomElement}
@@ -157,7 +169,7 @@ export function Sidebar() {
         active={tool === "atom" && !atomGroup && !atomIsotope}
       />
 
-      <SectionLabel>{t("section.groups")}</SectionLabel>
+      <SubsectionLabel>{t("section.groups")}</SubsectionLabel>
       <div className="row">
         <ToolDropdown
           title={t("tool.groups")}
@@ -184,14 +196,14 @@ export function Sidebar() {
         </ToolDropdown>
       </div>
 
-      <SectionLabel>{t("section.isotope")}</SectionLabel>
+      <SubsectionLabel>{t("section.isotope")}</SubsectionLabel>
       <IsotopePicker
         value={atomIsotope}
         onChange={(p) => { setAtomIsotope(p); setTool("atom"); }}
         active={tool === "atom" && !!atomIsotope}
       />
 
-      <SectionLabel>{t("section.charge")}</SectionLabel>
+      <SubsectionLabel>{t("section.charge")}</SubsectionLabel>
       <div className="row">
         <ToolButton title={t("tool.chargePlus")} active={tool === "charge-plus"} onClick={() => setTool("charge-plus")}>
           <Plus size={16} />
@@ -209,6 +221,8 @@ export function Sidebar() {
           <StereoLabelIcon />
         </ToolButton>
       </div>
+
+      <div className="sidebar-divider" />
 
       <SectionLabel>{t("section.rings")}</SectionLabel>
       <div className="row">
@@ -236,6 +250,13 @@ export function Sidebar() {
         )}
       </div>
 
+      <div className="sidebar-divider" />
+
+      {/* Annotations: everything drawn on top of the molecule rather than
+          part of it — text, reaction arrows, brackets, and (folded in here
+          rather than kept as their own "Reaction scheme" section, since
+          they're just two more annotation types) the reactant/product plus
+          sign and reagent text. */}
       <SectionLabel>{t("section.annotations")}</SectionLabel>
       <div className="row">
         <ToolButton title={t("tool.text")} active={tool === "text"} onClick={() => setTool("text")}>
@@ -282,10 +303,6 @@ export function Sidebar() {
         )}>
           <Brackets size={18} />
         </ToolDropdown>
-      </div>
-
-      <SectionLabel>{t("section.reactionScheme")}</SectionLabel>
-      <div className="row">
         <ToolButton title={t("tool.plus")} active={tool === "plus"} onClick={() => setTool("plus")}>
           <Plus size={18} />
         </ToolButton>
@@ -293,6 +310,8 @@ export function Sidebar() {
           <ReagentTextIcon />
         </ToolButton>
       </div>
+
+      <div className="sidebar-divider" />
 
       <SectionLabel>{t("section.transform")}</SectionLabel>
       <div className="row">
@@ -312,6 +331,11 @@ export function Sidebar() {
         <ToolButton title={t("tool.zoomOut")} onClick={() => zoomBy(1 / 1.2)}><ZoomOut size={17} /></ToolButton>
         <ToolButton title={t("tool.resetView")} onClick={resetView}><MoveDiagonal size={17} /></ToolButton>
       </div>
+
+      {/* A hairline before Clear sets it apart as the one destructive
+          action down here among view controls, so it doesn't read as just
+          another view button. */}
+      <div className="sidebar-divider" />
       <ClearDrawingButton withLabel />
       <div
         className="sidebar-resize-handle"

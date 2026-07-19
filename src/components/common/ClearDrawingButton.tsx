@@ -32,12 +32,27 @@ export function ClearDrawingButton({ withLabel }: { withLabel?: boolean }) {
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
     const left = Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - 8);
-    setCoords({ top: rect.bottom + 8, left: Math.max(8, left) });
+    // Use the popover's real height once it's mounted; before that (the
+    // very first open), fall back to a generous estimate. Without this, a
+    // trigger near the bottom of the viewport — like this button, which
+    // the sidebar's `.spacer` pushes to the bottom edge — would open a
+    // popover that renders mostly or entirely below the visible window.
+    const estimatedHeight = popoverRef.current?.offsetHeight ?? 110;
+    const fitsBelow = rect.bottom + 8 + estimatedHeight <= window.innerHeight - 8;
+    const top = fitsBelow ? rect.bottom + 8 : Math.max(8, rect.top - estimatedHeight - 8);
+    setCoords({ top, left: Math.max(8, left) });
   };
 
   useLayoutEffect(() => {
     if (open) reposition();
   }, [open]);
+
+  // Re-run once the popover has actually mounted so the flip-above check
+  // above uses its real measured height instead of the estimate.
+  useLayoutEffect(() => {
+    if (open && coords) reposition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, !!coords]);
 
   useEffect(() => {
     if (!open) return;

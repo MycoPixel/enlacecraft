@@ -31,3 +31,13 @@ export function Divider() {
 export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="section-label">{children}</div>;
 }
+
+/**
+ * A lighter-weight label for a sub-group nested inside a broader section
+ * (e.g. "Groups" / "Isotopes" / "Marks" within the "Atom" section) — signals
+ * "still part of the section above" rather than starting a new one, so
+ * closely-related pickers don't each need their own full-weight header.
+ */
+export function SubsectionLabel({ children }: { children: ReactNode }) {
+  return <div className="subsection-label">{children}</div>;
+}
