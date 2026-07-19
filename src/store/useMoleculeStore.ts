@@ -346,6 +346,9 @@ interface MoleculeStore {
   importCompound: (mol: Molecule) => void;
   pasteFragment: (fragment: { molecule: Molecule; annotations: Annotation[] }) => void;
   rotateSelection: (deltaDeg: number) => void;
+  alignSelection: (mode: M.AlignMode) => void;
+  distributeSelection: (axis: M.DistributeAxis) => void;
+  cleanUpSelection: () => void;
   clear: () => void;
   /** Whether the *active tab* has changed since its last "clean" point
    * (page load, Clear, or opening/saving a .enlacecraft project file).
@@ -895,6 +898,32 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       }
       const center = { x: sx / ids.length, y: sy / ids.length };
       commit((mol) => M.rotateAtoms(mol, ids, center, (deltaDeg * Math.PI) / 180));
+    },
+
+    // Align/distribute, unlike rotate, don't fall back to "the whole
+    // molecule" when nothing's selected — snapping every fragment in the
+    // drawing onto one line is a drastic, surprising thing to do by
+    // accident. The sidebar disables these buttons until enough separate
+    // fragments are selected (2+ to align, 3+ to distribute); these are a
+    // no-op below that anyway (see alignAtoms/distributeAtoms), so this is
+    // just an extra guard against calling them too early.
+    alignSelection: (mode) => {
+      const { molecule, selected } = get();
+      if (M.connectedComponents(molecule, [...selected]).length < 2) return;
+      commit((mol) => M.alignAtoms(mol, [...selected], mode));
+    },
+
+    distributeSelection: (axis) => {
+      const { molecule, selected } = get();
+      if (M.connectedComponents(molecule, [...selected]).length < 3) return;
+      commit((mol) => M.distributeAtoms(mol, [...selected], axis));
+    },
+
+    cleanUpSelection: () => {
+      const { molecule, selected } = get();
+      const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+      if (ids.length === 0) return;
+      commit((mol) => M.cleanUpAtoms(mol, ids));
     },
 
     moveAtomsTransient: (moves) => {

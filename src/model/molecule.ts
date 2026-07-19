@@ -1,5 +1,7 @@
 import type { Atom, Bond, BondOrder, BondStereo, DoubleBondSide, Element, Molecule, Point } from "../types/chemistry";
 import { nextId } from "./id";
+import { BOND_LEN } from "./constants";
+import { angleOf, polar, snapAngle } from "./geometry";
 
 export function emptyMolecule(): Molecule {
   return { atoms: {}, bonds: {} };
@@ -338,4 +340,238 @@ export function insertMolecule(
   }
 
   return { mol: { atoms, bonds }, newAtomIds };
+}
+
+/**
+ * Groups the given atom ids into connected components, using only bonds
+ * whose both ends are also in the given id set — i.e. "connected via the
+ * current selection." Two selected atoms that are only connected through
+ * an *unselected* atom count as separate components here.
+ *
+ * This is what lets align/distribute treat a whole bonded structure as one
+ * rigid piece (see alignAtoms/distributeAtoms) instead of moving individual
+ * atoms independently — the latter is what design tools do for independent
+ * shapes, but for atoms joined by bonds of a fixed, meaningful length it
+ * collapses the structure instead of arranging it. When every selected atom
+ * happens to be its own component (e.g. several separate lone atoms), this
+ * naturally reduces to the old atom-by-atom behavior.
+ */
+export function connectedComponents(mol: Molecule, atomIds: string[]): string[][] {
+  const idSet = new Set(atomIds);
+  const seen = new Set<string>();
+  const components: string[][] = [];
+
+  const neighborsWithin = (id: string): string[] => {
+    const out: string[] = [];
+    for (const b of Object.values(mol.bonds)) {
+      if (b.a1 === id && idSet.has(b.a2)) out.push(b.a2);
+      else if (b.a2 === id && idSet.has(b.a1)) out.push(b.a1);
+    }
+    return out;
+  };
+
+  for (const id of atomIds) {
+    if (seen.has(id) || !mol.atoms[id]) continue;
+    const comp: string[] = [];
+    const queue = [id];
+    seen.add(id);
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      comp.push(cur);
+      for (const nb of neighborsWithin(cur)) {
+        if (!seen.has(nb)) { seen.add(nb); queue.push(nb); }
+      }
+    }
+    components.push(comp);
+  }
+  return components;
+}
+
+interface Fragment { ids: string[]; atoms: Atom[]; minX: number; maxX: number; minY: number; maxY: number }
+
+function fragmentsOf(mol: Molecule, atomIds: string[]): Fragment[] {
+  return connectedComponents(mol, atomIds)
+    .map((ids): Fragment | null => {
+      const atoms = ids.map((id) => mol.atoms[id]).filter((a): a is Atom => !!a);
+      if (atoms.length === 0) return null;
+      return {
+        ids,
+        atoms,
+        minX: Math.min(...atoms.map((a) => a.x)),
+        maxX: Math.max(...atoms.map((a) => a.x)),
+        minY: Math.min(...atoms.map((a) => a.y)),
+        maxY: Math.max(...atoms.map((a) => a.y)),
+      };
+    })
+    .filter((f): f is Fragment => f !== null);
+}
+
+export type AlignMode = "left" | "centerX" | "right" | "top" | "centerY" | "bottom";
+
+/**
+ * Aligns whole connected fragments (see connectedComponents) to a shared
+ * edge or centerline computed from their combined bounding box — each
+ * fragment slides rigidly as a unit, so its own bond lengths and angles are
+ * completely unaffected, only its position relative to the other fragments
+ * changes. A no-op with fewer than 2 fragments, since there's nothing to
+ * align a single rigid piece to.
+ */
+export function alignAtoms(mol: Molecule, atomIds: string[], mode: AlignMode): Molecule {
+  const fragments = fragmentsOf(mol, atomIds);
+  if (fragments.length < 2) return mol;
+
+  let axis: "x" | "y";
+  let target: number;
+  switch (mode) {
+    case "left": axis = "x"; target = Math.min(...fragments.map((f) => f.minX)); break;
+    case "right": axis = "x"; target = Math.max(...fragments.map((f) => f.maxX)); break;
+    case "centerX": axis = "x"; target = (Math.min(...fragments.map((f) => f.minX)) + Math.max(...fragments.map((f) => f.maxX))) / 2; break;
+    case "top": axis = "y"; target = Math.min(...fragments.map((f) => f.minY)); break;
+    case "bottom": axis = "y"; target = Math.max(...fragments.map((f) => f.maxY)); break;
+    case "centerY": axis = "y"; target = (Math.min(...fragments.map((f) => f.minY)) + Math.max(...fragments.map((f) => f.maxY))) / 2; break;
+  }
+
+  const atoms = { ...mol.atoms };
+  for (const f of fragments) {
+    let edge: number;
+    switch (mode) {
+      case "left": edge = f.minX; break;
+      case "right": edge = f.maxX; break;
+      case "centerX": edge = (f.minX + f.maxX) / 2; break;
+      case "top": edge = f.minY; break;
+      case "bottom": edge = f.maxY; break;
+      case "centerY": edge = (f.minY + f.maxY) / 2; break;
+    }
+    const delta = target - edge;
+    for (const id of f.ids) {
+      const a = atoms[id];
+      if (!a) continue;
+      atoms[id] = axis === "x" ? { ...a, x: a.x + delta } : { ...a, y: a.y + delta };
+    }
+  }
+  return { ...mol, atoms };
+}
+
+export type DistributeAxis = "horizontal" | "vertical";
+
+/**
+ * Evenly re-spaces 3+ whole fragments (see connectedComponents) between the
+ * two extreme ones' centers along the given axis — like alignAtoms, each
+ * fragment translates rigidly, so internal bond geometry never changes,
+ * only spacing between fragments. A no-op with fewer than 3 fragments.
+ */
+export function distributeAtoms(mol: Molecule, atomIds: string[], axis: DistributeAxis): Molecule {
+  const fragments = fragmentsOf(mol, atomIds);
+  if (fragments.length < 3) return mol;
+
+  const centerOf = (f: Fragment) => (axis === "horizontal" ? (f.minX + f.maxX) / 2 : (f.minY + f.maxY) / 2);
+  const entries = fragments.map((f) => ({ f, center: centerOf(f) })).sort((p, q) => p.center - q.center);
+  const first = entries[0].center;
+  const last = entries[entries.length - 1].center;
+  const step = (last - first) / (entries.length - 1);
+
+  const atoms = { ...mol.atoms };
+  entries.forEach((e, i) => {
+    const delta = first + step * i - e.center;
+    for (const id of e.f.ids) {
+      const a = atoms[id];
+      if (!a) continue;
+      atoms[id] = axis === "horizontal" ? { ...a, x: a.x + delta } : { ...a, y: a.y + delta };
+    }
+  });
+  return { ...mol, atoms };
+}
+
+/**
+ * Heuristic "Clean Up": normalizes every bond among the given atoms to the
+ * standard bond length and snaps its direction to the nearest 30° — the
+ * same snapping the drawing tools themselves use — fixing bonds that have
+ * drifted off-length or off-angle from freehand dragging or a lossy import.
+ *
+ * This is a relaxation over a spanning tree of each connected fragment
+ * (breadth-first from an arbitrary fixed root, repositioning each
+ * newly-reached atom relative to its already-placed parent), not true
+ * constraint-based layout — a solver that redraws, say, an irregular ring
+ * as a regular polygon is a much bigger undertaking on its own. In
+ * practice: chains, and any ring that was already regular (e.g. one placed
+ * by the ring tool), clean up perfectly, while a hand-drawn irregular ring
+ * may end up with a small gap or overlap where it closes back on itself,
+ * since the bond that closes the ring is never used to move anything —
+ * only bonds that reach a not-yet-placed atom are.
+ *
+ * Each connected fragment (see connectedComponents) is relaxed on its own,
+ * anchored so it doesn't drift or detach in a way the user didn't ask for:
+ *  - If any atom in the fragment has a bond to something *outside* the
+ *    given atoms (e.g. cleaning up one substituent of a larger structure),
+ *    every such boundary atom is treated as already fixed, and relaxation
+ *    spreads inward from there — so the fragment's attachment point to the
+ *    rest of the molecule never moves or stretches.
+ *  - Otherwise (the fragment is entirely self-contained in the
+ *    selection — including the common case of cleaning up with nothing
+ *    selected, i.e. the whole molecule) relaxation still has to start from
+ *    *some* arbitrarily-chosen atom, but the whole fragment is then
+ *    shifted back so its center of mass lands exactly where it started —
+ *    so Clean Up only straightens bonds in place rather than relocating
+ *    the structure to wherever that arbitrary starting atom happened to be.
+ */
+export function cleanUpAtoms(mol: Molecule, atomIds: string[]): Molecule {
+  const atoms = { ...mol.atoms };
+
+  for (const component of connectedComponents(mol, atomIds)) {
+    const compSet = new Set(component);
+    const neighborsWithin = (id: string): string[] => {
+      const out: string[] = [];
+      for (const b of Object.values(mol.bonds)) {
+        if (b.a1 === id && compSet.has(b.a2)) out.push(b.a2);
+        else if (b.a2 === id && compSet.has(b.a1)) out.push(b.a1);
+      }
+      return out;
+    };
+    const isBoundary = (id: string): boolean => {
+      for (const b of Object.values(mol.bonds)) {
+        if (b.a1 === id && !compSet.has(b.a2)) return true;
+        if (b.a2 === id && !compSet.has(b.a1)) return true;
+      }
+      return false;
+    };
+
+    const boundary = component.filter(isBoundary);
+    const seeds = boundary.length > 0 ? boundary : [component[0]];
+    const visited = new Set(seeds);
+    const queue = [...seeds];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const nb of neighborsWithin(cur)) {
+        if (visited.has(nb)) continue;
+        visited.add(nb);
+        const curAtom = atoms[cur];
+        const nbAtom = atoms[nb];
+        const angle = snapAngle(angleOf(curAtom, nbAtom));
+        const p = polar(curAtom.x, curAtom.y, BOND_LEN, angle);
+        atoms[nb] = { ...nbAtom, x: p.x, y: p.y };
+        queue.push(nb);
+      }
+    }
+
+    if (boundary.length === 0) {
+      let origSumX = 0, origSumY = 0, newSumX = 0, newSumY = 0;
+      for (const id of component) {
+        origSumX += mol.atoms[id].x;
+        origSumY += mol.atoms[id].y;
+        newSumX += atoms[id].x;
+        newSumY += atoms[id].y;
+      }
+      const n = component.length;
+      const dx = origSumX / n - newSumX / n;
+      const dy = origSumY / n - newSumY / n;
+      if (dx !== 0 || dy !== 0) {
+        for (const id of component) {
+          const a = atoms[id];
+          atoms[id] = { ...a, x: a.x + dx, y: a.y + dy };
+        }
+      }
+    }
+  }
+
+  return { ...mol, atoms };
 }

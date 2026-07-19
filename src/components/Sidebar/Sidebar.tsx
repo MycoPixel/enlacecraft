@@ -1,5 +1,9 @@
-import { useRef } from "react";
-import { MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group } from "lucide-react";
+import { useMemo, useRef } from "react";
+import {
+  MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group,
+  AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2,
+} from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
 import { BondGlyph } from "./BondGlyphs";
@@ -10,6 +14,7 @@ import { RingPicker, RingIcon } from "./RingPicker";
 import { FunctionalGroupPicker } from "./FunctionalGroupPicker";
 import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
+import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
 import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
@@ -34,6 +39,19 @@ export function Sidebar() {
   const view = useMoleculeStore((s) => s.view);
   const setView = useMoleculeStore((s) => s.setView);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
+  const molecule = useMoleculeStore((s) => s.molecule);
+  const selected = useMoleculeStore((s) => s.selected);
+  const alignSelection = useMoleculeStore((s) => s.alignSelection);
+  const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
+  const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
+  // "Align"/"Distribute" operate on whole connected fragments (a fully
+  // selected ring, a lone atom, etc.), not individual atoms — see
+  // alignAtoms's doc comment for why — so whether they're usable depends
+  // on the fragment count, not the raw atom count.
+  const selectedFragmentCount = useMemo(
+    () => connectedComponents(molecule, [...selected]).length,
+    [molecule, selected]
+  );
   const arrowVariant = useMoleculeStore((s) => s.arrowVariant);
   const setArrowVariant = useMoleculeStore((s) => s.setArrowVariant);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
@@ -321,7 +339,55 @@ export function Sidebar() {
         <ToolButton title={t("tool.rotateCW")} onClick={() => rotateSelection(30)}>
           <RotateCw size={17} />
         </ToolButton>
+        <ToolDropdown
+          title={t("tool.align")}
+          active={false}
+          renderContent={(close) => (
+            <div className="align-menu">
+              <SectionLabel>{t("section.align")}</SectionLabel>
+              <div className="row">
+                <ToolButton title={t("tool.alignLeft")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("left"); close(); }}>
+                  <AlignStartVertical size={16} />
+                </ToolButton>
+                <ToolButton title={t("tool.alignCenterX")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("centerX"); close(); }}>
+                  <AlignCenterVertical size={16} />
+                </ToolButton>
+                <ToolButton title={t("tool.alignRight")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("right"); close(); }}>
+                  <AlignEndVertical size={16} />
+                </ToolButton>
+                <ToolButton title={t("tool.alignTop")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("top"); close(); }}>
+                  <AlignStartHorizontal size={16} />
+                </ToolButton>
+                <ToolButton title={t("tool.alignCenterY")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("centerY"); close(); }}>
+                  <AlignCenterHorizontal size={16} />
+                </ToolButton>
+                <ToolButton title={t("tool.alignBottom")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("bottom"); close(); }}>
+                  <AlignEndHorizontal size={16} />
+                </ToolButton>
+              </div>
+
+              <SectionLabel>{t("section.distribute")}</SectionLabel>
+              <div className="row">
+                <ToolButton title={t("tool.distributeHorizontal")} disabled={selectedFragmentCount < 3} onClick={() => { distributeSelection("horizontal"); close(); }}>
+                  <AlignHorizontalDistributeCenter size={16} />
+                </ToolButton>
+                <ToolButton title={t("tool.distributeVertical")} disabled={selectedFragmentCount < 3} onClick={() => { distributeSelection("vertical"); close(); }}>
+                  <AlignVerticalDistributeCenter size={16} />
+                </ToolButton>
+              </div>
+
+              {selectedFragmentCount < 2 && <p className="align-menu__hint">{t("align.needAtoms")}</p>}
+              {selectedFragmentCount === 2 && <p className="align-menu__hint">{t("distribute.needAtoms")}</p>}
+            </div>
+          )}
+        >
+          <AlignCenterVertical size={18} />
+        </ToolDropdown>
       </div>
+      <ToolButton title={t("tool.cleanUp")} onClick={cleanUpSelection}>
+        <Wand2 size={17} />
+        <span className="btn-label">{t("tool.cleanUpLabel")}</span>
+      </ToolButton>
 
       <div className="spacer" />
 
