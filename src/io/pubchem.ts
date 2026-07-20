@@ -111,7 +111,7 @@ export interface CompoundLookupResult {
 
 const PUG_REST_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 
-async function fetchSDFRaw(identifier: string, namespace: "name" | "smiles"): Promise<string> {
+async function fetchSDFRaw(identifier: string, namespace: "name" | "smiles" | "cid"): Promise<string> {
   let res: Response;
   try {
     if (namespace === "smiles") {
@@ -228,4 +228,113 @@ function toInt(s: string | null): number | undefined {
   if (!s) return undefined;
   const n = parseInt(s, 10);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Looks up a compound PubChem already has a numeric CID for — the second
+ * half of structure search's two-step flow: searchCompoundsBySubstructure
+ * returns a list of candidate CIDs, and picking one of them calls this to
+ * actually fetch its full 2D structure, the same way fetchCompoundByName
+ * and fetchCompoundBySmiles do for their own identifiers.
+ */
+export async function fetchCompoundByCid(cid: number): Promise<CompoundLookupResult> {
+  const sdf = await fetchSDFRaw(String(cid), "cid");
+  const molecule = importMol(sdf);
+  if (Object.keys(molecule.atoms).length === 0) {
+    throw new PubChemError("NO_STRUCTURE", { name: String(cid) });
+  }
+  return {
+    molecule,
+    query: String(cid),
+    resolvedName: String(cid),
+    name: extractSdfField(sdf, "PUBCHEM_IUPAC_NAME") ?? undefined,
+    formula: extractSdfField(sdf, "PUBCHEM_MOLECULAR_FORMULA") ?? undefined,
+    cid,
+  };
+}
+
+export interface StructureSearchResult {
+  cid: number;
+  name?: string;
+  formula?: string;
+}
+
+/**
+ * Finds compounds in PubChem that *contain* the given structure as a
+ * substructure — as opposed to fetchCompoundBySmiles, which only finds an
+ * exact identity match. This is what powers "draw a fragment, find
+ * compounds that contain it": the fragment gets exported to SMILES (see
+ * io/smiles.ts) and sent here.
+ *
+ * Uses PubChem's "fast" substructure search (fastsubstructure), which
+ * runs synchronously and returns matching CIDs directly, rather than the
+ * plain substructure endpoint, which is an asynchronous job you'd have to
+ * poll for completion — fast search is exactly suited to the small,
+ * simple fragments a person draws by hand in a sketch tool, and avoids
+ * needing any polling logic here.
+ *
+ * Docs: https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest#section=Fast-Search
+ *
+ * A fragment containing an abbreviated-group placeholder (Ph, Boc, ...)
+ * exports as SMILES's `*` wildcard atom (see exportSmiles's doc comment) —
+ * PubChem's search may not treat that the way a chemist would expect it
+ * to, since it isn't a real substructure query wildcard in this context.
+ * That's an inherent limit of what's actually in the drawing, not
+ * something this function can compensate for.
+ */
+export async function searchCompoundsBySubstructure(smiles: string, maxResults = 20): Promise<StructureSearchResult[]> {
+  const trimmed = smiles.trim();
+  if (!trimmed) throw new PubChemError("EMPTY_QUERY");
+
+  let res: Response;
+  try {
+    res = await fetch(`${PUG_REST_BASE}/compound/fastsubstructure/smiles/${encodeURIComponent(trimmed)}/cids/JSON?MaxRecords=${maxResults}`);
+  } catch {
+    throw new PubChemError("NETWORK");
+  }
+  if (!res.ok) {
+    // As with SMILES identity lookup, PubChem returns 400 (not 404) for a
+    // query it can't parse at all, and 404 for "parsed fine, found
+    // nothing" — both read as NOT_FOUND from here.
+    if (res.status === 404 || res.status === 400) throw new PubChemError("NOT_FOUND", { name: trimmed });
+    throw new PubChemError("HTTP", { status: res.status });
+  }
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new PubChemError("NOT_FOUND", { name: trimmed });
+  }
+  const cids = (data as { IdentifierList?: { CID?: number[] } })?.IdentifierList?.CID;
+  if (!Array.isArray(cids) || cids.length === 0) throw new PubChemError("NOT_FOUND", { name: trimmed });
+
+  const capped = cids.slice(0, maxResults);
+  return fetchCompoundSummaries(capped);
+}
+
+/**
+ * Batch-fetches just the name/formula for a list of CIDs — used to give
+ * search results a readable label without fetching each one's full
+ * structure up front (that only happens once the person actually picks a
+ * result, via fetchCompoundByCid). Falls back to bare CIDs (no name/
+ * formula) on any failure here, rather than losing the whole result list
+ * over what's ultimately just cosmetic labeling.
+ */
+async function fetchCompoundSummaries(cids: number[]): Promise<StructureSearchResult[]> {
+  const bare = cids.map((cid) => ({ cid }));
+  try {
+    const url = `${PUG_REST_BASE}/compound/cid/${cids.join(",")}/property/IUPACName,MolecularFormula/JSON`;
+    const res = await fetch(url);
+    if (!res.ok) return bare;
+    const data = await res.json();
+    const props = (data as { PropertyTable?: { Properties?: { CID: number; IUPACName?: string; MolecularFormula?: string }[] } })?.PropertyTable?.Properties;
+    if (!Array.isArray(props)) return bare;
+    return cids.map((cid) => {
+      const p = props.find((pr) => pr.CID === cid);
+      return { cid, name: p?.IUPACName, formula: p?.MolecularFormula };
+    });
+  } catch {
+    return bare;
+  }
 }

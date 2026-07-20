@@ -10,7 +10,7 @@ import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "../model/constants";
-import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, extractFragment as extractTemplateFragment } from "../model/userTemplates";
+import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate } from "../model/userTemplates";
 
 const HISTORY_LIMIT = 100;
 
@@ -22,6 +22,7 @@ const INITIAL_TAB_ID = `tab-${nextId()}`;
 
 const LANG_STORAGE_KEY = "enlacecraft-lang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "enlacecraft-sidebar-width";
+const ONBOARDING_STORAGE_KEY = "enlacecraft-onboarding-seen";
 const DEFAULT_SIDEBAR_WIDTH = 112;
 const MIN_SIDEBAR_WIDTH = 88;
 const MAX_SIDEBAR_WIDTH = 280;
@@ -89,6 +90,17 @@ const PLUS_FONT_SIZE = 22;
 // How far above a reaction arrow's midpoint "Add reagent text" drops the
 // new (empty) text box — the conventional place to write reagents/conditions.
 const REAGENT_TEXT_GAP_ABOVE_ARROW = 6;
+
+function detectHasSeenOnboarding(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_STORAGE_KEY) === "1";
+  } catch {
+    // localStorage unavailable — default to showing the welcome tour once,
+    // same as a genuinely first-ever visit; worst case it reappears next
+    // session too, which is harmless.
+    return false;
+  }
+}
 
 function detectInitialLanguage(): Lang {
   try {
@@ -352,6 +364,10 @@ interface MoleculeStore {
   importCompound: (mol: Molecule) => void;
   pasteFragment: (fragment: { molecule: Molecule; annotations: Annotation[] }) => void;
   userTemplates: UserTemplate[];
+  /** See detectHasSeenOnboarding — whether the first-run welcome tour has
+   * already been shown (and dismissed/completed) at least once. */
+  hasSeenOnboarding: boolean;
+  markOnboardingSeen: () => void;
   /** Extracts whatever's currently selected (atoms + any selected
    * annotations) into a new saved template under the given name. A no-op
    * if nothing's selected. */
@@ -508,6 +524,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     language: detectInitialLanguage(),
     sidebarWidth: detectInitialSidebarWidth(),
     userTemplates: loadUserTemplates(),
+    hasSeenOnboarding: detectHasSeenOnboarding(),
     status: "status.ready",
     bondPreview: null,
     atomMoveAnchor: null,
@@ -904,13 +921,23 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       const trimmed = label.trim();
       if (selected.size === 0 && selectedAnnotationIds.size === 0) return;
       if (trimmed.length === 0) return;
-      const fragmentMolecule = extractTemplateFragment(molecule, selected);
+      const fragmentMolecule = M.extractFragment(molecule, selected);
       const fragmentAnnotations = Object.values(annotations).filter((a) => selectedAnnotationIds.has(a.id));
       set({ userTemplates: addUserTemplate(userTemplates, trimmed, fragmentMolecule, fragmentAnnotations) });
     },
 
     deleteUserTemplate: (id) => {
       set({ userTemplates: removeUserTemplate(get().userTemplates, id) });
+    },
+
+    markOnboardingSeen: () => {
+      set({ hasSeenOnboarding: true });
+      try {
+        localStorage.setItem(ONBOARDING_STORAGE_KEY, "1");
+      } catch {
+        // localStorage unavailable — the tour will just reappear next
+        // session, which is a harmless (if mildly repetitive) fallback.
+      }
     },
 
     rotateSelection: (deltaDeg) => {

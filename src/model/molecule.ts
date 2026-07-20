@@ -343,6 +343,29 @@ export function insertMolecule(
 }
 
 /**
+ * Pulls the given atoms — and only the bonds where *both* ends are among
+ * them — out of a molecule into a standalone Molecule: the same shape a
+ * built-in StructureTemplate or a clipboard paste uses. IDs are left as
+ * they were; anything that inserts this later (pasteFragment) remaps
+ * everything fresh on insertion anyway, so collisions with whatever's
+ * already on the canvas aren't a concern. Used both for saving a selection
+ * as a reusable template (see model/userTemplates.ts) and for turning a
+ * selection into a SMILES string to search PubChem by structure.
+ */
+export function extractFragment(mol: Molecule, atomIds: Iterable<string>): Molecule {
+  const idSet = new Set(atomIds);
+  const atoms: Record<string, Atom> = {};
+  for (const id of idSet) {
+    if (mol.atoms[id]) atoms[id] = { ...mol.atoms[id] };
+  }
+  const bonds: Record<string, Bond> = {};
+  for (const [id, b] of Object.entries(mol.bonds)) {
+    if (idSet.has(b.a1) && idSet.has(b.a2)) bonds[id] = { ...b };
+  }
+  return { atoms, bonds };
+}
+
+/**
  * Groups the given atom ids into connected components, using only bonds
  * whose both ends are also in the given id set — i.e. "connected via the
  * current selection." Two selected atoms that are only connected through

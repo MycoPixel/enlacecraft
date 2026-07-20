@@ -8,6 +8,11 @@ interface ToolDropdownProps {
   children: ReactNode;
   /** Rendered inside the dropdown; receives a `close` callback to call once a choice is made. */
   renderContent: (close: () => void) => ReactNode;
+  /** Fired once when the dropdown transitions from closed to open — for a
+   * dropdown whose content depends on doing something (like a network
+   * request) at the moment it's opened, rather than always being ready to
+   * render immediately from static/already-loaded data. */
+  onOpen?: () => void;
 }
 
 /**
@@ -19,7 +24,7 @@ interface ToolDropdownProps {
  * (`overflow-y: auto`) and an absolutely-positioned dropdown would get
  * clipped by that same scroll container.
  */
-export function ToolDropdown({ title, active, children, renderContent }: ToolDropdownProps) {
+export function ToolDropdown({ title, active, children, renderContent, onOpen }: ToolDropdownProps) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const btnWrapRef = useRef<HTMLDivElement>(null);
@@ -57,7 +62,14 @@ export function ToolDropdown({ title, active, children, renderContent }: ToolDro
 
   return (
     <div ref={btnWrapRef}>
-      <ToolButton title={title} active={active} onClick={() => setOpen((o) => !o)}>
+      <ToolButton
+        title={title}
+        active={active}
+        onClick={() => setOpen((o) => {
+          if (!o) onOpen?.();
+          return !o;
+        })}
+      >
         {children}
       </ToolButton>
       {open && coords &&

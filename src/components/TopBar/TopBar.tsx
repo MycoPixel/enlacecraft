@@ -5,6 +5,7 @@ import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { CompoundSearch } from "./CompoundSearch";
+import { StructureSearchButton } from "./StructureSearchButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent } from "../../model/valence";
 import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
@@ -158,6 +159,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
       </div>
 
       <CompoundSearch />
+      <StructureSearchButton />
 
       {!isMobile && (
         <div className="formula">

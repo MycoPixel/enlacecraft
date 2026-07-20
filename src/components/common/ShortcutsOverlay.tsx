@@ -69,7 +69,7 @@ const GROUPS: ShortcutGroup[] = [
   },
 ];
 
-export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ShortcutsOverlay({ open, onClose, onReplayOnboarding }: { open: boolean; onClose: () => void; onReplayOnboarding: () => void }) {
   const t = useT();
 
   useEffect(() => {
@@ -106,6 +106,15 @@ export function ShortcutsOverlay({ open, onClose }: { open: boolean; onClose: ()
               </dl>
             </div>
           ))}
+        </div>
+        <div className="shortcuts-dialog__footer">
+          <button
+            type="button"
+            className="shortcuts-dialog__replay"
+            onClick={() => { onClose(); onReplayOnboarding(); }}
+          >
+            {t("onboarding.replay")}
+          </button>
         </div>
       </div>
     </div>,

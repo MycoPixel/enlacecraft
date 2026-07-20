@@ -1,4 +1,4 @@
-import type { Annotation, Atom, Bond, Molecule } from "../types/chemistry";
+import type { Annotation, Molecule } from "../types/chemistry";
 
 /**
  * A structure the user saved from their own drawing — same shape as a
@@ -59,24 +59,4 @@ export function removeUserTemplate(existing: UserTemplate[], id: string): UserTe
   const next = existing.filter((t) => t.id !== id);
   persist(next);
   return next;
-}
-
-/**
- * Pulls the given atoms — and only the bonds where *both* ends are among
- * them — out of a molecule into a standalone Molecule, the same shape a
- * built-in StructureTemplate or a clipboard paste uses. IDs are left as
- * they were; pasteFragment remaps everything fresh on insertion anyway,
- * so collisions with whatever's already on the canvas aren't a concern.
- */
-export function extractFragment(mol: Molecule, atomIds: Iterable<string>): Molecule {
-  const idSet = new Set(atomIds);
-  const atoms: Record<string, Atom> = {};
-  for (const id of idSet) {
-    if (mol.atoms[id]) atoms[id] = { ...mol.atoms[id] };
-  }
-  const bonds: Record<string, Bond> = {};
-  for (const [id, b] of Object.entries(mol.bonds)) {
-    if (idSet.has(b.a1) && idSet.has(b.a2)) bonds[id] = { ...b };
-  }
-  return { atoms, bonds };
 }

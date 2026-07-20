@@ -11,14 +11,22 @@ import { MoleculeCanvas } from "./components/Canvas/MoleculeCanvas";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { MobileToolbar } from "./components/MobileToolbar/MobileToolbar";
 import { ShortcutsOverlay } from "./components/common/ShortcutsOverlay";
+import { OnboardingOverlay } from "./components/common/OnboardingOverlay";
 
 export default function App() {
   const theme = useMoleculeStore((s) => s.theme);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const language = useMoleculeStore((s) => s.language);
+  const hasSeenOnboarding = useMoleculeStore((s) => s.hasSeenOnboarding);
+  const markOnboardingSeen = useMoleculeStore((s) => s.markOnboardingSeen);
   const isMobile = useIsMobile();
   const svgRef = useRef<SVGSVGElement>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Seeded once from the persisted flag (see hasSeenOnboarding in the
+  // store) so a first-time visitor sees it automatically; afterward this
+  // is just local UI state, reopened on demand from the shortcuts overlay
+  // regardless of the (by-then-permanently-true) persisted flag.
+  const [onboardingOpen, setOnboardingOpen] = useState(() => !hasSeenOnboarding);
 
   useKeyboardShortcuts();
   useClipboard(svgRef);
@@ -80,7 +88,15 @@ export default function App() {
         </main>
       </div>
       {isMobile && <MobileToolbar />}
-      <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <ShortcutsOverlay
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        onReplayOnboarding={() => setOnboardingOpen(true)}
+      />
+      <OnboardingOverlay
+        open={onboardingOpen}
+        onClose={() => { setOnboardingOpen(false); markOnboardingSeen(); }}
+      />
     </div>
   );
 }
