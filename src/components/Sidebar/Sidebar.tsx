@@ -1,8 +1,8 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
@@ -13,6 +13,7 @@ import { IsotopePicker } from "./IsotopePicker";
 import { RingPicker, RingIcon } from "./RingPicker";
 import { FunctionalGroupPicker } from "./FunctionalGroupPicker";
 import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
+import { UserTemplatePicker } from "./UserTemplatePicker";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
@@ -52,6 +53,10 @@ export function Sidebar() {
     () => connectedComponents(molecule, [...selected]).length,
     [molecule, selected]
   );
+  const userTemplates = useMoleculeStore((s) => s.userTemplates);
+  const saveUserTemplate = useMoleculeStore((s) => s.saveUserTemplate);
+  const deleteUserTemplate = useMoleculeStore((s) => s.deleteUserTemplate);
+  const [newTemplateName, setNewTemplateName] = useState("");
   const arrowVariant = useMoleculeStore((s) => s.arrowVariant);
   const setArrowVariant = useMoleculeStore((s) => s.setArrowVariant);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
@@ -80,6 +85,7 @@ export function Sidebar() {
   };
   const annotations = useMoleculeStore((s) => s.annotations);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
+  const hasSelectionToSave = selected.size > 0 || selectedAnnotationIds.size > 0;
   const setArrowVariantOf = useMoleculeStore((s) => s.setArrowVariantOf);
   const setArrowBarbOf = useMoleculeStore((s) => s.setArrowBarbOf);
   const setArrowHeadSizeOf = useMoleculeStore((s) => s.setArrowHeadSizeOf);
@@ -266,6 +272,61 @@ export function Sidebar() {
             <StructureTemplateIcon />
           </ToolDropdown>
         )}
+        <ToolDropdown title={t("tool.userTemplates")} active={false} renderContent={(close) => (
+          <UserTemplatePicker
+            templates={userTemplates}
+            onChoose={(id) => {
+              const tmpl = userTemplates.find((s) => s.id === id);
+              if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+              close();
+            }}
+            onDelete={deleteUserTemplate}
+          />
+        )}>
+          <Bookmark size={18} />
+        </ToolDropdown>
+        <ToolDropdown
+          title={hasSelectionToSave ? t("tool.saveTemplate") : t("tool.saveTemplateDisabled")}
+          active={false}
+          renderContent={(close) => (
+            <div className="save-template-menu">
+              {hasSelectionToSave ? (
+                <>
+                  <input
+                    className="save-template-menu__input"
+                    type="text"
+                    autoFocus
+                    placeholder={t("userTemplate.namePlaceholder")}
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newTemplateName.trim()) {
+                        saveUserTemplate(newTemplateName.trim());
+                        setNewTemplateName("");
+                        close();
+                      }
+                    }}
+                  />
+                  <button
+                    className="save-template-menu__save"
+                    disabled={newTemplateName.trim().length === 0}
+                    onClick={() => {
+                      saveUserTemplate(newTemplateName.trim());
+                      setNewTemplateName("");
+                      close();
+                    }}
+                  >
+                    {t("userTemplate.save")}
+                  </button>
+                </>
+              ) : (
+                <p className="align-menu__hint">{t("userTemplate.needSelection")}</p>
+              )}
+            </div>
+          )}
+        >
+          <BookmarkPlus size={18} />
+        </ToolDropdown>
       </div>
 
       <div className="sidebar-divider" />

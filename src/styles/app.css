@@ -679,6 +679,74 @@
   background: var(--accent-soft);
 }
 
+.user-template-list__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.user-template-list__row .structure-list__item {
+  flex: 1;
+}
+
+.user-template-list__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.user-template-list__delete:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.save-template-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.save-template-menu__input {
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+.save-template-menu__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.save-template-menu__save {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: white;
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.save-template-menu__save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .arrow-variant-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

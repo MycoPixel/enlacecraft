@@ -318,13 +318,17 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (drag.mode === "move") {
       if (drag.anchor && !e.shiftKey) {
-        // Same snap as drawing a fresh bond — 30° steps, standard bond
-        // length — so nudging an existing atom back onto a clean angle is
-        // just as easy as placing it that way to begin with. Hold Shift
-        // to move it completely freely instead, same convention used
-        // everywhere else in the app.
+        // Same angle snap drawing a fresh bond uses — 30° steps — applied
+        // to however long the bond currently is (the actual cursor
+        // distance from the neighbor), not forced back to the standard
+        // bond length. Length always just follows the drag, exactly like
+        // the arrow tool: otherwise, lengthening a bond with Shift and
+        // then nudging its angle without Shift would snap the length back
+        // to standard and undo the very thing Shift was just used for.
+        // Hold Shift to also free the angle, same convention as everywhere
+        // else in the app.
         const { atomId, neighborPos } = drag.anchor;
-        const p = polar(neighborPos.x, neighborPos.y, BOND_LEN, snapAngle(angleOf(neighborPos, pt)));
+        const p = polar(neighborPos.x, neighborPos.y, dist(neighborPos, pt), snapAngle(angleOf(neighborPos, pt)));
         store.moveAtomsTransient({ [atomId]: p });
         store.setAtomMoveAnchor(drag.anchor);
         store.setStatus("status.moveAtomSnap");

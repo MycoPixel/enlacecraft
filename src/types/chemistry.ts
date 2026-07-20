@@ -96,9 +96,10 @@ export interface BondPreview {
 
 /** Live state while repositioning a single atom that has exactly one bond
  * — the one case moving an existing atom can meaningfully snap to an
- * angle/length the same way drawing a new bond does (see
- * useCanvasInteractions's "move" drag handling). Lets MoleculeCanvas show
- * the same length/angle readout used while drawing. */
+ * angle the same way drawing a new bond does (see useCanvasInteractions's
+ * "move" drag handling; length always just follows the drag, never gets
+ * forced back to a fixed value). Lets MoleculeCanvas show the same
+ * length/angle readout used while drawing. */
 export interface AtomMoveAnchor {
   atomId: string; // The atom actually being moved
   neighborPos: Point; // Its one bonded neighbor's (fixed) position

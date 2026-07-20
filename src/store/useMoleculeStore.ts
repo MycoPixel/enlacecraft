@@ -10,6 +10,7 @@ import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "../model/constants";
+import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, extractFragment as extractTemplateFragment } from "../model/userTemplates";
 
 const HISTORY_LIMIT = 100;
 
@@ -350,6 +351,12 @@ interface MoleculeStore {
   renameTab: (id: string, title: string) => void;
   importCompound: (mol: Molecule) => void;
   pasteFragment: (fragment: { molecule: Molecule; annotations: Annotation[] }) => void;
+  userTemplates: UserTemplate[];
+  /** Extracts whatever's currently selected (atoms + any selected
+   * annotations) into a new saved template under the given name. A no-op
+   * if nothing's selected. */
+  saveUserTemplate: (label: string) => void;
+  deleteUserTemplate: (id: string) => void;
   rotateSelection: (deltaDeg: number) => void;
   alignSelection: (mode: M.AlignMode) => void;
   distributeSelection: (axis: M.DistributeAxis) => void;
@@ -500,6 +507,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     showGrid: false,
     language: detectInitialLanguage(),
     sidebarWidth: detectInitialSidebarWidth(),
+    userTemplates: loadUserTemplates(),
     status: "status.ready",
     bondPreview: null,
     atomMoveAnchor: null,
@@ -889,6 +897,20 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         selectedAnnotationIds: new Set(newAnnotationIds),
         hasUnsavedChanges: true,
       });
+    },
+
+    saveUserTemplate: (label) => {
+      const { molecule, annotations, selected, selectedAnnotationIds, userTemplates } = get();
+      const trimmed = label.trim();
+      if (selected.size === 0 && selectedAnnotationIds.size === 0) return;
+      if (trimmed.length === 0) return;
+      const fragmentMolecule = extractTemplateFragment(molecule, selected);
+      const fragmentAnnotations = Object.values(annotations).filter((a) => selectedAnnotationIds.has(a.id));
+      set({ userTemplates: addUserTemplate(userTemplates, trimmed, fragmentMolecule, fragmentAnnotations) });
+    },
+
+    deleteUserTemplate: (id) => {
+      set({ userTemplates: removeUserTemplate(get().userTemplates, id) });
     },
 
     rotateSelection: (deltaDeg) => {
