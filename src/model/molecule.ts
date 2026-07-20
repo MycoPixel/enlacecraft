@@ -1,7 +1,7 @@
 import type { Atom, Bond, BondOrder, BondStereo, DoubleBondSide, Element, Molecule, Point } from "../types/chemistry";
 import { nextId } from "./id";
 import { BOND_LEN } from "./constants";
-import { angleOf, polar, snapAngle } from "./geometry";
+import { angleOf, dist, polar, snapAngle } from "./geometry";
 
 export function emptyMolecule(): Molecule {
   return { atoms: {}, bonds: {} };
@@ -483,36 +483,206 @@ export function distributeAtoms(mol: Molecule, atomIds: string[], axis: Distribu
 }
 
 /**
- * Heuristic "Clean Up": normalizes every bond among the given atoms to the
- * standard bond length and snaps its direction to the nearest 30° — the
- * same snapping the drawing tools themselves use — fixing bonds that have
- * drifted off-length or off-angle from freehand dragging or a lossy import.
+ * Detects rings within `componentIds` (assumed to already be one connected
+ * fragment) as the fundamental cycles of a breadth-first spanning tree:
+ * for every bond not used by the tree, the cycle it closes is the tree
+ * path between its two atoms plus that bond itself. This finds every ring
+ * exactly for the common case — one or more simple rings, optionally fused
+ * (sharing an edge) or spiro-joined (sharing one atom) to each other or to
+ * plain chains. For a bridged polycyclic system (two rings sharing more
+ * than one edge), which atoms end up on which fundamental cycle can depend
+ * on the arbitrary spanning tree — a true SSSR algorithm would be needed
+ * to always recover the chemist's-eye "smallest rings" there. That's an
+ * acceptable gap: bridged systems are rare in a 2D sketch tool, and this
+ * still terminates and produces *some* reasonable ring, just possibly not
+ * the visually smallest one.
+ */
+function detectRings(mol: Molecule, componentIds: string[]): string[][] {
+  if (componentIds.length === 0) return [];
+  const idSet = new Set(componentIds);
+  const neighborsWithin = (id: string): string[] => {
+    const out: string[] = [];
+    for (const b of Object.values(mol.bonds)) {
+      if (b.a1 === id && idSet.has(b.a2)) out.push(b.a2);
+      else if (b.a2 === id && idSet.has(b.a1)) out.push(b.a1);
+    }
+    return out;
+  };
+
+  const parent = new Map<string, string>();
+  const treeEdge = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  const treeEdges = new Set<string>();
+  const root = componentIds[0];
+  const seen = new Set([root]);
+  const bfsQueue = [root];
+  while (bfsQueue.length > 0) {
+    const cur = bfsQueue.shift()!;
+    for (const nb of neighborsWithin(cur)) {
+      if (seen.has(nb)) continue;
+      seen.add(nb);
+      parent.set(nb, cur);
+      treeEdges.add(treeEdge(cur, nb));
+      bfsQueue.push(nb);
+    }
+  }
+
+  const pathToRoot = (start: string): string[] => {
+    const path = [start];
+    let cur = start;
+    while (parent.has(cur)) { cur = parent.get(cur)!; path.push(cur); }
+    return path;
+  };
+
+  const rings: string[][] = [];
+  const seenRingKey = new Set<string>();
+  for (const b of Object.values(mol.bonds)) {
+    if (!idSet.has(b.a1) || !idSet.has(b.a2)) continue;
+    if (treeEdges.has(treeEdge(b.a1, b.a2))) continue;
+
+    const pathA = pathToRoot(b.a1);
+    const pathB = pathToRoot(b.a2);
+    const indexInA = new Map(pathA.map((id, i): [string, number] => [id, i]));
+    let lcaIdxA = -1, lcaIdxB = -1;
+    for (let j = 0; j < pathB.length; j++) {
+      if (indexInA.has(pathB[j])) { lcaIdxA = indexInA.get(pathB[j])!; lcaIdxB = j; break; }
+    }
+    if (lcaIdxA < 0) continue;
+
+    const ring = [...pathA.slice(0, lcaIdxA + 1), ...pathB.slice(0, lcaIdxB).reverse()];
+    if (ring.length < 3) continue;
+    const key = [...ring].sort().join(",");
+    if (seenRingKey.has(key)) continue;
+    seenRingKey.add(key);
+    rings.push(ring);
+  }
+  return rings;
+}
+
+/** Signed area (shoelace formula) of a ring's *current* positions, walked
+ * in `ringWalk` order — its sign encodes which way the ring currently
+ * turns (clockwise vs counter-clockwise), so a regenerated regular polygon
+ * can be walked the same way instead of coming out mirror-flipped. */
+function signedRingArea(ringWalk: string[], posOf: (id: string) => Point): number {
+  let sum = 0;
+  for (let i = 0; i < ringWalk.length; i++) {
+    const p1 = posOf(ringWalk[i]);
+    const p2 = posOf(ringWalk[(i + 1) % ringWalk.length]);
+    sum += p1.x * p2.y - p2.x * p1.y;
+  }
+  return sum;
+}
+
+/**
+ * Computes regular-polygon target positions for one ring, honoring
+ * whichever of its atoms are already fixed (from `fixed`) — 0, 1, or 2
+ * (adjacent) of them — the same three cases ringPlacement.ts's ring *tool*
+ * already handles for placing a brand-new ring on the canvas:
+ *  - Two adjacent fixed atoms (a shared/fused edge): the rest of the
+ *    polygon is built off that edge, bulging toward whichever side is
+ *    closer to the ring's own pre-cleanup center (so it doesn't flip to
+ *    the opposite side of the shared bond).
+ *  - One fixed atom (a spiro junction, or a boundary atom): the polygon is
+ *    centered along the same direction that atom's current position
+ *    already sits from the ring's own current center.
+ *  - None fixed: the polygon is centered on the ring's own current
+ *    centroid, oriented to match its current first-atom direction.
+ * All three preserve the ring's current handedness via signedRingArea, so
+ * it's never mirror-flipped from how it was drawn.
+ */
+function regularRingTargets(mol: Molecule, ringWalk: string[], fixed: Map<string, Point>): Map<string, Point> {
+  const n = ringWalk.length;
+  const r = BOND_LEN / (2 * Math.sin(Math.PI / n));
+  const step = (2 * Math.PI) / n;
+  const origPos = (id: string) => mol.atoms[id];
+  const dirSign = signedRingArea(ringWalk, origPos) >= 0 ? 1 : -1;
+
+  const origCentroid = (): Point => {
+    let cx = 0, cy = 0;
+    for (const id of ringWalk) { const p = origPos(id); cx += p.x; cy += p.y; }
+    return { x: cx / n, y: cy / n };
+  };
+
+  const targets = new Map<string, Point>();
+  const fixedIndices = ringWalk.map((id, i) => (fixed.has(id) ? i : -1)).filter((i) => i >= 0);
+
+  // Two fixed atoms adjacent in the ring walk — build off that shared edge.
+  for (const i0 of fixedIndices) {
+    const i1 = (i0 + 1) % n;
+    if (!fixed.has(ringWalk[i1])) continue;
+    const p1 = fixed.get(ringWalk[i0])!;
+    const p2 = fixed.get(ringWalk[i1])!;
+    const apothem = r * Math.cos(Math.PI / n);
+    const bondAngle = angleOf(p1, p2);
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const centerA = { x: midX + apothem * Math.cos(bondAngle + Math.PI / 2), y: midY + apothem * Math.sin(bondAngle + Math.PI / 2) };
+    const centerB = { x: midX + apothem * Math.cos(bondAngle - Math.PI / 2), y: midY + apothem * Math.sin(bondAngle - Math.PI / 2) };
+    const refCenter = origCentroid();
+    const center = dist(centerA, refCenter) <= dist(centerB, refCenter) ? centerA : centerB;
+    const angle1 = angleOf(center, p1);
+    const angle2 = angleOf(center, p2);
+    const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const dir = Math.abs(norm(angle1 + step) - norm(angle2)) < 1e-6 ? 1 : -1;
+    for (let k = 0; k < n; k++) {
+      const idx = (i0 + k) % n;
+      targets.set(ringWalk[idx], idx === i0 ? p1 : idx === i1 ? p2 : polar(center.x, center.y, r, angle1 + dir * k * step));
+    }
+    return targets;
+  }
+
+  // One fixed atom, or none — anchor via that atom (or the current
+  // centroid), oriented to match the ring's current layout.
+  const i0 = fixedIndices.length > 0 ? fixedIndices[0] : 0;
+  const anchorId = ringWalk[i0];
+  const centroid = origCentroid();
+  let center: Point;
+  let startAngle: number;
+  if (fixed.has(anchorId)) {
+    const anchorPos = fixed.get(anchorId)!;
+    const curAnchor = origPos(anchorId);
+    const dirAngle = dist(curAnchor, centroid) < 1e-6 ? -Math.PI / 2 : angleOf(curAnchor, centroid);
+    center = { x: anchorPos.x + r * Math.cos(dirAngle), y: anchorPos.y + r * Math.sin(dirAngle) };
+    startAngle = angleOf(center, anchorPos);
+  } else {
+    center = centroid;
+    startAngle = angleOf(centroid, origPos(anchorId));
+  }
+  for (let k = 0; k < n; k++) {
+    const idx = (i0 + k) % n;
+    targets.set(ringWalk[idx], idx === i0 && fixed.has(anchorId) ? fixed.get(anchorId)! : polar(center.x, center.y, r, startAngle + dirSign * k * step));
+  }
+  return targets;
+}
+
+/**
+ * "Clean Up": redraws each ring found in the given atoms (see
+ * detectRings) as a proper regular polygon of its own size — a pentagon
+ * stays a pentagon with 108° interior angles, a hexagon a hexagon, etc.,
+ * each with every edge exactly the standard bond length — then relaxes
+ * every remaining chain atom/substituent outward from there, normalizing
+ * its bond length and snapping its direction to the nearest 30°, the same
+ * snapping the drawing tools themselves use.
  *
- * This is a relaxation over a spanning tree of each connected fragment
- * (breadth-first from an arbitrary fixed root, repositioning each
- * newly-reached atom relative to its already-placed parent), not true
- * constraint-based layout — a solver that redraws, say, an irregular ring
- * as a regular polygon is a much bigger undertaking on its own. In
- * practice: chains, and any ring that was already regular (e.g. one placed
- * by the ring tool), clean up perfectly, while a hand-drawn irregular ring
- * may end up with a small gap or overlap where it closes back on itself,
- * since the bond that closes the ring is never used to move anything —
- * only bonds that reach a not-yet-placed atom are.
- *
- * Each connected fragment (see connectedComponents) is relaxed on its own,
+ * Each connected fragment (see connectedComponents) is handled on its own,
  * anchored so it doesn't drift or detach in a way the user didn't ask for:
  *  - If any atom in the fragment has a bond to something *outside* the
- *    given atoms (e.g. cleaning up one substituent of a larger structure),
- *    every such boundary atom is treated as already fixed, and relaxation
- *    spreads inward from there — so the fragment's attachment point to the
- *    rest of the molecule never moves or stretches.
- *  - Otherwise (the fragment is entirely self-contained in the
- *    selection — including the common case of cleaning up with nothing
- *    selected, i.e. the whole molecule) relaxation still has to start from
- *    *some* arbitrarily-chosen atom, but the whole fragment is then
- *    shifted back so its center of mass lands exactly where it started —
- *    so Clean Up only straightens bonds in place rather than relocating
- *    the structure to wherever that arbitrary starting atom happened to be.
+ *    given atoms (e.g. cleaning up one substituent, or one ring, of a
+ *    larger structure), every such boundary atom is treated as already
+ *    fixed, and everything else builds outward from there — so the
+ *    fragment's attachment point to the rest of the molecule never moves.
+ *  - Otherwise (the fragment is entirely self-contained in the selection —
+ *    including the common case of cleaning up with nothing selected, i.e.
+ *    the whole molecule) the first ring (or, if there's no ring at all,
+ *    the whole chain) has to anchor on *some* arbitrarily-chosen atom, but
+ *    the whole fragment is then shifted back so its center of mass lands
+ *    exactly where it started — so Clean Up only straightens things in
+ *    place rather than relocating the structure elsewhere.
+ *
+ * Two rings that share no atoms but are joined only by a floppy chain (or
+ * a ring plus a separately-anchored ring elsewhere in the same fragment)
+ * are each individually regularized but not reconciled against each other
+ * — same honest gap as an irregular bridged ring above: a full
+ * constraint solver is out of scope here.
  */
 export function cleanUpAtoms(mol: Molecule, atomIds: string[]): Molecule {
   const atoms = { ...mol.atoms };
@@ -536,9 +706,27 @@ export function cleanUpAtoms(mol: Molecule, atomIds: string[]): Molecule {
     };
 
     const boundary = component.filter(isBoundary);
-    const seeds = boundary.length > 0 ? boundary : [component[0]];
-    const visited = new Set(seeds);
-    const queue = [...seeds];
+    const fixed = new Map<string, Point>();
+    for (const id of boundary) fixed.set(id, { x: mol.atoms[id].x, y: mol.atoms[id].y });
+
+    const rings = detectRings(mol, component).sort((a, b) => a.length - b.length);
+    for (const ringWalk of rings) {
+      if (ringWalk.every((id) => fixed.has(id))) continue; // already fully placed by a smaller, earlier ring
+      for (const [id, p] of regularRingTargets(mol, ringWalk, fixed)) fixed.set(id, p);
+    }
+
+    // A fragment with neither a boundary atom nor any ring (a plain chain,
+    // or a lone atom) still needs *some* starting point for the relax-
+    // outward pass below.
+    if (fixed.size === 0) fixed.set(component[0], { x: mol.atoms[component[0]].x, y: mol.atoms[component[0]].y });
+
+    for (const [id, p] of fixed) {
+      const a = atoms[id];
+      if (a) atoms[id] = { ...a, x: p.x, y: p.y };
+    }
+
+    const visited = new Set(fixed.keys());
+    const queue = [...visited];
     while (queue.length > 0) {
       const cur = queue.shift()!;
       for (const nb of neighborsWithin(cur)) {
