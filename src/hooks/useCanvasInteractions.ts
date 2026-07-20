@@ -3,6 +3,7 @@ import type { Annotation, Molecule, Point, RingAttachment, FunctionalGroupAttach
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
+import { neighborIds } from "../model/valence";
 import { computeChainPoints } from "../engine/chainPlacement";
 import { angleOf, dist, polar, snapAngle } from "../model/geometry";
 import { fragmentOf } from "../model/molecule";
@@ -12,7 +13,7 @@ import type { BondOrder, BondStereo } from "../types/chemistry";
 
 type DragState =
   | { mode: "pan"; startClient: Point; startView: { scale: number; tx: number; ty: number } }
-  | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
+  | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> }; anchor: { atomId: string; neighborPos: Point } | null }
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
   | { mode: "functional-group"; template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point }
@@ -119,12 +120,19 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         }
         store.setSelected(newSelected);
         store.setAtomEditTarget(hitAtom);
+        // Only a lone atom with exactly one bond has an unambiguous single
+        // angle to snap to while it's dragged (see the "move" case in
+        // onPointerMove) — anything else (a branching atom, an isolated
+        // atom, or a multi-atom drag) is left as a free, unsnapped move.
+        const nbrs = newSelected.size === 1 ? neighborIds(molecule, hitAtom) : [];
+        const anchor = nbrs.length === 1 ? { atomId: hitAtom, neighborPos: { x: molecule.atoms[nbrs[0]].x, y: molecule.atoms[nbrs[0]].y } } : null;
         dragRef.current = {
           mode: "move",
           ids: [...newSelected],
           start: pt,
           origPositions: [...newSelected].map((id) => ({ id, x: molecule.atoms[id].x, y: molecule.atoms[id].y })),
           before: { molecule, annotations: store.annotations },
+          anchor,
         };
       } else if (hitBond) {
         store.setSelectedAnnotationIds(new Set());
@@ -309,11 +317,25 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
 
     if (drag.mode === "move") {
-      const dx = pt.x - drag.start.x;
-      const dy = pt.y - drag.start.y;
-      const moves: Record<string, Point> = {};
-      for (const p of drag.origPositions) moves[p.id] = { x: p.x + dx, y: p.y + dy };
-      store.moveAtomsTransient(moves);
+      if (drag.anchor && !e.shiftKey) {
+        // Same snap as drawing a fresh bond — 30° steps, standard bond
+        // length — so nudging an existing atom back onto a clean angle is
+        // just as easy as placing it that way to begin with. Hold Shift
+        // to move it completely freely instead, same convention used
+        // everywhere else in the app.
+        const { atomId, neighborPos } = drag.anchor;
+        const p = polar(neighborPos.x, neighborPos.y, BOND_LEN, snapAngle(angleOf(neighborPos, pt)));
+        store.moveAtomsTransient({ [atomId]: p });
+        store.setAtomMoveAnchor(drag.anchor);
+        store.setStatus("status.moveAtomSnap");
+      } else {
+        const dx = pt.x - drag.start.x;
+        const dy = pt.y - drag.start.y;
+        const moves: Record<string, Point> = {};
+        for (const p of drag.origPositions) moves[p.id] = { x: p.x + dx, y: p.y + dy };
+        store.moveAtomsTransient(moves);
+        if (drag.anchor) store.setAtomMoveAnchor(null); // Shift held: snapping suspended for this drag
+      }
       return;
     }
 
@@ -399,7 +421,11 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
 
     if (drag.mode === "arrow-draw") {
-      store.setArrowPreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
+      const end = e.shiftKey || dist(drag.start, pt) <= 8
+        ? pt
+        : polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt)));
+      store.setArrowPreview({ x1: drag.start.x, y1: drag.start.y, x2: end.x, y2: end.y });
+      store.setStatus("status.dragArrow");
       return;
     }
 
@@ -419,6 +445,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
     store.setBondPreview(null);
     store.setChainPreview(null);
+    store.setAtomMoveAnchor(null);
 
     if (drag.mode === "erase") {
       // Only push an undo step if something was actually erased — a plain
@@ -495,9 +522,16 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "arrow-draw") {
       store.setArrowPreview(null);
       const pt = clientToWorld(e.clientX, e.clientY);
-      // A near-zero drag still places a reasonable default-length arrow
-      // pointing right, rather than a degenerate zero-length one.
-      const end = dist(drag.start, pt) > 8 ? pt : { x: drag.start.x + BOND_LEN * 1.5, y: drag.start.y };
+      let end: Point;
+      if (dist(drag.start, pt) <= 8) {
+        // A near-zero drag still places a reasonable default-length arrow
+        // pointing right, rather than a degenerate zero-length one.
+        end = { x: drag.start.x + BOND_LEN * 1.5, y: drag.start.y };
+      } else if (e.shiftKey) {
+        end = pt; // free angle — same Shift-to-bypass convention as bonds
+      } else {
+        end = polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt)));
+      }
       const id = store.addArrowAnnotation(drag.start, end, store.arrowVariant, store.arrowBarb, store.arrowHeadSize);
       store.setSelectedAnnotationIds(new Set([id]));
       store.setTool("select");

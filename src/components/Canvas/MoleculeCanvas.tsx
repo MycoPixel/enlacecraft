@@ -7,6 +7,7 @@ import { ArrowAnnotationView } from "./ArrowAnnotationView";
 import { TextAnnotationView } from "./TextAnnotationView";
 import { BracketAnnotationView, bracketPath } from "./BracketAnnotationView";
 import { AnnotationToolbar } from "./AnnotationToolbar";
+import { DragReadout } from "./DragReadout";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
 import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
 import { previewRingLoops } from "../../engine/ringPlacement";
@@ -22,6 +23,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const selected = useMoleculeStore((s) => s.selected);
   const view = useMoleculeStore((s) => s.view);
   const bondPreview = useMoleculeStore((s) => s.bondPreview);
+  const atomMoveAnchor = useMoleculeStore((s) => s.atomMoveAnchor);
   const chainPreview = useMoleculeStore((s) => s.chainPreview);
   const marqueeRect = useMoleculeStore((s) => s.marqueeRect);
   const tool = useMoleculeStore((s) => s.tool);
@@ -249,18 +251,21 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
           )}
         </g>
         {arrowPreview && (
-          <line
-            x1={arrowPreview.x1}
-            y1={arrowPreview.y1}
-            x2={arrowPreview.x2}
-            y2={arrowPreview.y2}
-            stroke="var(--accent)"
-            strokeWidth={1.6}
-            opacity={0.65}
-            markerEnd={`url(#${arrowBarb === "single" ? "arrowhead-fishhook" : `arrowhead-${arrowHeadSize}`})`}
-            pointerEvents="none"
-            data-export-exclude="true"
-          />
+          <>
+            <line
+              x1={arrowPreview.x1}
+              y1={arrowPreview.y1}
+              x2={arrowPreview.x2}
+              y2={arrowPreview.y2}
+              stroke="var(--accent)"
+              strokeWidth={1.6}
+              opacity={0.65}
+              markerEnd={`url(#${arrowBarb === "single" ? "arrowhead-fishhook" : `arrowhead-${arrowHeadSize}`})`}
+              pointerEvents="none"
+              data-export-exclude="true"
+            />
+            <DragReadout from={{ x: arrowPreview.x1, y: arrowPreview.y1 }} to={{ x: arrowPreview.x2, y: arrowPreview.y2 }} />
+          </>
         )}
         {bracketPairPreview && (() => {
           // Same layout math the store's addBracketPair uses to commit the
@@ -297,7 +302,11 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             {!bondPreview.targetAtomId && (
               <circle cx={bondPreview.to.x} cy={bondPreview.to.y} r={3.5} fill="var(--accent)" />
             )}
+            {!bondPreview.targetAtomId && <DragReadout from={molecule.atoms[bondPreview.from]} to={bondPreview.to} />}
           </g>
+        )}
+        {atomMoveAnchor && molecule.atoms[atomMoveAnchor.atomId] && (
+          <DragReadout from={atomMoveAnchor.neighborPos} to={molecule.atoms[atomMoveAnchor.atomId]} />
         )}
         {chainPreview && chainPreview.points.length > 0 && (
           <g style={{ color: "var(--accent)" }} opacity={0.55} pointerEvents="none" data-export-exclude="true">

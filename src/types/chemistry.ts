@@ -94,6 +94,16 @@ export interface BondPreview {
   targetAtomId: string | null; // Set when the drag is hovering an existing atom
 }
 
+/** Live state while repositioning a single atom that has exactly one bond
+ * — the one case moving an existing atom can meaningfully snap to an
+ * angle/length the same way drawing a new bond does (see
+ * useCanvasInteractions's "move" drag handling). Lets MoleculeCanvas show
+ * the same length/angle readout used while drawing. */
+export interface AtomMoveAnchor {
+  atomId: string; // The atom actually being moved
+  neighborPos: Point; // Its one bonded neighbor's (fixed) position
+}
+
 /**
  * Live, uncommitted preview of a carbon chain being dragged out with the
  * chain tool — see engine/chainPlacement.ts. `from` is the existing atom

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
@@ -196,6 +196,10 @@ interface MoleculeStore {
   sidebarWidth: number;
   status: string;
   bondPreview: BondPreview | null;
+  /** See AtomMoveAnchor — set only while dragging a single, singly-bonded
+   * atom without Shift held, so MoleculeCanvas can show the same
+   * length/angle readout drawing a bond shows. */
+  atomMoveAnchor: AtomMoveAnchor | null;
   /** Live drag-to-grow preview for the chain tool; see engine/chainPlacement.ts. */
   chainPreview: ChainPreview | null;
   marqueeRect: MarqueeRect | null;
@@ -238,6 +242,7 @@ interface MoleculeStore {
   setSidebarWidth: (w: number) => void;
   setStatus: (s: string) => void;
   setBondPreview: (p: BondPreview | null) => void;
+  setAtomMoveAnchor: (a: AtomMoveAnchor | null) => void;
   setChainPreview: (p: ChainPreview | null) => void;
   setMarqueeRect: (r: MarqueeRect | null) => void;
   toggleShowHydrogens: () => void;
@@ -448,9 +453,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     editingTextId: null,
     atomLabelRevealTargets: new Set<string>(),
     bondPreview: null,
-    chainPreview: null,
-    marqueeRect: null,
-    bracketPairPreview: null,
+    atomMoveAnchor: null,
     arrowPreview: null,
   });
 
@@ -499,6 +502,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     sidebarWidth: detectInitialSidebarWidth(),
     status: "status.ready",
     bondPreview: null,
+    atomMoveAnchor: null,
     chainPreview: null,
     marqueeRect: null,
     showHydrogens: false,
@@ -545,6 +549,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
     setStatus: (s) => set({ status: s }),
     setBondPreview: (p) => set({ bondPreview: p }),
+    setAtomMoveAnchor: (a) => set({ atomMoveAnchor: a }),
     setChainPreview: (p) => set({ chainPreview: p }),
     setMarqueeRect: (r) => set({ marqueeRect: r }),
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),

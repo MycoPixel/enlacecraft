@@ -30,6 +30,8 @@ export const translations: Record<Lang, Dict> = {
 
     "status.ready": "Ready",
     "status.dragBond": "Drag to set bond direction, release to place atom (hold Shift for a free angle)",
+    "status.dragArrow": "Drag to set arrow direction, release to place it (hold Shift for a free angle)",
+    "status.moveAtomSnap": "Snapping to a 30° angle & standard bond length (hold Shift to move freely)",
     "status.dragChain": "Drag to grow a carbon chain, release to place it (hold Shift to snap the angle)",
     "status.imported": "Imported {{count}} atoms",
     "status.importError": "Couldn't read {{name}}: not a recognized file",
@@ -283,6 +285,8 @@ export const translations: Record<Lang, Dict> = {
 
     "status.ready": "Listo",
     "status.dragBond": "Arrastra para fijar el ángulo del enlace, suelta para colocar el átomo (mantén Shift para ángulo libre)",
+    "status.dragArrow": "Arrastra para fijar la dirección de la flecha, suelta para colocarla (mantén Shift para ángulo libre)",
+    "status.moveAtomSnap": "Ajustando a un ángulo de 30° y la longitud de enlace estándar (mantén Shift para mover libremente)",
     "status.dragChain": "Arrastra para hacer crecer una cadena de carbonos, suelta para colocarla (mantén Shift para fijar el ángulo)",
     "status.imported": "Se importaron {{count}} átomos",
     "status.importError": "No se pudo leer {{name}}: archivo no reconocido",
