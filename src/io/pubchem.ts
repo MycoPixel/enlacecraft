@@ -329,6 +329,53 @@ export async function searchCompoundsBySubstructure(smiles: string, maxResults =
 }
 
 /**
+ * Resolves the IUPAC name for a drawn structure (or selected fragment) via
+ * PubChem's PUG REST property endpoint. The structure doesn't need to
+ * already exist as a known PubChem compound — PubChem standardizes and
+ * names arbitrary valid SMILES on the fly, which is what makes this work
+ * for whatever's actually on the canvas rather than only for compounds
+ * already in PubChem's database.
+ *
+ * POSTs the SMILES rather than GETs it, for the same reason as
+ * fetchSDFRaw and searchCompoundsBySubstructure above: some SMILES
+ * characters don't survive URL encoding/decoding along the way intact.
+ *
+ * Docs: https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest#section=Compound-Property-Tables
+ */
+export async function fetchIupacName(smiles: string): Promise<string> {
+  const trimmed = smiles.trim();
+  if (!trimmed) throw new PubChemError("EMPTY_QUERY");
+
+  let res: Response;
+  try {
+    res = await fetch(`${PUG_REST_BASE}/compound/smiles/property/IUPACName/JSON`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `smiles=${encodeURIComponent(trimmed)}`,
+    });
+  } catch {
+    throw new PubChemError("NETWORK");
+  }
+  if (!res.ok) {
+    // Same 400-vs-404 ambiguity as elsewhere in this file — both mean
+    // "PubChem couldn't do anything useful with this" from here.
+    if (res.status === 404 || res.status === 400) throw new PubChemError("NOT_FOUND", { name: trimmed });
+    throw new PubChemError("HTTP", { status: res.status });
+  }
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new PubChemError("NOT_FOUND", { name: trimmed });
+  }
+  const props = (data as { PropertyTable?: { Properties?: { IUPACName?: string }[] } })?.PropertyTable?.Properties;
+  const name = props?.[0]?.IUPACName;
+  if (!name) throw new PubChemError("NOT_FOUND", { name: trimmed });
+  return name;
+}
+
+/**
  * Batch-fetches just the name/formula for a list of CIDs — used to give
  * search results a readable label without fetching each one's full
  * structure up front (that only happens once the person actually picks a

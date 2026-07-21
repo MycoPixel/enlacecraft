@@ -663,25 +663,26 @@
 .structure-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 170px;
   max-height: 320px;
   overflow-y: auto;
 }
 
 .structure-list__item {
-  padding: 7px 10px;
+  padding: 9px 10px;
   border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--ink);
   font-size: 12.5px;
-  line-height: 1.4;
+  line-height: 1.5;
   text-align: left;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .structure-list__item:hover {
@@ -770,6 +771,58 @@
   gap: 6px;
   padding: 4px 2px;
   font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.iupac-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: 280px;
+}
+
+.iupac-result {
+  display: flex;
+  flex-direction: column;
+}
+
+.iupac-result__name {
+  padding: 8px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.iupac-result__name:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.iupac-result__name--es {
+  font-weight: 500;
+}
+
+.iupac-result__label {
+  margin: 2px 9px 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--ink-soft);
+}
+
+.iupac-result__caveat {
+  margin: 4px 9px 0;
+  font-size: 10.5px;
+  line-height: 1.4;
   color: var(--ink-soft);
 }
 

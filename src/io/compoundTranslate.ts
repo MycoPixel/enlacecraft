@@ -147,6 +147,116 @@ export function suggestSpanishDictionaryMatches(query: string, limit = 8): strin
   return results;
 }
 
+/**
+ * A short list of names whose Spanish spelling is genuinely irregular —
+ * not a mechanical transform of the English one (e.g. "benzene" ->
+ * "benceno" changes z to c; nothing else here would produce that).
+ * Checked first, as whole substrings, before the general digraph/suffix
+ * rules below. Deliberately not word-boundary-anchored: real IUPAC names
+ * fuse these together with no separator ("chlorobenzene",
+ * "methylbenzaldehyde"), so a \b-anchored match would miss most real uses.
+ * Everything regular (chain lengths, cyclo-, -yl, -one, -ate, ...) is
+ * handled by the general rules further down instead of being listed here,
+ * so this stays short and still covers names of any chain length.
+ */
+const IRREGULAR_CHEM_ES: [string, string][] = [
+  ["benzaldehyde", "benzaldehído"],
+  ["benzyl", "bencil"],
+  ["benzene", "benceno"],
+  ["styrene", "estireno"],
+  ["aniline", "anilina"],
+  ["pyrimidine", "pirimidina"],
+  ["pyridine", "piridina"],
+  ["pyrrole", "pirrol"],
+  ["furan", "furano"],
+];
+
+/** General suffix substitutions, applied after the irregular dictionary
+ * and the digraph/prefix reductions below. These are what let this
+ * function handle a parent chain of *any* length (undecane, dodecanoic
+ * acid, ...) without needing an entry for each one. */
+const SUFFIX_SUBS: [RegExp, string][] = [
+  [/carboxylic/gi, "carboxilic"],
+  [/hydroxy/gi, "hidroxi"],
+  [/carbonitrile/gi, "carbonitrilo"],
+  [/nitrile/gi, "nitrilo"],
+  [/diamine/gi, "diamina"],
+  [/amine/gi, "amina"],
+  [/amide/gi, "amida"],
+  [/chloride/gi, "cloruro"],
+  [/bromide/gi, "bromuro"],
+  [/fluoride/gi, "fluoruro"],
+  [/iodide/gi, "yoduro"],
+  [/iodo/gi, "yodo"],
+  // Order matters below: the alkane/ene/yne parent-chain ending only
+  // appears in full when nothing else follows in the same word (a
+  // further suffix like -ol/-one/-oic elides the trailing e in both
+  // languages identically, e.g. "propan-2-ol"/"propan-2-ol"), so these
+  // are word-boundary-anchored. "-one" and "-yl" fuse mid-word with
+  // whatever comes next ("cyclohexanone", "methylbenzene") and so are
+  // deliberately left unanchored.
+  [/ane\b/gi, "ano"],
+  [/ene\b/gi, "eno"],
+  [/yne\b/gi, "ino"],
+  [/one/gi, "ona"],
+  [/yl/gi, "il"],
+];
+
+function applyChemistryRules(input: string): string {
+  let s = input;
+  for (const [en, es] of IRREGULAR_CHEM_ES) s = s.replace(new RegExp(en, "gi"), es);
+  // "cyclo-" and the ph/th/ch digraphs simplify the same way wherever
+  // they appear (cyclohexane -> ciclohexano, methyl -> metil, phenyl ->
+  // fenil, chloro -> cloro), so these run unconditionally before the
+  // suffix rules above get a chance to touch what's left.
+  s = s.replace(/cyclo/gi, "ciclo").replace(/ph/gi, "f").replace(/th/gi, "t").replace(/ch/gi, "c");
+  for (const [re, replacement] of SUFFIX_SUBS) s = s.replace(re, replacement);
+  return s;
+}
+
+/**
+ * Best-effort English IUPAC name -> Spanish transliteration, for showing
+ * alongside PubChem's (English-only) IUPACName lookup when the app is in
+ * Spanish mode. IUPAC nomenclature in Spanish uses the same locants and
+ * multiplying prefixes (di/tri/tetra...) as English — the differences are
+ * mostly mechanical spelling changes (see applyChemistryRules above) plus,
+ * for carboxylic acids and esters, a word-order change handled specially
+ * below ("acetic acid" -> "ácido acético"; "methyl acetate" -> "acetato de
+ * metilo").
+ *
+ * This is NOT a validated nomenclature engine: it won't add accent marks
+ * (renders "acetico" rather than "acético"), won't reorder anything beyond
+ * the two patterns below, and can misfire on unusual names. It's meant to
+ * give a genuinely useful approximation for the common structures a
+ * student draws — the English/IUPAC name PubChem returns should always be
+ * treated as the authoritative one, and this result is shown labeled as
+ * approximate for that reason.
+ */
+export function approximateSpanishIupacName(englishName: string): string {
+  const trimmed = englishName.trim();
+
+  // Simple esters: "<alkyl>yl <acyl>ate" -> "<acyl>ato de <alkyl>ilo"
+  // (e.g. "methyl acetate" -> "acetato de metilo", "ethyl butanoate" ->
+  // "butanoato de etilo" — note the stem doesn't always end in "o" before
+  // "ate": acetate = acet+ate, butanoate = butano+ate).
+  const esterMatch = /^(\S*yl)\s+(\S+)ate$/i.exec(trimmed);
+  if (esterMatch) {
+    const alkyl = applyChemistryRules(esterMatch[1]); // e.g. "methyl" -> "metil"
+    const acylStem = applyChemistryRules(esterMatch[2]);
+    return `${acylStem}ato de ${alkyl}o`;
+  }
+
+  // Carboxylic acids: "<stem>ic acid" -> "ácido <stem>ico"
+  const acidMatch = /^(.*)\s+acid$/i.exec(trimmed);
+  if (acidMatch) {
+    let stem = applyChemistryRules(acidMatch[1]);
+    stem = stem.replace(/ic$/i, "ico");
+    return `ácido ${stem}`;
+  }
+
+  return applyChemistryRules(trimmed);
+}
+
 /** Live fallback translation via MyMemory (free, no API key, CORS-enabled). */
 export async function translateSpanishToEnglish(query: string): Promise<string | null> {
   try {

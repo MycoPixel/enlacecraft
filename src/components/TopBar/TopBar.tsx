@@ -6,6 +6,7 @@ import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { CompoundSearch } from "./CompoundSearch";
 import { StructureSearchButton } from "./StructureSearchButton";
+import { IupacNameButton } from "./IupacNameButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent } from "../../model/valence";
 import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
@@ -160,6 +161,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
 
       <CompoundSearch />
       <StructureSearchButton />
+      <IupacNameButton />
 
       {!isMobile && (
         <div className="formula">
