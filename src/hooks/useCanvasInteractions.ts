@@ -13,7 +13,7 @@ import type { BondOrder, BondStereo } from "../types/chemistry";
 
 type DragState =
   | { mode: "pan"; startClient: Point; startView: { scale: number; tx: number; ty: number } }
-  | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> }; anchor: { atomId: string; neighborPos: Point } | null }
+  | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> }; anchor: { atomId: string; neighborPos: Point; originalLength: number } | null }
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
   | { mode: "functional-group"; template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point }
@@ -125,7 +125,9 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         // onPointerMove) — anything else (a branching atom, an isolated
         // atom, or a multi-atom drag) is left as a free, unsnapped move.
         const nbrs = newSelected.size === 1 ? neighborIds(molecule, hitAtom) : [];
-        const anchor = nbrs.length === 1 ? { atomId: hitAtom, neighborPos: { x: molecule.atoms[nbrs[0]].x, y: molecule.atoms[nbrs[0]].y } } : null;
+        const anchor = nbrs.length === 1
+          ? { atomId: hitAtom, neighborPos: { x: molecule.atoms[nbrs[0]].x, y: molecule.atoms[nbrs[0]].y }, originalLength: dist(molecule.atoms[hitAtom], molecule.atoms[nbrs[0]]) }
+          : null;
         dragRef.current = {
           mode: "move",
           ids: [...newSelected],
@@ -317,21 +319,27 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
 
     if (drag.mode === "move") {
-      if (drag.anchor && !e.shiftKey) {
-        // Same angle snap drawing a fresh bond uses — 30° steps — applied
-        // to however long the bond currently is (the actual cursor
-        // distance from the neighbor), not forced back to the standard
-        // bond length. Length always just follows the drag, exactly like
-        // the arrow tool: otherwise, lengthening a bond with Shift and
-        // then nudging its angle without Shift would snap the length back
-        // to standard and undo the very thing Shift was just used for.
-        // Hold Shift to also free the angle, same convention as everywhere
-        // else in the app.
-        const { atomId, neighborPos } = drag.anchor;
-        const p = polar(neighborPos.x, neighborPos.y, dist(neighborPos, pt), snapAngle(angleOf(neighborPos, pt)));
+      const lockLength = e.ctrlKey || e.metaKey;
+      if (drag.anchor && (lockLength || !e.shiftKey)) {
+        // Three ways to adjust a singly-bonded atom while dragging it:
+        //  - default: angle snaps to 30°, length always follows the drag
+        //    (see below for why length isn't forced to standard here).
+        //  - Ctrl/Cmd: length is locked to whatever it already was when
+        //    the drag started, and the angle snaps to a finer 15° instead
+        //    — for "I like this bond's length, I just want to swing it to
+        //    a clean angle" without the length drifting with the cursor.
+        //  - Shift: fully free, no snapping of either.
+        // Length always just follows the drag in the default case, exactly
+        // like the arrow tool: otherwise, lengthening a bond with Shift
+        // and then nudging its angle without Shift would snap the length
+        // back to standard and undo the very thing Shift was just used for.
+        const { atomId, neighborPos, originalLength } = drag.anchor;
+        const step = lockLength ? Math.PI / 12 : Math.PI / 6;
+        const length = lockLength ? originalLength : dist(neighborPos, pt);
+        const p = polar(neighborPos.x, neighborPos.y, length, snapAngle(angleOf(neighborPos, pt), step));
         store.moveAtomsTransient({ [atomId]: p });
         store.setAtomMoveAnchor(drag.anchor);
-        store.setStatus("status.moveAtomSnap");
+        store.setStatus(lockLength ? "status.moveAtomSnapLocked" : "status.moveAtomSnap");
       } else {
         const dx = pt.x - drag.start.x;
         const dy = pt.y - drag.start.y;

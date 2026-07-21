@@ -288,7 +288,22 @@ export async function searchCompoundsBySubstructure(smiles: string, maxResults =
 
   let res: Response;
   try {
-    res = await fetch(`${PUG_REST_BASE}/compound/fastsubstructure/smiles/${encodeURIComponent(trimmed)}/cids/JSON?MaxRecords=${maxResults}`);
+    // POST, not GET — same reasoning as fetchSDFRaw's identity lookup
+    // just above: PubChem's own docs warn that some SMILES characters can
+    // break a GET even when percent-encoded, since routing along the way
+    // can decode the URL before PubChem's parser sees it. That's not a
+    // rare edge case here — "=" appears in essentially every SMILES with
+    // a double bond or an aromatic ring, i.e. most things anyone would
+    // actually draw and search for. A mangled-in-transit SMILES doesn't
+    // fail loudly; PubChem just searches for whatever the corrupted
+    // string happened to parse as, which is how a search for "a benzene
+    // ring" could silently come back with compounds that don't contain
+    // one at all.
+    res = await fetch(`${PUG_REST_BASE}/compound/fastsubstructure/smiles/cids/JSON?MaxRecords=${maxResults}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `smiles=${encodeURIComponent(trimmed)}`,
+    });
   } catch {
     throw new PubChemError("NETWORK");
   }
