@@ -317,6 +317,7 @@ interface MoleculeStore {
   setAtomCharge: (id: string, delta: number) => void;
   setAtomChargeOffset: (id: string, dx: number, dy: number) => void;
   setLonePairOffset: (id: string, index: number, x: number, y: number) => void;
+  clearLonePairOffset: (id: string, index: number) => void;
   setAtomRadicalOffset: (id: string, dx: number, dy: number) => void;
   setAtomStereoLabelOffset: (id: string, dx: number, dy: number) => void;
   cycleAtomLonePairs: (id: string) => void;
@@ -641,6 +642,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setAtomCharge: (id, delta) => commit((mol) => M.setAtomCharge(mol, id, delta)),
     setAtomChargeOffset: (id, dx, dy) => commit((mol) => M.setAtomChargeOffset(mol, id, dx, dy)),
     setLonePairOffset: (id, index, x, y) => commit((mol) => M.setLonePairOffset(mol, id, index, x, y)),
+    clearLonePairOffset: (id, index) => commit((mol) => M.clearLonePairOffset(mol, id, index)),
     setAtomRadicalOffset: (id, dx, dy) => commit((mol) => M.setAtomRadicalOffset(mol, id, dx, dy)),
     setAtomStereoLabelOffset: (id, dx, dy) => commit((mol) => M.setAtomStereoLabelOffset(mol, id, dx, dy)),
     cycleAtomLonePairs: (id) => commit((mol) => M.cycleAtomLonePairs(mol, id)),

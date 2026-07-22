@@ -79,8 +79,26 @@ export function isOverValent(mol: Molecule, atomId: string): boolean {
 export interface AtomLabelInfo {
   /** Whether this atom shows a text label at all (vs. a bare skeletal vertex). */
   visible: boolean;
-  /** The exact label text (e.g. "C", "OH", "NH2", "CH3"). */
+  /** Just the element/isotope/group symbol (e.g. "C", "O", "N", "CH3" for a
+   * group) — this is what's centered exactly on the atom's true (x, y), so
+   * anything else anchored to the atom (a bond, a lone pair, a charge
+   * badge) stays visually aligned with it. Does NOT include the implicit-H
+   * suffix below — see that field's doc comment for why they're kept
+   * separate. */
   text: string;
+  /** The implicit-hydrogen suffix (e.g. "H" before "OH", "H2" before
+   * "NH2"), shown right after `text` but deliberately NOT merged into it.
+   * A combined string like "NH" centered as one block would put the
+   * visual middle of the whole label — and so the "N" glyph itself —
+   * noticeably left of the atom's actual (x, y), while bonds and lone
+   * pairs are (correctly) still centered on the real coordinate. That
+   * mismatch is exactly what made a lone pair on an aromatic N-H look
+   * like it was rotating around "the whole NH" instead of sitting
+   * straight above the N: the pair was right, the label's anchor wasn't.
+   * Keeping this as its own suffix, rendered starting just after `text`
+   * instead of centered with it, keeps the visible element symbol lined
+   * up with everything else that's anchored to the atom. */
+  hSuffix?: string;
   /** Superscript mass-number prefix shown before `text` (e.g. "13" before
    * "C") — only for isotopes without their own conventional symbol; D/T
    * are folded directly into `text` instead, since they're always written
@@ -118,22 +136,24 @@ export function atomLabelInfo(mol: Molecule, atomId: string, showHydrogens: bool
   const visible = forceLabel || showHydrogens || !isCarbon || isIsolated || !!isotopePreset;
 
   let text: string = displayElement;
+  let hSuffix: string | undefined;
   if (isCarbon && isIsolated) {
-    text = hCount > 0 ? `${displayElement}H${hCount > 1 ? hCount : ""}` : displayElement;
+    if (hCount > 0) hSuffix = `H${hCount > 1 ? hCount : ""}`;
   } else if (visible && hCount > 0) {
-    text = `${displayElement}H${hCount > 1 ? hCount : ""}`;
+    hSuffix = `H${hCount > 1 ? hCount : ""}`;
   }
 
   const isotopePrefix = isotopePreset && !hasOwnSymbol ? String(isotopePreset.massNumber) : undefined;
-  return { visible, text, isotopePrefix };
+  return { visible, text, hSuffix, isotopePrefix };
 }
 
 /** Approximate on-screen half-width (plus a little padding) of an atom's label, in px. */
 export function atomLabelRadius(mol: Molecule, atomId: string, showHydrogens: boolean, forceLabel = false): number {
-  const { visible, text, isotopePrefix } = atomLabelInfo(mol, atomId, showHydrogens, forceLabel);
+  const { visible, text, hSuffix, isotopePrefix } = atomLabelInfo(mol, atomId, showHydrogens, forceLabel);
   if (!visible) return 0;
   const prefixWidth = isotopePrefix ? isotopePrefix.length * 2.6 : 0;
-  return 7 + text.length * 3.6 + prefixWidth;
+  const fullLength = text.length + (hSuffix?.length ?? 0);
+  return 7 + fullLength * 3.6 + prefixWidth;
 }
 
 /** Hill-system-ish molecular formula string (C, H, then the rest

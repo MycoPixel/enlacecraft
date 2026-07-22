@@ -45,12 +45,20 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const view = useMoleculeStore((s) => s.view);
   const setAtomChargeOffset = useMoleculeStore((s) => s.setAtomChargeOffset);
   const setLonePairOffset = useMoleculeStore((s) => s.setLonePairOffset);
+  const clearLonePairOffset = useMoleculeStore((s) => s.clearLonePairOffset);
   const setAtomRadicalOffset = useMoleculeStore((s) => s.setAtomRadicalOffset);
   const setAtomStereoLabelOffset = useMoleculeStore((s) => s.setAtomStereoLabelOffset);
-  const { visible: showLabel, text, isotopePrefix } = atomLabelInfo(mol, atom.id, showHydrogens, atomLabelRevealTargets.has(atom.id));
+  const { visible: showLabel, text, hSuffix, isotopePrefix } = atomLabelInfo(mol, atom.id, showHydrogens, atomLabelRevealTargets.has(atom.id));
   const color = overValent ? "var(--danger)" : monochrome ? "var(--ink)" : ELEMENT_COLOR[atom.element] || "var(--ink)";
   const labelParts = useMemo(() => formatLabelWithSubscripts(text), [text]);
-  const isotopeOffsetX = -(text.length * 3.6) / 2 - 4.5;
+  const hSuffixParts = useMemo(() => (hSuffix ? formatLabelWithSubscripts(hSuffix) : []), [hSuffix]);
+  // Full visible label length (element + implicit-H suffix) — for things
+  // that anchor off the label's total width (charge badge, isotope
+  // prefix). Unlike the label rendering itself below, those don't need to
+  // distinguish the two parts, just how much horizontal space they take
+  // up together.
+  const fullTextLength = text.length + (hSuffix?.length ?? 0);
+  const isotopeOffsetX = -(fullTextLength * 3.6) / 2 - 4.5;
   const isotopeOffsetY = -8.5;
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const lonePairDragRef = useRef<{ index: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -212,6 +220,33 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
               </tspan>
             ))}
           </text>
+          {hSuffix && (
+            <text
+              // Starts just past the (centered, unaffected) element
+              // symbol instead of being centered as part of one combined
+              // string — see hSuffix's doc comment in valence.ts for why:
+              // otherwise the element glyph itself would sit visibly off
+              // the atom's true (x, y), which is where bonds and lone
+              // pairs correctly anchor.
+              x={(text.length * 4) / 2 + 1}
+              textAnchor="start"
+              dominantBaseline="central"
+              fontSize="14.5"
+              fontWeight="500"
+              fill={color}
+              className="atom-label"
+            >
+              {hSuffixParts.map((part, i) => (
+                <tspan
+                  key={i}
+                  dy={part.subscript ? 4 : i === 0 ? 0 : -4}
+                  fontSize={part.subscript ? "10" : "14.5"}
+                >
+                  {part.text}
+                </tspan>
+              ))}
+            </text>
+          )}
         </>
       ) : (
         <circle r="2" fill={color} className="atom-vertex" data-export-exclude="true" />
@@ -223,14 +258,14 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           style={{ cursor: "grab" }}
         >
           <circle
-            cx={(showLabel ? text.length * 4 + 4 : 6) + (atom.chargeOffsetX ?? 0) + 3}
+            cx={(showLabel ? fullTextLength * 4 + 4 : 6) + (atom.chargeOffsetX ?? 0) + 3}
             cy={-8 + (atom.chargeOffsetY ?? 0) - 3}
             r="9"
             fill="transparent"
             data-export-exclude="true"
           />
           <text
-            x={(showLabel ? text.length * 4 + 4 : 6) + (atom.chargeOffsetX ?? 0)}
+            x={(showLabel ? fullTextLength * 4 + 4 : 6) + (atom.chargeOffsetX ?? 0)}
             y={-8 + (atom.chargeOffsetY ?? 0)}
             fontSize="13"
             fontWeight="700"
@@ -249,6 +284,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
             key={i}
             onPointerDown={handleLonePairPointerDown(i, pos)}
             onPointerMove={handleLonePairPointerMove}
+            onDoubleClick={(e) => { e.stopPropagation(); clearLonePairOffset(atom.id, i); }}
             style={{ cursor: "grab" }}
           >
             {/* Larger invisible hit area — the visible dots are tiny — so

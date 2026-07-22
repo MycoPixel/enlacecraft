@@ -7,17 +7,15 @@ import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { CompoundSearch } from "./CompoundSearch";
 import { StructureSearchButton } from "./StructureSearchButton";
 import { IupacNameButton } from "./IupacNameButton";
+import { MoleculeInfoButton } from "./MoleculeInfoButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent } from "../../model/valence";
-import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
-import { Formula } from "../common/Formula";
 import { exportPNG, exportSVG } from "../../io/exportImage";
 import { exportMol, importMol } from "../../io/molfile";
 import { exportCdxml, importCdxml } from "../../io/cdxml";
 import { exportSmiles } from "../../io/smiles";
 import { exportProject, importProject, PROJECT_FILE_EXTENSION, ProjectParseError } from "../../io/project";
 import { downloadBlob } from "../../io/exportImage";
-import { useIsMobile } from "../../hooks/useIsMobile";
 import { useT } from "../../i18n/useT";
 
 interface TopBarProps {
@@ -50,10 +48,8 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const toggleMonochromeAtoms = useMoleculeStore((s) => s.toggleMonochromeAtoms);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isMobile = useIsMobile();
   const t = useT();
 
-  const { fragments } = useFormulaDisplay();
   const hasOverValence = Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id));
 
   const resolveBackground = (bg: ExportBackground): string | null => {
@@ -163,19 +159,6 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
       <StructureSearchButton />
       <IupacNameButton />
 
-      {!isMobile && (
-        <div className="formula">
-          {fragments.length === 0 && "\u2014"}
-          {fragments.map((f, i) => (
-            <span className="formula__fragment" key={i}>
-              {i > 0 && <span className="formula__sep">{"\u2013"}</span>}
-              <Formula formula={f.formula} />
-              {f.mw > 0 && <span className="formula__mw">{f.mw.toFixed(2)} g/mol</span>}
-            </span>
-          ))}
-        </div>
-      )}
-
       {hasOverValence && (
         <div className="valence-warn" title={t("valence.exceeded")}>
           <AlertTriangle size={13} />
@@ -195,6 +178,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
           <Upload size={18} />
         </ToolButton>
         <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
+        <MoleculeInfoButton />
         <Divider />
         <ToolButton title={showHydrogens ? t("tool.hideHydrogens") : t("tool.showHydrogens")} active={showHydrogens} onClick={toggleShowHydrogens}>
           <Atom size={18} />

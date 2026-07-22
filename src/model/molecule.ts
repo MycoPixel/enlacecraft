@@ -102,6 +102,17 @@ export function setAtomChargeOffset(mol: Molecule, id: string, dx: number, dy: n
   return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, chargeOffsetX: dx, chargeOffsetY: dy } } };
 }
 
+/** Clears a lone pair's manual override, reverting it back to the
+ * automatically computed placement from defaultLonePairPosition (e.g.
+ * double-clicking a dragged pair in AtomView to reset it). */
+export function clearLonePairOffset(mol: Molecule, id: string, index: number): Molecule {
+  const a = mol.atoms[id];
+  if (!a?.lonePairOffsets?.[index]) return mol;
+  const offsets = [...a.lonePairOffsets];
+  offsets[index] = null;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, lonePairOffsets: offsets } } };
+}
+
 /** Sets an explicit local (x, y) position for one specific lone pair,
  * overriding the automatic placement defaultLonePairPosition would
  * otherwise compute for it — this is what lets each lone pair on an atom
