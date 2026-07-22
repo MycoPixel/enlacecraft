@@ -1,4 +1,4 @@
-import type { Molecule } from "../types/chemistry";
+import type { Atom, Molecule } from "../types/chemistry";
 import { VALENCE, ATOMIC_WEIGHT, ABBREVIATED_GROUPS, ISOTOPE_PRESETS } from "./constants";
 import { angleOf } from "./geometry";
 
@@ -167,9 +167,9 @@ export function computeFormula(mol: Molecule, atomIds?: Iterable<string>): strin
     const a = mol.atoms[id];
     if (!a) continue;
     if (a.group) {
-      const group = GROUP_BY_ID[a.group];
-      if (group) {
-        const groupCounts = parseSimpleFormula(group.formula);
+      const formulaStr = GROUP_BY_ID[a.group]?.formula ?? a.groupFormula;
+      if (formulaStr) {
+        const groupCounts = parseSimpleFormula(formulaStr);
         for (const el in groupCounts) add(el, groupCounts[el]);
       }
       continue;
@@ -237,9 +237,9 @@ export function computeMolecularWeight(mol: Molecule, atomIds?: Iterable<string>
     const a = mol.atoms[id];
     if (!a) continue;
     if (a.group) {
-      const group = GROUP_BY_ID[a.group];
-      if (group) {
-        const groupCounts = parseSimpleFormula(group.formula);
+      const formulaStr = GROUP_BY_ID[a.group]?.formula ?? a.groupFormula;
+      if (formulaStr) {
+        const groupCounts = parseSimpleFormula(formulaStr);
         for (const el in groupCounts) total += (ATOMIC_WEIGHT[el as keyof typeof ATOMIC_WEIGHT] ?? 0) * groupCounts[el];
       }
       continue;
@@ -249,4 +249,22 @@ export function computeMolecularWeight(mol: Molecule, atomIds?: Iterable<string>
     total += implicitH(mol, id) * ATOMIC_WEIGHT.H;
   }
   return total;
+}
+
+/**
+ * True for a `group` atom that isn't a recognized chemical formula — a
+ * generic placeholder like "R", "R'", "R1", or "X" typed via the atom
+ * label editor (model/atomLabelParser.ts's "generic" case), or any
+ * `group` id matching neither the ABBREVIATED_GROUPS registry nor
+ * carrying its own groupFormula. Contributes nothing to formula/MW (see
+ * computeFormula/computeMolecularWeight above) — this is what the info
+ * popup's placeholder-label warning checks for.
+ */
+export function isPlaceholderLabel(atom: Atom): boolean {
+  return !!atom.group && !GROUP_BY_ID[atom.group] && !atom.groupFormula;
+}
+
+/** True if any atom in `mol` carries a placeholder label — see isPlaceholderLabel. */
+export function hasPlaceholderLabels(mol: Molecule): boolean {
+  return Object.values(mol.atoms).some(isPlaceholderLabel);
 }

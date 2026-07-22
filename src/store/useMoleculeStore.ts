@@ -11,6 +11,7 @@ import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/func
 import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "../model/constants";
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate } from "../model/userTemplates";
+import { parseAtomLabel } from "../model/atomLabelParser";
 
 const HISTORY_LIMIT = 100;
 
@@ -157,6 +158,11 @@ interface MoleculeStore {
   atomGroup: string | null;
   atomIsotope: string | null;
   atomEditTarget: string | null;
+  /** Atom currently showing the free-text label editor (see
+   * AtomLabelEditor / model/atomLabelParser.ts) — at most one at a time,
+   * opened by double-clicking an atom's label or pressing Enter on a
+   * single targeted atom, closed on commit/Escape/blur. */
+  labelEditTarget: string | null;
   hoverAtomId: string | null;
   /** Bond currently under the cursor (only tracked when nothing's being
    * dragged and the cursor isn't over an atom) — used for the ring tool's
@@ -238,6 +244,7 @@ interface MoleculeStore {
   setAtomGroup: (g: string | null) => void;
   setAtomIsotope: (presetId: string | null) => void;
   setAtomEditTarget: (id: string | null) => void;
+  setLabelEditTarget: (id: string | null) => void;
   setHoverAtomId: (id: string | null) => void;
   setHoverBondId: (id: string | null) => void;
   setHoverPoint: (p: Point | null) => void;
@@ -311,6 +318,11 @@ interface MoleculeStore {
   addChain: (fromAtomId: string | null, anchor: Point, points: Point[]) => void;
   setAtomElementOf: (id: string, element: Element) => void;
   setAtomGroupOf: (id: string, group: string) => void;
+  /** Parses free-typed text (model/atomLabelParser.ts) and applies
+   * whichever result it resolves to — a real element, a preset group, a
+   * custom condensed formula, or a generic placeholder label. Invalid
+   * input leaves the atom untouched and sets a status message instead. */
+  setAtomLabelOf: (id: string, raw: string) => void;
   setAtomIsotopeOf: (id: string, presetId: string) => void;
   clearAtomIsotopeOf: (id: string) => void;
   cycleAtomStereoLabel: (id: string) => void;
@@ -474,6 +486,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     hoverBondId: null,
     hoverPoint: null,
     atomEditTarget: null,
+    labelEditTarget: null,
     editingTextId: null,
     atomLabelRevealTargets: new Set<string>(),
     bondPreview: null,
@@ -507,6 +520,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     atomGroup: null,
     atomIsotope: null,
     atomEditTarget: null,
+    labelEditTarget: null,
     hoverAtomId: null,
     hoverBondId: null,
     hoverPoint: null,
@@ -541,6 +555,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setAtomGroup: (g) => set({ atomGroup: g, atomIsotope: null }),
     setAtomIsotope: (presetId) => set({ atomIsotope: presetId, atomGroup: null }),
     setAtomEditTarget: (id) => set({ atomEditTarget: id }),
+    setLabelEditTarget: (id) => set({ labelEditTarget: id }),
     setHoverAtomId: (id) => set({ hoverAtomId: id }),
     setHoverBondId: (id) => set({ hoverBondId: id }),
     setHoverPoint: (p) => set({ hoverPoint: p }),
@@ -632,6 +647,26 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     setAtomElementOf: (id, element) => commit((mol) => M.setAtomElement(mol, id, element)),
     setAtomGroupOf: (id, group) => commit((mol) => M.setAtomGroup(mol, id, group)),
+    setAtomLabelOf: (id, raw) => {
+      const parsed = parseAtomLabel(raw);
+      switch (parsed.kind) {
+        case "element":
+          commit((mol) => M.setAtomElement(mol, id, parsed.element));
+          return;
+        case "presetGroup":
+          commit((mol) => M.setAtomGroup(mol, id, parsed.groupId));
+          return;
+        case "formula":
+          commit((mol) => M.setAtomCustomGroup(mol, id, parsed.formula, parsed.formula));
+          return;
+        case "generic":
+          commit((mol) => M.setAtomCustomGroup(mol, id, parsed.text, undefined));
+          return;
+        case "invalid":
+          set({ status: "status.invalidLabel" });
+          return;
+      }
+    },
     setAtomIsotopeOf: (id, presetId) => {
       const preset = ISOTOPE_PRESETS.find((p) => p.id === presetId);
       if (!preset) return;

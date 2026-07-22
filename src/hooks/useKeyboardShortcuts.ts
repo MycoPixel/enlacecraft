@@ -7,6 +7,9 @@ import type { Element } from "../types/chemistry";
  *   V = select   B = bond   C = chain   R = ring   E = erase   W = wedge   H = show hydrogens
  *   T = text box   A = reaction arrow   K = bracket ( [ {
  *   1 / 2 / 3 = bond order   [ / ] = rotate selection left/right 30°
+ *   Enter = open free-text label editor on a single targeted atom
+ *   (double-clicking an atom does the same) — type any element, a short
+ *   condensed formula (CH3, COOH), or a placeholder label (R, R1, R')
  *   Ctrl/Cmd+Z = undo   Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y = redo
  *   Delete / Backspace = delete selection (or selected annotation)
  */
@@ -23,6 +26,7 @@ export function useKeyboardShortcuts() {
   const selected = useMoleculeStore((s) => s.selected);
   const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
   const setAtomEditTarget = useMoleculeStore((s) => s.setAtomEditTarget);
+  const setLabelEditTarget = useMoleculeStore((s) => s.setLabelEditTarget);
   const setAtomLabelRevealTargets = useMoleculeStore((s) => s.setAtomLabelRevealTargets);
   const setAtomElementOf = useMoleculeStore((s) => s.setAtomElementOf);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
@@ -92,6 +96,7 @@ export function useKeyboardShortcuts() {
       if (e.key === "Escape") {
         clearSelection();
         setAtomEditTarget(null);
+        setLabelEditTarget(null);
         setSelectedAnnotationIds(new Set());
         return;
       }
@@ -99,6 +104,15 @@ export function useKeyboardShortcuts() {
         e.preventDefault();
         if (selectedAnnotationIds.size > 0) deleteAnnotations(selectedAnnotationIds);
         if (selected.size > 0) deleteSelection();
+        return;
+      }
+
+      if (e.key === "Enter") {
+        const targetIds = atomEditTarget ? [atomEditTarget] : hoverAtomId ? [hoverAtomId] : selected.size > 0 ? [...selected] : [];
+        if (targetIds.length === 1) {
+          e.preventDefault();
+          setLabelEditTarget(targetIds[0]);
+        }
         return;
       }
 
@@ -157,5 +171,5 @@ export function useKeyboardShortcuts() {
         pendingElementTimerRef.current = null;
       }
     };
-  }, [undo, redo, setTool, deleteSelection, selectAll, clearSelection, toggleShowHydrogens, rotateSelection, atomEditTarget, selected, hoverAtomId, setAtomEditTarget, setAtomLabelRevealTargets, setAtomElementOf, selectedAnnotationIds, deleteAnnotations, setSelectedAnnotationIds]);
+  }, [undo, redo, setTool, deleteSelection, selectAll, clearSelection, toggleShowHydrogens, rotateSelection, atomEditTarget, selected, hoverAtomId, setAtomEditTarget, setLabelEditTarget, setAtomLabelRevealTargets, setAtomElementOf, selectedAnnotationIds, deleteAnnotations, setSelectedAnnotationIds]);
 }

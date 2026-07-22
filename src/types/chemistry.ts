@@ -57,6 +57,23 @@ export interface Atom {
    * skips implicit-H math entirely (see model/valence.ts).
    */
   group?: string;
+  /**
+   * Only set when `group` was typed in free-hand (via the atom label
+   * editor / model/atomLabelParser.ts) rather than picked from the fixed
+   * ABBREVIATED_GROUPS registry — e.g. typing "COOH" or "CF3" directly
+   * onto an atom. Holds the same flat "symbol then optional count" shape
+   * ABBREVIATED_GROUPS.formula uses, letting computeFormula/
+   * computeMolecularWeight count it exactly like a registry group without
+   * needing a matching registry entry.
+   *
+   * `group` set with `groupFormula` absent (and no registry match either)
+   * means the typed text wasn't a recognized chemical formula — a
+   * generic placeholder label like "R", "R'", "R1", or "X" — which
+   * contributes nothing to formula/MW (same as an unmatched registry id
+   * always has) and is what the info popup's placeholder-label warning
+   * checks for (see valence.ts's isPlaceholderLabel).
+   */
+  groupFormula?: string;
   /** Mass number (e.g. 2 for deuterium, 13 for carbon-13) when this atom is
    * isotope-labeled; absent means the standard/most-abundant isotope. Purely
    * label + MW — see model/valence.ts and STANDARD_MASS_NUMBER. */

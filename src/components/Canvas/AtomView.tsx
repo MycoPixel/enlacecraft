@@ -3,7 +3,7 @@ import { atomLabelInfo } from "../../model/valence";
 import { defaultLonePairPosition } from "../../model/lonePairs";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { useCallback, useEffect, useRef, useMemo, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo, type RefObject } from "react";
 
 interface AtomViewProps {
   atom: Atom;
@@ -48,6 +48,10 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const clearLonePairOffset = useMoleculeStore((s) => s.clearLonePairOffset);
   const setAtomRadicalOffset = useMoleculeStore((s) => s.setAtomRadicalOffset);
   const setAtomStereoLabelOffset = useMoleculeStore((s) => s.setAtomStereoLabelOffset);
+  const labelEditTarget = useMoleculeStore((s) => s.labelEditTarget);
+  const setLabelEditTarget = useMoleculeStore((s) => s.setLabelEditTarget);
+  const setAtomLabelOf = useMoleculeStore((s) => s.setAtomLabelOf);
+  const editing = labelEditTarget === atom.id;
   const { visible: showLabel, text, hSuffix, isotopePrefix } = atomLabelInfo(mol, atom.id, showHydrogens, atomLabelRevealTargets.has(atom.id));
   const color = overValent ? "var(--danger)" : monochrome ? "var(--ink)" : ELEMENT_COLOR[atom.element] || "var(--ink)";
   const labelParts = useMemo(() => formatLabelWithSubscripts(text), [text]);
@@ -181,13 +185,18 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
     return () => window.removeEventListener("pointerup", onPointerUp);
   }, []);
 
+  const openLabelEditor = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLabelEditTarget(atom.id);
+  }, [atom.id, setLabelEditTarget]);
+
   return (
-    <g transform={`translate(${atom.x},${atom.y})`} data-atom-id={atom.id}>
+    <g transform={`translate(${atom.x},${atom.y})`} data-atom-id={atom.id} onDoubleClick={openLabelEditor}>
       {selected && <circle r="15" fill="var(--selection)" data-export-exclude="true" />}
       {overValent && (
         <circle r="13" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeDasharray="3 2" data-export-exclude="true" />
       )}
-      {showLabel ? (
+      {showLabel && !editing ? (
         <>
           {isotopePrefix && (
             <text
@@ -248,8 +257,15 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
             </text>
           )}
         </>
-      ) : (
+      ) : !editing ? (
         <circle r="2" fill={color} className="atom-vertex" data-export-exclude="true" />
+      ) : null}
+      {editing && (
+        <AtomLabelEditor
+          atom={atom}
+          onCommit={(raw) => { setAtomLabelOf(atom.id, raw); setLabelEditTarget(null); }}
+          onCancel={() => setLabelEditTarget(null)}
+        />
       )}
       {chargeLabel && (
         <g
@@ -370,3 +386,55 @@ function RadicalDot({ base, color, offsetX = 0, offsetY = 0 }: { base: { x: numb
     </>
   );
 }
+
+/**
+ * Free-text label editor for one atom — a plain HTML `<input>` inside a
+ * `<foreignObject>` nested in the same locally-translated `<g>` as the
+ * rest of the atom, so it automatically pans/zooms with the canvas
+ * exactly like TextAnnotationView's contentEditable div does, with no
+ * manual screen-coordinate math needed.
+ *
+ * Pre-filled with the atom's current typed-editable value: its group
+ * label if it has one (whether a registry preset, a custom formula, or a
+ * generic placeholder), otherwise its plain element symbol. Commits on
+ * Enter or blur, cancels on Escape without touching the atom.
+ */
+function AtomLabelEditor({ atom, onCommit, onCancel }: { atom: Atom; onCommit: (raw: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(atom.group ?? atom.element);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, []);
+
+  const commit = () => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    const trimmed = value.trim();
+    if (trimmed) onCommit(trimmed);
+    else onCancel();
+  };
+
+  return (
+    <foreignObject x={-35} y={-13} width={70} height={26} style={{ overflow: "visible" }} data-export-exclude="true">
+      <input
+        ref={inputRef}
+        className="atom-label-editor"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onPointerDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          else if (e.key === "Escape") { e.preventDefault(); committedRef.current = true; onCancel(); }
+        }}
+      />
+    </foreignObject>
+  );
+}
+

@@ -78,7 +78,7 @@ export function setAtomElement(mol: Molecule, id: string, element: Element): Mol
   if (!a) return mol;
   // Picking a real element from the periodic-table picker always overrides
   // any abbreviated-group label or isotope this vertex previously had.
-  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, element, group: undefined, isotope: undefined } } };
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, element, group: undefined, groupFormula: undefined, isotope: undefined } } };
 }
 
 /** Converts (or places) a vertex to an abbreviated-group shorthand — see
@@ -87,7 +87,17 @@ export function setAtomElement(mol: Molecule, id: string, element: Element): Mol
 export function setAtomGroup(mol: Molecule, id: string, group: string): Molecule {
   const a = mol.atoms[id];
   if (!a) return mol;
-  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, element: "C", group, isotope: undefined } } };
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, element: "C", group, groupFormula: undefined, isotope: undefined } } };
+}
+
+/** Sets a free-typed group label (from model/atomLabelParser.ts) rather
+ * than a fixed ABBREVIATED_GROUPS pick — `formula` is present for a
+ * recognized condensed formula ("COOH", "CF3") and absent for a generic
+ * placeholder label ("R", "R1", "X"); see Atom.groupFormula's doc comment. */
+export function setAtomCustomGroup(mol: Molecule, id: string, label: string, formula: string | undefined): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, element: "C", group: label, groupFormula: formula, isotope: undefined } } };
 }
 
 export function setAtomCharge(mol: Molecule, id: string, delta: number): Molecule {

@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Info, Copy, Check } from "lucide-react";
+import { Info, Copy, Check, AlertTriangle } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
+import { hasPlaceholderLabels } from "../../model/valence";
 import { Formula } from "../common/Formula";
 import { exportSmiles } from "../../io/smiles";
 import { ToolButton } from "../Sidebar/ToolButton";
@@ -31,6 +32,7 @@ export function MoleculeInfoButton() {
   const selected = useMoleculeStore((s) => s.selected);
   const { fragments } = useFormulaDisplay();
   const hasAnyAtoms = Object.keys(molecule.atoms).length > 0;
+  const hasPlaceholder = hasPlaceholderLabels(molecule);
 
   const reposition = () => {
     const btn = btnWrapRef.current;
@@ -80,6 +82,7 @@ export function MoleculeInfoButton() {
     <div className="molecule-info" ref={btnWrapRef}>
       <ToolButton title={t("tool.moleculeInfo")} active={open} onClick={() => setOpen((o) => !o)}>
         <Info size={18} />
+        {hasPlaceholder && <AlertTriangle size={10} className="molecule-info__badge" />}
       </ToolButton>
       {open && coords &&
         createPortal(
@@ -99,6 +102,12 @@ export function MoleculeInfoButton() {
                     {f.mw > 0 && <span className="molecule-info__mw">{f.mw.toFixed(2)} g/mol</span>}
                   </div>
                 ))}
+              </div>
+            )}
+            {hasPlaceholder && (
+              <div className="molecule-info__warning">
+                <AlertTriangle size={13} />
+                <span>{t("moleculeInfo.placeholderWarning")}</span>
               </div>
             )}
             <div className="molecule-info__divider" />
