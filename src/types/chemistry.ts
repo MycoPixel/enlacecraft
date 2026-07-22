@@ -29,8 +29,19 @@ export interface Atom {
    * marking lone pairs can never change the computed formula/MW/H-count.
    */
   lonePairs?: number;
-  lonePairsOffsetX?: number;
-  lonePairsOffsetY?: number;
+  /**
+   * Per-pair position override, local to the atom (index-aligned with
+   * `lonePairs` — entry i is pair i). A pair with no entry (or `null`)
+   * uses the automatically computed placement from
+   * model/lonePairs.ts's defaultLonePairPosition, which finds the open
+   * angular gap between this atom's bonds and re-adjusts on every render
+   * as the molecule changes around it. Dragging a pair in AtomView sets
+   * its entry here, pinning it in place (and giving up that
+   * auto-adjustment) — this is what lets each pair be moved and rotated
+   * independently, rather than the whole group sharing one offset the
+   * way charge/radical annotations do.
+   */
+  lonePairOffsets?: ({ x: number; y: number } | null)[];
   /**
    * Whether a single unpaired-electron dot is shown (radical center),
    * toggled by the radical tool. Same purely-visual status as lonePairs.

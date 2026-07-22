@@ -102,10 +102,17 @@ export function setAtomChargeOffset(mol: Molecule, id: string, dx: number, dy: n
   return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, chargeOffsetX: dx, chargeOffsetY: dy } } };
 }
 
-export function setAtomLonePairsOffset(mol: Molecule, id: string, dx: number, dy: number): Molecule {
+/** Sets an explicit local (x, y) position for one specific lone pair,
+ * overriding the automatic placement defaultLonePairPosition would
+ * otherwise compute for it — this is what lets each lone pair on an atom
+ * be dragged to its own position/angle independently of the others. */
+export function setLonePairOffset(mol: Molecule, id: string, index: number, x: number, y: number): Molecule {
   const a = mol.atoms[id];
   if (!a) return mol;
-  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, lonePairsOffsetX: dx, lonePairsOffsetY: dy } } };
+  const offsets = [...(a.lonePairOffsets ?? [])];
+  while (offsets.length <= index) offsets.push(null);
+  offsets[index] = { x, y };
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, lonePairOffsets: offsets } } };
 }
 
 export function setAtomRadicalOffset(mol: Molecule, id: string, dx: number, dy: number): Molecule {

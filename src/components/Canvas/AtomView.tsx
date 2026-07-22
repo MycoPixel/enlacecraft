@@ -1,5 +1,6 @@
 import type { Atom, Molecule } from "../../types/chemistry";
 import { atomLabelInfo } from "../../model/valence";
+import { defaultLonePairPosition } from "../../model/lonePairs";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useCallback, useEffect, useRef, useMemo, type RefObject } from "react";
@@ -43,7 +44,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const monochrome = useMoleculeStore((s) => s.monochromeAtoms);
   const view = useMoleculeStore((s) => s.view);
   const setAtomChargeOffset = useMoleculeStore((s) => s.setAtomChargeOffset);
-  const setAtomLonePairsOffset = useMoleculeStore((s) => s.setAtomLonePairsOffset);
+  const setLonePairOffset = useMoleculeStore((s) => s.setLonePairOffset);
   const setAtomRadicalOffset = useMoleculeStore((s) => s.setAtomRadicalOffset);
   const setAtomStereoLabelOffset = useMoleculeStore((s) => s.setAtomStereoLabelOffset);
   const { visible: showLabel, text, isotopePrefix } = atomLabelInfo(mol, atom.id, showHydrogens, atomLabelRevealTargets.has(atom.id));
@@ -52,7 +53,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const isotopeOffsetX = -(text.length * 3.6) / 2 - 4.5;
   const isotopeOffsetY = -8.5;
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
-  const lonePairsDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const lonePairDragRef = useRef<{ index: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
   const radicalDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const stereoLabelDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
 
@@ -92,26 +93,32 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
     setAtomChargeOffset(atom.id, dragRef.current.originX + dx, dragRef.current.originY + dy);
   }, [atom.id, chargeLabel, setAtomChargeOffset, clientToWorld]);
 
-  const handleLonePairsPointerDown = useCallback((e: React.PointerEvent<SVGGElement>) => {
-    if (!atom.lonePairs) return;
-    e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    const worldPos = clientToWorld(e.clientX, e.clientY);
-    lonePairsDragRef.current = {
-      startX: worldPos.x,
-      startY: worldPos.y,
-      originX: atom.lonePairsOffsetX ?? 0,
-      originY: atom.lonePairsOffsetY ?? 0,
-    };
-  }, [atom.lonePairs, atom.lonePairsOffsetX, atom.lonePairsOffsetY, clientToWorld]);
+  const handleLonePairPointerDown = useCallback((index: number, current: { x: number; y: number }) =>
+    (e: React.PointerEvent<SVGGElement>) => {
+      e.stopPropagation();
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      const worldPos = clientToWorld(e.clientX, e.clientY);
+      lonePairDragRef.current = {
+        index,
+        startX: worldPos.x,
+        startY: worldPos.y,
+        originX: current.x,
+        originY: current.y,
+      };
+    }, [clientToWorld]);
 
-  const handleLonePairsPointerMove = useCallback((e: React.PointerEvent<SVGGElement>) => {
-    if (!lonePairsDragRef.current || !atom.lonePairs) return;
+  const handleLonePairPointerMove = useCallback((e: React.PointerEvent<SVGGElement>) => {
+    if (!lonePairDragRef.current) return;
     const worldPos = clientToWorld(e.clientX, e.clientY);
-    const dx = worldPos.x - lonePairsDragRef.current.startX;
-    const dy = worldPos.y - lonePairsDragRef.current.startY;
-    setAtomLonePairsOffset(atom.id, lonePairsDragRef.current.originX + dx, lonePairsDragRef.current.originY + dy);
-  }, [atom.id, atom.lonePairs, setAtomLonePairsOffset, clientToWorld]);
+    const dx = worldPos.x - lonePairDragRef.current.startX;
+    const dy = worldPos.y - lonePairDragRef.current.startY;
+    setLonePairOffset(
+      atom.id,
+      lonePairDragRef.current.index,
+      lonePairDragRef.current.originX + dx,
+      lonePairDragRef.current.originY + dy
+    );
+  }, [atom.id, setLonePairOffset, clientToWorld]);
 
   const handleRadicalPointerDown = useCallback((e: React.PointerEvent<SVGGElement>) => {
     if (!atom.radical) return;
@@ -158,7 +165,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   useEffect(() => {
     const onPointerUp = () => {
       dragRef.current = null;
-      lonePairsDragRef.current = null;
+      lonePairDragRef.current = null;
       radicalDragRef.current = null;
       stereoLabelDragRef.current = null;
     };
@@ -234,21 +241,23 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           </text>
         </g>
       )}
-      {!!atom.lonePairs && (
-        <g
-          onPointerDown={handleLonePairsPointerDown}
-          onPointerMove={handleLonePairsPointerMove}
-          style={{ cursor: "grab" }}
-          transform={`translate(${atom.lonePairsOffsetX ?? 0},${atom.lonePairsOffsetY ?? 0})`}
-        >
-          {/* Larger invisible hit area — the visible dots are tiny (and have
-              a gap between each pair), so this is what actually gets grabbed. */}
-          <circle r="14" fill="transparent" data-export-exclude="true" />
-          {Array.from({ length: atom.lonePairs }, (_, i) => (
-            <LonePairDots key={i} slot={i} color={color} />
-          ))}
-        </g>
-      )}
+      {!!atom.lonePairs && Array.from({ length: atom.lonePairs }, (_, i) => {
+        const override = atom.lonePairOffsets?.[i];
+        const pos = override ?? defaultLonePairPosition(mol, atom.id, i, atom.lonePairs!);
+        return (
+          <g
+            key={i}
+            onPointerDown={handleLonePairPointerDown(i, pos)}
+            onPointerMove={handleLonePairPointerMove}
+            style={{ cursor: "grab" }}
+          >
+            {/* Larger invisible hit area — the visible dots are tiny — so
+                this is what actually gets grabbed. */}
+            <circle cx={pos.x} cy={pos.y} r="7" fill="transparent" data-export-exclude="true" />
+            <LonePairDots x={pos.x} y={pos.y} color={color} />
+          </g>
+        );
+      })}
       {atom.radical && (
         <g
           onPointerDown={handleRadicalPointerDown}
@@ -256,7 +265,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           style={{ cursor: "grab" }}
         >
           <RadicalDot
-            slot={atom.lonePairs ?? 0}
+            base={defaultLonePairPosition(mol, atom.id, atom.lonePairs ?? 0, (atom.lonePairs ?? 0) + 1)}
             color={color}
             offsetX={atom.radicalOffsetX ?? 0}
             offsetY={atom.radicalOffsetY ?? 0}
@@ -295,20 +304,17 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   );
 }
 
-/** Cardinal slot positions (top, right, bottom, left) around an atom, used
- * for both lone-pair and radical-dot placement so the two can share a
- * consistent "next free slot" ordering. */
-const DOT_SLOTS: { x: number; y: number; axis: "h" | "v" }[] = [
-  { x: 0, y: -11, axis: "h" }, // top: pair splits horizontally
-  { x: 11, y: 0, axis: "v" },  // right: pair splits vertically
-  { x: 0, y: 11, axis: "h" },  // bottom
-  { x: -11, y: 0, axis: "v" }, // left
-];
-
-function LonePairDots({ slot, color }: { slot: number; color: string }) {
-  const { x, y, axis } = DOT_SLOTS[slot % DOT_SLOTS.length];
-  const dx = axis === "h" ? 2.6 : 0;
-  const dy = axis === "v" ? 2.6 : 0;
+/** Renders one lone pair's two dots at local position (x, y), splitting
+ * them tangentially (perpendicular to the direction from the atom center
+ * out to that position) rather than always horizontally or vertically —
+ * this is what makes a pair look correctly "rotated" no matter which way
+ * around the atom it's been placed, instead of only ever looking right
+ * when it happens to sit exactly on top, right, bottom, or left. */
+function LonePairDots({ x, y, color }: { x: number; y: number; color: string }) {
+  const angle = Math.atan2(y, x);
+  const perp = angle + Math.PI / 2;
+  const dx = Math.cos(perp) * 2.6;
+  const dy = Math.sin(perp) * 2.6;
   return (
     <g>
       <circle cx={x - dx} cy={y - dy} r="1.3" fill={color} />
@@ -317,13 +323,14 @@ function LonePairDots({ slot, color }: { slot: number; color: string }) {
   );
 }
 
-function RadicalDot({ slot, color, offsetX = 0, offsetY = 0 }: { slot: number; color: string; offsetX?: number; offsetY?: number }) {
-  const { x, y } = DOT_SLOTS[slot % DOT_SLOTS.length];
+function RadicalDot({ base, color, offsetX = 0, offsetY = 0 }: { base: { x: number; y: number }; color: string; offsetX?: number; offsetY?: number }) {
+  const x = base.x + offsetX;
+  const y = base.y + offsetY;
   return (
     <>
       {/* Larger invisible hit area — the visible dot alone (r=1.6) is too small to reliably grab. */}
-      <circle cx={x + offsetX} cy={y + offsetY} r="8" fill="transparent" data-export-exclude="true" />
-      <circle cx={x + offsetX} cy={y + offsetY} r="1.6" fill={color} style={{ pointerEvents: "none" }} />
+      <circle cx={x} cy={y} r="8" fill="transparent" data-export-exclude="true" />
+      <circle cx={x} cy={y} r="1.6" fill={color} style={{ pointerEvents: "none" }} />
     </>
   );
 }
