@@ -273,7 +273,17 @@ export const ISOTOPE_PRESETS: IsotopePreset[] = [
   { id: "13C", element: "C", massNumber: 13, label: "13C", mass: 13.003 },
   { id: "14C", element: "C", massNumber: 14, label: "14C", mass: 14.003 },
   { id: "15N", element: "N", massNumber: 15, label: "15N", mass: 15.000 },
+  { id: "17O", element: "O", massNumber: 17, label: "17O", mass: 16.999 },
   { id: "18O", element: "O", massNumber: 18, label: "18O", mass: 17.999 },
+  // Radiolabeling/tracer isotopes routinely used in molecular biology
+  // (metabolic labeling, pulse-chase, blotting) and the NMR-active
+  // isotopes chemists reach for beyond 1H/13C.
+  { id: "32P", element: "P", massNumber: 32, label: "32P", mass: 31.974 },
+  { id: "35S", element: "S", massNumber: 35, label: "35S", mass: 34.969 },
+  { id: "45Ca", element: "Ca", massNumber: 45, label: "45Ca", mass: 44.956 },
+  { id: "57Fe", element: "Fe", massNumber: 57, label: "57Fe", mass: 56.935 },
+  { id: "77Se", element: "Se", massNumber: 77, label: "77Se", mass: 76.919 },
+  { id: "125I", element: "I", massNumber: 125, label: "125I", mass: 124.904 },
 ];
 
 /** Standard (most abundant) mass number for each element — the reference
@@ -285,6 +295,7 @@ export const ISOTOPE_PRESETS: IsotopePreset[] = [
 export const STANDARD_MASS_NUMBER: Partial<Record<Element, number>> = {
   H: 1, C: 12, N: 14, O: 16, S: 32, P: 31,
   F: 19, Cl: 35, Br: 79, I: 127, B: 11, Si: 28,
+  Ca: 40, Fe: 56, Se: 80,
 };
 
 export interface AbbreviatedGroup {

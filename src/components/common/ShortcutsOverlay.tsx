@@ -41,6 +41,7 @@ const GROUPS: ShortcutGroup[] = [
     titleKey: "shortcuts.group.editing",
     items: [
       { keys: "C, N, O, Cl...", descKey: "shortcuts.typeElement" },
+      { keys: "Enter / middle-click / long-press", descKey: "shortcuts.labelEditor" },
       { keys: "Click a selected bond", descKey: "shortcuts.cycleBondOrder" },
       { keys: "Double-bond tool + click", descKey: "shortcuts.cycleDoubleBondSide" },
       { keys: "Delete / Backspace", descKey: "shortcuts.delete" },

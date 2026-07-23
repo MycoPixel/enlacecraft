@@ -210,13 +210,71 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
     return () => window.removeEventListener("pointerup", onPointerUp);
   }, []);
 
-  const openLabelEditor = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setLabelEditTarget(atom.id);
+  // Opens the free-text label editor without touching double-click, which
+  // is already spoken for (selects the whole connected fragment — see
+  // useCanvasInteractions' onDoubleClick). Two triggers, matched to how
+  // each input actually works:
+  //  - middle mouse button: fires instantly on pointerdown, no drag risk
+  //    since nothing else uses the middle button here.
+  //  - touch: a press-and-hold, the standard "more options" gesture on a
+  //    touchscreen, cancelled on release/movement so it doesn't fight a
+  //    real drag. Its own pointerup then swallows the tap that would
+  //    otherwise also fire on release once the hold has already opened
+  //    the editor.
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressFiredRef = useRef(false);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clearLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  }, []);
+
+  const onAtomPointerDown = useCallback((e: React.PointerEvent<SVGGElement>) => {
+    if (e.pointerType === "mouse") {
+      if (e.button === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        setLabelEditTarget(atom.id);
+      }
+      return;
+    }
+    if (e.pointerType === "touch") {
+      longPressFiredRef.current = false;
+      longPressStartRef.current = { x: e.clientX, y: e.clientY };
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressFiredRef.current = true;
+        setLabelEditTarget(atom.id);
+      }, 550);
+    }
   }, [atom.id, setLabelEditTarget]);
 
+  const onAtomPointerMove = useCallback((e: React.PointerEvent<SVGGElement>) => {
+    const start = longPressStartRef.current;
+    if (!start) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) clearLongPress();
+  }, [clearLongPress]);
+
+  const onAtomPointerUp = useCallback((e: React.PointerEvent<SVGGElement>) => {
+    clearLongPress();
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      e.stopPropagation();
+    }
+  }, [clearLongPress]);
+
   return (
-    <g transform={`translate(${atom.x},${atom.y})`} data-atom-id={atom.id} onDoubleClick={openLabelEditor}>
+    <g
+      transform={`translate(${atom.x},${atom.y})`}
+      data-atom-id={atom.id}
+      onPointerDown={onAtomPointerDown}
+      onPointerMove={onAtomPointerMove}
+      onPointerUp={onAtomPointerUp}
+      onPointerLeave={clearLongPress}
+    >
       {selected && <circle r="15" fill="var(--selection)" data-export-exclude="true" />}
       {overValent && (
         <circle r="13" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeDasharray="3 2" data-export-exclude="true" />
@@ -428,8 +486,14 @@ function RadicalDot({ base, color, offsetX = 0, offsetY = 0 }: { base: { x: numb
  * generic placeholder), otherwise its plain element symbol. Commits on
  * Enter or blur, cancels on Escape without touching the atom.
  */
+function initialLabelEditorValue(atom: Atom): string {
+  const core = atom.group ?? (atom.isotope ? `${atom.isotope}${atom.element}` : atom.element);
+  const chargeSuffix = atom.charge === 0 ? "" : (atom.charge > 0 ? "+" : "-").repeat(Math.abs(atom.charge));
+  return core + chargeSuffix;
+}
+
 function AtomLabelEditor({ atom, onCommit, onCancel }: { atom: Atom; onCommit: (raw: string) => void; onCancel: () => void }) {
-  const [value, setValue] = useState(atom.group ?? atom.element);
+  const [value, setValue] = useState(() => initialLabelEditorValue(atom));
   const inputRef = useRef<HTMLInputElement>(null);
   const committedRef = useRef(false);
 

@@ -106,6 +106,15 @@ export function setAtomCharge(mol: Molecule, id: string, delta: number): Molecul
   return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, charge: a.charge + delta } } };
 }
 
+/** Sets charge to an exact value rather than nudging it by delta — for
+ * the label editor's charge notation (model/atomLabelParser.ts), where
+ * what's typed is the whole intended state, not a nudge. */
+export function setAtomChargeAbsolute(mol: Molecule, id: string, charge: number): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, charge } } };
+}
+
 export function setAtomChargeOffset(mol: Molecule, id: string, dx: number, dy: number): Molecule {
   const a = mol.atoms[id];
   if (!a) return mol;

@@ -8,7 +8,9 @@ import type { Element } from "../types/chemistry";
  *   T = text box   A = reaction arrow   K = bracket ( [ {
  *   1 / 2 / 3 = bond order   [ / ] = rotate selection left/right 30°
  *   Enter = open free-text label editor on a single targeted atom
- *   (double-clicking an atom does the same) — type any element, a short
+ *   (middle-click an atom, or press-and-hold on touch, does the same —
+ *   double-click stays reserved for selecting the whole fragment) — type
+ *   any element, a short
  *   condensed formula (CH3, COOH), or a placeholder label (R, R1, R')
  *   Ctrl/Cmd+Z = undo   Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y = redo
  *   Delete / Backspace = delete selection (or selected annotation)
