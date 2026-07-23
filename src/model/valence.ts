@@ -48,7 +48,7 @@ export function neighborAngles(mol: Molecule, atomId: string): number[] {
  *    in either direction (e.g. carbocation / carbanion -> 3)
  */
 export function effectiveValence(el: keyof typeof VALENCE, charge: number): number {
-  const base = VALENCE[el] ?? 4;
+  const base = VALENCE[el] ?? 0;
   if (el === "C" || el === "Si" || el === "B") {
     return Math.max(0, base - Math.abs(charge));
   }
@@ -65,6 +65,10 @@ export function implicitH(mol: Molecule, atomId: string): number {
   // its single bond fully accounts for its one attachment point, so there's
   // no implicit-hydrogen filling to do (see ABBREVIATED_GROUPS doc comment).
   if (a.group) return 0;
+  // Elements with no VALENCE entry (most transition metals, lanthanides,
+  // actinides — see VALENCE's doc comment) have genuinely variable
+  // bonding, so there's no sensible fixed number of implicit H to add.
+  if (VALENCE[a.element] === undefined) return 0;
   const used = usedValence(mol, atomId);
   const eff = effectiveValence(a.element, a.charge);
   return Math.max(0, eff - used);
@@ -73,6 +77,7 @@ export function implicitH(mol: Molecule, atomId: string): number {
 export function isOverValent(mol: Molecule, atomId: string): boolean {
   const a = mol.atoms[atomId];
   if (a.group) return false;
+  if (VALENCE[a.element] === undefined) return false;
   return usedValence(mol, atomId) > effectiveValence(a.element, a.charge);
 }
 
@@ -149,11 +154,17 @@ export function atomLabelInfo(mol: Molecule, atomId: string, showHydrogens: bool
 
 /** Approximate on-screen half-width (plus a little padding) of an atom's label, in px. */
 export function atomLabelRadius(mol: Molecule, atomId: string, showHydrogens: boolean, forceLabel = false): number {
-  const { visible, text, hSuffix, isotopePrefix } = atomLabelInfo(mol, atomId, showHydrogens, forceLabel);
+  const { visible, text, isotopePrefix } = atomLabelInfo(mol, atomId, showHydrogens, forceLabel);
   if (!visible) return 0;
   const prefixWidth = isotopePrefix ? isotopePrefix.length * 2.6 : 0;
-  const fullLength = text.length + (hSuffix?.length ?? 0);
-  return 7 + fullLength * 3.6 + prefixWidth;
+  // Deliberately sized off the element symbol alone, not the implicit-H
+  // suffix ("OH", "NH2", ...) — the suffix only renders out to one side
+  // (see AtomView), so folding its length into this radius inflated the
+  // bond-clearance gap in *every* direction, making a real bond on the
+  // non-H side stop visibly far from the atom, as if the symbol had
+  // drifted toward the H. Real bonds essentially never approach from the
+  // suffix's side, so there's nothing to protect there in practice.
+  return 7 + text.length * 3.6 + prefixWidth;
 }
 
 /** Hill-system-ish molecular formula string (C, H, then the rest

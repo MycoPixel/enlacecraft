@@ -37,6 +37,18 @@ export function useKeyboardShortcuts() {
   const pendingElementTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // Deliberately just this original set, not the full periodic table
+    // (model/constants.ts's PERIODIC_TABLE) — every one of these single-
+    // or double-letter symbols was chosen to never collide with a
+    // tool-shortcut letter (v/b/c/r/e/w/t/a/k) when typed while hovering
+    // an atom (an exact/prefix match here takes priority over the tool
+    // switch below). Most of the periodic table doesn't have that
+    // property (V is also Vanadium, K is also Potassium, ...), so
+    // widening this buffer would silently break existing tool shortcuts
+    // for anyone with an atom under the cursor. The full table is still
+    // reachable — the periodic table picker (Sidebar) and the free-text
+    // label editor (Enter/double-click, model/atomLabelParser.ts) both
+    // already support any element, no buffer-collision risk either way.
     const elementBySymbol: Record<string, Element> = {
       c: "C",
       n: "N",

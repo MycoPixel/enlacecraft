@@ -292,7 +292,10 @@ export const translations: Record<Lang, Dict> = {
     "ring.naphthalene": "Naphthalene",
 
     "element.place": "Place {{element}}",
-    "element.more": "More elements (S, P, I, B, Si)",
+    "element.more": "More elements (full periodic table)",
+    "periodic.title": "Periodic table",
+    "periodic.search": "Search by symbol, name, or number\u2026",
+    "periodic.noMatches": "No matching elements",
     "group.place": "Place {{group}} ({{formula}})",
     "isotope.place": "Label as {{isotope}} ({{element}} isotope)",
 
@@ -596,7 +599,10 @@ export const translations: Record<Lang, Dict> = {
     "ring.naphthalene": "Naftaleno",
 
     "element.place": "Colocar {{element}}",
-    "element.more": "Más elementos (S, P, I, B, Si)",
+    "element.more": "Más elementos (tabla periódica completa)",
+    "periodic.title": "Tabla periódica",
+    "periodic.search": "Buscar por símbolo, nombre o número\u2026",
+    "periodic.noMatches": "No hay elementos coincidentes",
     "group.place": "Colocar {{group}} ({{formula}})",
     "isotope.place": "Marcar como {{isotope}} (isótopo de {{element}})",
 

@@ -3,7 +3,7 @@ import { atomLabelInfo } from "../../model/valence";
 import { defaultLonePairPosition } from "../../model/lonePairs";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { useCallback, useEffect, useRef, useState, useMemo, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type RefObject } from "react";
 
 interface AtomViewProps {
   atom: Atom;
@@ -56,6 +56,31 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const color = overValent ? "var(--danger)" : monochrome ? "var(--ink)" : ELEMENT_COLOR[atom.element] || "var(--ink)";
   const labelParts = useMemo(() => formatLabelWithSubscripts(text), [text]);
   const hSuffixParts = useMemo(() => (hSuffix ? formatLabelWithSubscripts(hSuffix) : []), [hSuffix]);
+  // The element symbol's *actual* rendered half-width, measured via
+  // getBBox rather than estimated from character count — a flat
+  // per-character estimate badly undershoots for some glyphs (an "O" is
+  // much wider than the ~4px/char guess this used to use), which crowded
+  // the implicit-H suffix right up against the symbol with almost no gap
+  // and made the whole "OH"/"NH"/"SH" cluster read as off-center from the
+  // true atom position. Falls back to a rough character-count estimate
+  // only until the first measurement lands (getBBox needs the text to
+  // already be in the DOM), and only every re-runs when the label text
+  // actually changes.
+  const mainTextRef = useRef<SVGTextElement>(null);
+  const [measuredHalfWidth, setMeasuredHalfWidth] = useState(() => (text.length * 4) / 2);
+  useLayoutEffect(() => {
+    if (!hSuffix) return;
+    const el = mainTextRef.current;
+    if (!el) return;
+    try {
+      const width = el.getBBox().width;
+      if (width > 0) setMeasuredHalfWidth(width / 2);
+    } catch {
+      // getBBox can throw if the element isn't actually rendered yet
+      // (e.g. an ancestor with display:none) — keep the estimate.
+    }
+  }, [hSuffix, text]);
+
   // Full visible label length (element + implicit-H suffix) — for things
   // that anchor off the label's total width (charge badge, isotope
   // prefix). Unlike the label rendering itself below, those don't need to
@@ -212,6 +237,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
             </text>
           )}
           <text
+            ref={mainTextRef}
             textAnchor="middle"
             dominantBaseline="central"
             fontSize="14.5"
@@ -232,12 +258,15 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           {hSuffix && (
             <text
               // Starts just past the (centered, unaffected) element
-              // symbol instead of being centered as part of one combined
-              // string — see hSuffix's doc comment in valence.ts for why:
-              // otherwise the element glyph itself would sit visibly off
-              // the atom's true (x, y), which is where bonds and lone
-              // pairs correctly anchor.
-              x={(text.length * 4) / 2 + 1}
+              // symbol's *measured* right edge instead of being centered
+              // as part of one combined string — see hSuffix's doc
+              // comment in valence.ts for why: otherwise the element
+              // glyph itself would sit visibly off the atom's true
+              // (x, y), which is where bonds and lone pairs correctly
+              // anchor. measuredHalfWidth (not a char-count guess) is
+              // what keeps this gap looking right regardless of which
+              // element symbol it is.
+              x={measuredHalfWidth + 1.5}
               textAnchor="start"
               dominantBaseline="central"
               fontSize="14.5"

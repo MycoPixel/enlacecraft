@@ -1,6 +1,6 @@
 import type { BondOrder, BondStereo, Element, Molecule } from "../types/chemistry";
 import { emptyMolecule } from "../model/molecule";
-import { BOND_LEN } from "../model/constants";
+import { BOND_LEN, PERIODIC_TABLE } from "../model/constants";
 import { calibrateImportScale } from "./importScale";
 import { nextId } from "../model/id";
 
@@ -33,15 +33,14 @@ import { nextId } from "../model/id";
  * directly as the atom symbol.
  */
 
-/** Atomic number <-> element symbol, limited to what this app's atom model supports. */
-const ATOMIC_NUMBER_TO_ELEMENT: Record<number, Element> = {
-  1: "H", 5: "B", 6: "C", 7: "N", 8: "O", 9: "F",
-  14: "Si", 15: "P", 16: "S", 17: "Cl", 35: "Br", 53: "I",
-};
-const ELEMENT_TO_ATOMIC_NUMBER: Record<Element, number> = {
-  H: 1, B: 5, C: 6, N: 7, O: 8, F: 9,
-  Si: 14, P: 15, S: 16, Cl: 17, Br: 35, I: 53,
-};
+/** Atomic number <-> element symbol, derived from the full PERIODIC_TABLE
+ * (model/constants.ts) rather than hand-listed here. */
+const ATOMIC_NUMBER_TO_ELEMENT: Record<number, Element> = Object.fromEntries(
+  PERIODIC_TABLE.map((e) => [e.number, e.symbol])
+);
+const ELEMENT_TO_ATOMIC_NUMBER: Record<Element, number> = Object.fromEntries(
+  PERIODIC_TABLE.map((e) => [e.symbol, e.number])
+) as Record<Element, number>;
 
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

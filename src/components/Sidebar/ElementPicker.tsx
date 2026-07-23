@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import type { Element } from "../../types/chemistry";
-import { COMMON_ELEMENTS, EXTENDED_ELEMENTS, ELEMENT_COLOR } from "../../model/constants";
+import { COMMON_ELEMENTS, ELEMENT_COLOR } from "../../model/constants";
 import { useT } from "../../i18n/useT";
+import { PeriodicTableModal } from "./PeriodicTableModal";
 
 interface ElementPickerProps {
   value: Element;
@@ -12,10 +13,7 @@ interface ElementPickerProps {
 
 export function ElementPicker({ value, onChange, active }: ElementPickerProps) {
   const t = useT();
-  // Stays expanded once opened for as long as the currently-picked element
-  // is one of the "more" ones — so choosing, say, Si doesn't immediately
-  // hide the very button that's now active.
-  const [expanded, setExpanded] = useState(() => EXTENDED_ELEMENTS.includes(value));
+  const [modalOpen, setModalOpen] = useState(false);
 
   const renderButton = (el: Element) => (
     <button
@@ -32,17 +30,19 @@ export function ElementPicker({ value, onChange, active }: ElementPickerProps) {
   return (
     <div className="element-grid">
       {COMMON_ELEMENTS.map(renderButton)}
-      {expanded
-        ? EXTENDED_ELEMENTS.map(renderButton)
-        : (
-          <button
-            className="element-btn element-btn--more"
-            onClick={() => setExpanded(true)}
-            title={t("element.more")}
-          >
-            <MoreHorizontal size={14} />
-          </button>
-        )}
+      <button
+        className={`element-btn element-btn--more ${active && !COMMON_ELEMENTS.includes(value) ? "element-btn--active" : ""}`}
+        onClick={() => setModalOpen(true)}
+        title={t("element.more")}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      <PeriodicTableModal
+        open={modalOpen}
+        value={value}
+        onSelect={onChange}
+        onClose={() => setModalOpen(false)}
+      />
     </div>
   );
 }

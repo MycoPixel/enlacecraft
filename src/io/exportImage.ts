@@ -86,6 +86,31 @@ function inlineDynamicColors(liveSvg: SVGSVGElement, clone: SVGSVGElement): void
 }
 
 /**
+ * Copies each live `<text>` element's computed font-family onto its
+ * (index-aligned) clone counterpart. All the app's on-canvas text — atom
+ * labels, charge/stereo labels, isotope prefixes — gets its font purely
+ * from the `.atom-label` CSS class, never an inline attribute. That's
+ * fine on-screen where the app's stylesheet is loaded, but an exported
+ * SVG/PNG is read back as its own standalone document with no access to
+ * that stylesheet (a class selector with nothing to match resolves to
+ * nothing), so without this every exported label silently fell back to
+ * the renderer's default font instead of matching what was drawn on
+ * screen. Must run for the same reason and at the same point as
+ * inlineDynamicColors — before anything is removed from the clone, so
+ * the two node lists stay index-aligned.
+ */
+function inlineFonts(liveSvg: SVGSVGElement, clone: SVGSVGElement): void {
+  const liveTexts = liveSvg.querySelectorAll<SVGTextElement>("text");
+  const cloneTexts = clone.querySelectorAll<SVGTextElement>("text");
+  liveTexts.forEach((liveEl, i) => {
+    const cloneEl = cloneTexts[i];
+    if (!cloneEl) return;
+    const fontFamily = getComputedStyle(liveEl).fontFamily;
+    if (fontFamily) cloneEl.setAttribute("font-family", fontFamily);
+  });
+}
+
+/**
  * Builds a standalone, tightly-cropped export clone of the canvas SVG:
  * dynamic colors resolved to literal values, editor-only UI stripped (grid
  * background, selection highlights, hover previews, marquee — anything
@@ -101,6 +126,7 @@ function buildExportClone(
   const bounds = getExportBounds(svg);
   const clone = svg.cloneNode(true) as SVGSVGElement;
   inlineDynamicColors(svg, clone);
+  inlineFonts(svg, clone);
   clone.querySelectorAll("[data-export-exclude]").forEach((el) => el.remove());
   // The bounding box above is measured in the molecule's own untransformed
   // coordinate space, but the cloned markup still carries the live canvas's
@@ -219,6 +245,7 @@ export function exportSelectionPNGBlob(
 ): Promise<Blob | null> {
   const measureSvg = svg.cloneNode(true) as SVGSVGElement;
   inlineDynamicColors(svg, measureSvg);
+  inlineFonts(svg, measureSvg);
   measureSvg.querySelectorAll("[data-export-exclude]").forEach((el) => el.remove());
   measureSvg.querySelectorAll("[data-export-viewport]").forEach((el) => el.removeAttribute("transform"));
   measureSvg.removeAttribute("style");
