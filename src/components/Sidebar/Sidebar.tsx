@@ -39,6 +39,7 @@ export function Sidebar() {
   const pasteFragment = useMoleculeStore((s) => s.pasteFragment);
   const view = useMoleculeStore((s) => s.view);
   const setView = useMoleculeStore((s) => s.setView);
+  const resetView = useMoleculeStore((s) => s.resetView);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
@@ -136,7 +137,6 @@ export function Sidebar() {
 
   const zoomBy = (factor: number) =>
     setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
-  const resetView = () => setView({ scale: 1, tx: 0, ty: 0 });
 
   return (
     <aside className="sidebar" style={{ width: sidebarWidth }}>

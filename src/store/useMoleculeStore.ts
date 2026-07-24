@@ -392,6 +392,11 @@ interface MoleculeStore {
   distributeSelection: (axis: M.DistributeAxis) => void;
   cleanUpSelection: () => void;
   clear: () => void;
+  /** Resets pan/zoom — to the app's default starting view when the canvas
+   * is empty, or fit-and-centered on whatever's actually drawn otherwise.
+   * Doesn't touch the molecule/annotations themselves; see clear() for
+   * that. */
+  resetView: () => void;
   /** Whether the *active tab* has changed since its last "clean" point
    * (page load, Clear, or opening/saving a .enlacecraft project file).
    * Inactive tabs track the same thing in their own tabDocuments entry.
@@ -894,6 +899,46 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         editingTextId: null,
         hasUnsavedChanges: false,
       }),
+
+    resetView: () => {
+      const { molecule, annotations, canvasSize } = get();
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const a of Object.values(molecule.atoms)) {
+        minX = Math.min(minX, a.x); maxX = Math.max(maxX, a.x);
+        minY = Math.min(minY, a.y); maxY = Math.max(maxY, a.y);
+      }
+      for (const ann of Object.values(annotations)) {
+        if (ann.kind === "arrow") {
+          minX = Math.min(minX, ann.x1, ann.x2); maxX = Math.max(maxX, ann.x1, ann.x2);
+          minY = Math.min(minY, ann.y1, ann.y2); maxY = Math.max(maxY, ann.y1, ann.y2);
+        } else {
+          minX = Math.min(minX, ann.x); maxX = Math.max(maxX, ann.x + ann.width);
+          minY = Math.min(minY, ann.y); maxY = Math.max(maxY, ann.y + ann.height);
+        }
+      }
+      if (minX === Infinity) {
+        // Nothing drawn — back to exactly where the app opens.
+        set({ view: DEFAULT_VIEW });
+        return;
+      }
+      // Fit the content's bounding box into the canvas with some breathing
+      // room, capped at 2x so a single lonely atom doesn't blow up huge.
+      const PADDING = 60;
+      const contentW = Math.max(1, maxX - minX);
+      const contentH = Math.max(1, maxY - minY);
+      const availW = Math.max(50, canvasSize.width - PADDING * 2);
+      const availH = Math.max(50, canvasSize.height - PADDING * 2);
+      const scale = Math.min(2, availW / contentW, availH / contentH);
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      set({
+        view: {
+          scale,
+          tx: canvasSize.width / 2 - centerX * scale,
+          ty: canvasSize.height / 2 - centerY * scale,
+        },
+      });
+    },
 
     pasteFragment: (fragment) => {
       const hasAtoms = Object.keys(fragment.molecule.atoms).length > 0;

@@ -31,6 +31,12 @@ type DragState =
  */
 export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   const dragRef = useRef<DragState | null>(null);
+  // Two-finger pinch-to-zoom tracking — deliberately separate from dragRef
+  // (which assumes one gesture at a time driven by one pointer) rather than
+  // folded into its mode union, since a pinch can start mid-way through
+  // whatever the first finger down was already doing.
+  const touchPointersRef = useRef<Map<number, Point>>(new Map());
+  const pinchRef = useRef<{ startDistance: number; startScale: number; anchorX: number; anchorY: number } | null>(null);
 
   const clientToWorld = useCallback((clientX: number, clientY: number): Point => {
     const svg = svgRef.current!;
@@ -43,6 +49,32 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   }, [svgRef]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPointersRef.current.size === 2) {
+        // Second finger just landed — hand off from whatever single-finger
+        // gesture the first finger may have already started (a drag, a
+        // bond draw, ...) to a pinch-zoom gesture instead.
+        dragRef.current = null;
+        const pts = [...touchPointersRef.current.values()];
+        const svg = svgRef.current;
+        if (svg) {
+          const rect = svg.getBoundingClientRect();
+          const midX = (pts[0].x + pts[1].x) / 2;
+          const midY = (pts[0].y + pts[1].y) / 2;
+          const { view } = useMoleculeStore.getState();
+          pinchRef.current = {
+            startDistance: Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)),
+            startScale: view.scale,
+            anchorX: (midX - rect.left - view.tx) / view.scale,
+            anchorY: (midY - rect.top - view.ty) / view.scale,
+          };
+        }
+        return;
+      }
+      if (touchPointersRef.current.size > 2) return; // ignore a third finger
+    }
+
     if (e.button === 2) {
       // Right-click is a quick way back to Select/Move, matching the common
       // "right-click to stop whatever you were doing" convention — it
@@ -292,6 +324,27 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   }, [clientToWorld]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === "touch" && touchPointersRef.current.has(e.pointerId)) {
+      touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pinchRef.current && touchPointersRef.current.size === 2) {
+      const svg = svgRef.current;
+      if (svg) {
+        const pts = [...touchPointersRef.current.values()];
+        const rect = svg.getBoundingClientRect();
+        const distance = Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        const { startDistance, startScale, anchorX, anchorY } = pinchRef.current;
+        const newScale = Math.min(4, Math.max(0.25, startScale * (distance / startDistance)));
+        useMoleculeStore.getState().setView({
+          scale: newScale,
+          tx: midX - rect.left - anchorX * newScale,
+          ty: midY - rect.top - anchorY * newScale,
+        });
+      }
+      return;
+    }
     const store = useMoleculeStore.getState();
     const pt = clientToWorld(e.clientX, e.clientY);
     const hitAtom = atomAt(store.molecule, pt);
@@ -447,6 +500,18 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   }, [clientToWorld]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      touchPointersRef.current.delete(e.pointerId);
+      if (touchPointersRef.current.size < 2) pinchRef.current = null;
+      if (touchPointersRef.current.size > 0) {
+        // A pinch just ended (or one of 2+ fingers lifted) — the
+        // remaining finger(s) never went through onPointerDown's tool
+        // dispatch for where they currently are, so don't let this fall
+        // through into resuming/starting some other gesture.
+        dragRef.current = null;
+        return;
+      }
+    }
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag) return;

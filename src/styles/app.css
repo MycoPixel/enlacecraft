@@ -1053,6 +1053,18 @@
 .zoom-readout {
   margin-left: auto;
   font-family: var(--mono);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+
+.zoom-readout:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* ---------- Export menu ---------- */
