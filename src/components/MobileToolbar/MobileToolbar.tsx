@@ -1,16 +1,29 @@
-import { useState } from "react";
-import { MousePointer2, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  MousePointer2, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
+  MoreHorizontal, Group, Bookmark, BookmarkPlus, Wand2, AlignCenterVertical,
+  AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus,
+} from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { ToolButton } from "../Sidebar/ToolButton";
+import { ToolButton, SectionLabel, SubsectionLabel } from "../Sidebar/ToolButton";
 import { BondGlyph } from "../Sidebar/BondGlyphs";
 import { ElementPicker } from "../Sidebar/ElementPicker";
+import { GroupPicker } from "../Sidebar/GroupPicker";
+import { FunctionalGroupPicker } from "../Sidebar/FunctionalGroupPicker";
+import { IsotopePicker } from "../Sidebar/IsotopePicker";
 import { RingPicker } from "../Sidebar/RingPicker";
+import { StructureTemplatePicker } from "../Sidebar/StructureTemplatePicker";
+import { UserTemplatePicker } from "../Sidebar/UserTemplatePicker";
+import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
+import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "../Sidebar/ArrowVariantPicker";
 import { BracketVariantPicker } from "../Sidebar/BracketVariantPicker";
+import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon } from "../Sidebar/MarkIcons";
 import { useT } from "../../i18n/useT";
 import type { ArrowHeadSize, ArrowVariant, ToolId } from "../../types/chemistry";
 
-type MobilePanel = "bonds" | "atoms" | "rings" | "arrowsFull" | "arrowsFishhook" | "brackets" | null;
+type MobilePanel = "bonds" | "atoms" | "rings" | "arrowsFull" | "arrowsFishhook" | "brackets" | "more" | null;
 
 export function MobileToolbar() {
   const [panel, setPanel] = useState<MobilePanel>(null);
@@ -42,6 +55,33 @@ export function MobileToolbar() {
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const setBracketVariant = useMoleculeStore((s) => s.setBracketVariant);
   const t = useT();
+
+  // --- state/actions only needed for the "More" panel ---
+  const atomGroup = useMoleculeStore((s) => s.atomGroup);
+  const setAtomGroup = useMoleculeStore((s) => s.setAtomGroup);
+  const atomIsotope = useMoleculeStore((s) => s.atomIsotope);
+  const setAtomIsotope = useMoleculeStore((s) => s.setAtomIsotope);
+  const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
+  const setFunctionalGroupTemplateId = useMoleculeStore((s) => s.setFunctionalGroupTemplateId);
+  const molecule = useMoleculeStore((s) => s.molecule);
+  const selected = useMoleculeStore((s) => s.selected);
+  const alignSelection = useMoleculeStore((s) => s.alignSelection);
+  const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
+  const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
+  // Same reasoning as the sidebar's identical computation: align/distribute
+  // operate on whole connected fragments, not raw atom count.
+  const selectedFragmentCount = useMemo(
+    () => connectedComponents(molecule, [...selected]).length,
+    [molecule, selected]
+  );
+  const userTemplates = useMoleculeStore((s) => s.userTemplates);
+  const saveUserTemplate = useMoleculeStore((s) => s.saveUserTemplate);
+  const deleteUserTemplate = useMoleculeStore((s) => s.deleteUserTemplate);
+  const pasteFragment = useMoleculeStore((s) => s.pasteFragment);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const hasSelectionToSave = selected.size > 0 || selectedAnnotationIds.size > 0;
+  const addReagentText = useMoleculeStore((s) => s.addReagentText);
+  const canAddReagentText = !!selectedArrowId;
 
   const choose = (toolId: ToolId) => { setTool(toolId); setPanel(null); };
 
@@ -122,6 +162,115 @@ export function MobileToolbar() {
               <ToolButton big title={t("tool.chain")} active={tool === "chain"} onClick={() => choose("chain")}>{BondGlyph.chain}</ToolButton>
             </div>
           )}
+          {panel === "more" && (
+            <div className="mobile-more">
+              <SectionLabel>{t("section.charge")}</SectionLabel>
+              <div className="row">
+                <ToolButton big title={t("tool.chargePlus")} active={tool === "charge-plus"} onClick={() => choose("charge-plus")}>
+                  <Plus size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.chargeMinus")} active={tool === "charge-minus"} onClick={() => choose("charge-minus")}>
+                  <Minus size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.lonePair")} active={tool === "lone-pair"} onClick={() => choose("lone-pair")}>
+                  <LonePairIcon />
+                </ToolButton>
+                <ToolButton big title={t("tool.radical")} active={tool === "radical"} onClick={() => choose("radical")}>
+                  <RadicalIcon />
+                </ToolButton>
+                <ToolButton big title={t("tool.stereoLabel")} active={tool === "stereo-label"} onClick={() => choose("stereo-label")}>
+                  <StereoLabelIcon />
+                </ToolButton>
+              </div>
+
+              <SubsectionLabel>{t("section.groupsAbbreviated")}</SubsectionLabel>
+              <GroupPicker value={atomGroup} onChange={(g) => { setAtomGroup(g); choose("atom"); }} active={tool === "atom" && !!atomGroup} />
+              <SubsectionLabel>{t("section.groupsFunctional")}</SubsectionLabel>
+              <FunctionalGroupPicker
+                value={functionalGroupTemplateId}
+                onChange={(id) => { setFunctionalGroupTemplateId(id); choose("functional-group"); }}
+                active={tool === "functional-group"}
+              />
+              <SubsectionLabel>{t("section.isotope")}</SubsectionLabel>
+              <IsotopePicker value={atomIsotope} onChange={(p) => { setAtomIsotope(p); choose("atom"); }} active={tool === "atom" && !!atomIsotope} />
+
+              {STRUCTURE_TEMPLATES.length > 0 && (
+                <>
+                  <SectionLabel>{t("tool.structures")}</SectionLabel>
+                  <StructureTemplatePicker
+                    onChoose={(id) => {
+                      const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
+                      if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+                      setPanel(null);
+                    }}
+                  />
+                </>
+              )}
+              <SectionLabel>{t("tool.userTemplates")}</SectionLabel>
+              <UserTemplatePicker
+                templates={userTemplates}
+                onChoose={(id) => {
+                  const tmpl = userTemplates.find((s) => s.id === id);
+                  if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+                  setPanel(null);
+                }}
+                onDelete={deleteUserTemplate}
+              />
+              {hasSelectionToSave && (
+                <div className="save-template-menu">
+                  <input
+                    className="save-template-menu__input"
+                    type="text"
+                    placeholder={t("userTemplate.namePlaceholder")}
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                  />
+                  <button
+                    className="save-template-menu__save"
+                    disabled={newTemplateName.trim().length === 0}
+                    onClick={() => { saveUserTemplate(newTemplateName.trim()); setNewTemplateName(""); }}
+                  >
+                    {t("userTemplate.save")}
+                  </button>
+                </div>
+              )}
+
+              <SectionLabel>{t("section.transform")}</SectionLabel>
+              <div className="row">
+                <ToolButton big title={t("tool.alignLeft")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("left"); setPanel(null); }}>
+                  <AlignStartVertical size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.alignCenterX")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("centerX"); setPanel(null); }}>
+                  <AlignCenterVertical size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.alignRight")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("right"); setPanel(null); }}>
+                  <AlignEndVertical size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.alignTop")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("top"); setPanel(null); }}>
+                  <AlignStartHorizontal size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.alignBottom")} disabled={selectedFragmentCount < 2} onClick={() => { alignSelection("bottom"); setPanel(null); }}>
+                  <AlignEndHorizontal size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.distributeHorizontal")} disabled={selectedFragmentCount < 3} onClick={() => { distributeSelection("horizontal"); setPanel(null); }}>
+                  <AlignHorizontalDistributeCenter size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.distributeVertical")} disabled={selectedFragmentCount < 3} onClick={() => { distributeSelection("vertical"); setPanel(null); }}>
+                  <AlignVerticalDistributeCenter size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.cleanUpLabel")} onClick={() => { cleanUpSelection(); setPanel(null); }}>
+                  <Wand2 size={18} />
+                </ToolButton>
+              </div>
+
+              <SectionLabel>{t("section.annotations")}</SectionLabel>
+              <div className="row">
+                <ToolButton big title={t("tool.addReagentText")} disabled={!canAddReagentText} onClick={() => { addReagentText(); setPanel(null); }}>
+                  <ReagentTextIcon />
+                </ToolButton>
+              </div>
+            </div>
+          )}
         </div>
       )}
       <div className="mobile-row">
@@ -179,6 +328,9 @@ export function MobileToolbar() {
         </ToolButton>
         <ToolButton big title={t("mobile.redo")} onClick={redo}>
           <Redo2 size={20} style={{ opacity: canRedo ? 1 : 0.35 }} />
+        </ToolButton>
+        <ToolButton big title={t("mobile.more")} active={panel === "more"} onClick={() => setPanel(panel === "more" ? null : "more")}>
+          <MoreHorizontal size={20} />
         </ToolButton>
       </div>
     </div>

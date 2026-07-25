@@ -1381,6 +1381,19 @@
   border-bottom: 1px solid var(--panel-border);
 }
 
+.mobile-more {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.mobile-more .row {
+  justify-content: flex-start;
+}
+
 @media (max-width: 759px) {
   .brand span {
     display: none;
