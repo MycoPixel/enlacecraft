@@ -9,7 +9,7 @@ import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
 import { BondGlyph } from "./BondGlyphs";
 import { ElementPicker } from "./ElementPicker";
 import { GroupPicker } from "./GroupPicker";
-import { IsotopePicker } from "./IsotopePicker";
+import { IsotopeButton } from "./IsotopeButton";
 import { RingPicker, RingIcon } from "./RingPicker";
 import { FunctionalGroupPicker } from "./FunctionalGroupPicker";
 import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
@@ -185,12 +185,22 @@ export function Sidebar() {
           marks (charge, lone pairs, radicals, stereo labels). These used to
           be four separate top-level sections; grouping them under one
           header with lighter sub-labels makes it read as one place to go
-          for "atom stuff" instead of four unrelated stops. */}
+          for "atom stuff" instead of four unrelated stops. Isotope used to
+          be its own always-expanded section (13 preset buttons permanently
+          taking up height) — it's now the last button in the element grid
+          itself, opening the same picker in a compact popover instead. */}
       <SectionLabel>{t("section.atom")}</SectionLabel>
       <ElementPicker
         value={atomElement}
         onChange={(el) => { setAtomElement(el); setTool("atom"); }}
         active={tool === "atom" && !atomGroup && !atomIsotope}
+        trailing={
+          <IsotopeButton
+            value={atomIsotope}
+            onChange={(p) => { setAtomIsotope(p); setTool("atom"); }}
+            active={tool === "atom" && !!atomIsotope}
+          />
+        }
       />
 
       <SubsectionLabel>{t("section.groups")}</SubsectionLabel>
@@ -219,13 +229,6 @@ export function Sidebar() {
           <Group size={18} />
         </ToolDropdown>
       </div>
-
-      <SubsectionLabel>{t("section.isotope")}</SubsectionLabel>
-      <IsotopePicker
-        value={atomIsotope}
-        onChange={(p) => { setAtomIsotope(p); setTool("atom"); }}
-        active={tool === "atom" && !!atomIsotope}
-      />
 
       <SubsectionLabel>{t("section.charge")}</SubsectionLabel>
       <div className="row">

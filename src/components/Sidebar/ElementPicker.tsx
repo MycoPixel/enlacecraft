@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { MoreHorizontal } from "lucide-react";
 import type { Element } from "../../types/chemistry";
 import { COMMON_ELEMENTS, ELEMENT_COLOR } from "../../model/constants";
@@ -9,9 +9,13 @@ interface ElementPickerProps {
   value: Element;
   onChange: (el: Element) => void;
   active: boolean;
+  /** Rendered as one more cell in the same grid, after "more" — this is
+   * how the isotope button (Sidebar.tsx) sits in the same row as the
+   * element buttons instead of getting its own section underneath. */
+  trailing?: ReactNode;
 }
 
-export function ElementPicker({ value, onChange, active }: ElementPickerProps) {
+export function ElementPicker({ value, onChange, active, trailing }: ElementPickerProps) {
   const t = useT();
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -37,6 +41,7 @@ export function ElementPicker({ value, onChange, active }: ElementPickerProps) {
       >
         <MoreHorizontal size={14} />
       </button>
+      {trailing}
       <PeriodicTableModal
         open={modalOpen}
         value={value}

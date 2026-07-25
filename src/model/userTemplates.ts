@@ -60,3 +60,15 @@ export function removeUserTemplate(existing: UserTemplate[], id: string): UserTe
   persist(next);
   return next;
 }
+
+/** Appends imported templates (see io/templateBookmarks.ts) to the
+ * existing list, each given a fresh id — an imported file's own ids
+ * might collide with ones already saved locally (or with another import
+ * of the same file), and these are meant to land as new entries either
+ * way, never silently overwrite an existing template. */
+export function addImportedUserTemplates(existing: UserTemplate[], imported: UserTemplate[]): UserTemplate[] {
+  const withFreshIds = imported.map((t) => ({ ...t, id: newTemplateId(), createdAt: Date.now() }));
+  const next = [...existing, ...withFreshIds];
+  persist(next);
+  return next;
+}

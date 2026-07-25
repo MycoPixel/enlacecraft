@@ -689,12 +689,6 @@
   background: var(--accent-soft);
 }
 
-.user-template-list__row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
 .user-template-list__row .structure-list__item {
   flex: 1;
 }
@@ -715,6 +709,62 @@
 .user-template-list__delete:hover {
   background: var(--danger);
   color: white;
+}
+
+.user-template-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+}
+
+.user-template-picker__select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.user-template-list__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-template-picker__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.user-template-picker__action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-template-picker__action-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.user-template-picker__action-btn:disabled {
+  color: var(--ink-soft);
+  opacity: 0.5;
+  cursor: default;
 }
 
 .save-template-menu {

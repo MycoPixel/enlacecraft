@@ -10,7 +10,7 @@ import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "../model/constants";
-import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate } from "../model/userTemplates";
+import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
 import { parseAtomLabel } from "../model/atomLabelParser";
 
 const HISTORY_LIMIT = 100;
@@ -387,6 +387,10 @@ interface MoleculeStore {
    * if nothing's selected. */
   saveUserTemplate: (label: string) => void;
   deleteUserTemplate: (id: string) => void;
+  /** Merges templates from an imported .enlacebookmarks file (see
+   * io/templateBookmarks.ts) into the saved list — always additive
+   * (fresh ids per addImportedUserTemplates), never overwrites. */
+  importUserTemplates: (templates: UserTemplate[]) => void;
   rotateSelection: (deltaDeg: number) => void;
   alignSelection: (mode: M.AlignMode) => void;
   distributeSelection: (axis: M.DistributeAxis) => void;
@@ -1019,6 +1023,10 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     deleteUserTemplate: (id) => {
       set({ userTemplates: removeUserTemplate(get().userTemplates, id) });
+    },
+
+    importUserTemplates: (templates) => {
+      set({ userTemplates: addImportedUserTemplates(get().userTemplates, templates) });
     },
 
     markOnboardingSeen: () => {
