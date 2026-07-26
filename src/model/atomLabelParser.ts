@@ -199,6 +199,17 @@ export function parseAtomLabel(raw: string): ParsedAtomLabel {
   const presetId = GROUP_ID_BY_LOWER.get(s.toLowerCase());
   if (presetId) return { kind: "presetGroup", groupId: presetId, charge };
 
+  // "Nu" (nucleophile) and "E" (electrophile) are common mechanism-arrow
+  // placeholders — "Nu" in particular would otherwise silently mistokenize
+  // as nitrogen + uranium (both real element symbols), which is almost
+  // certainly never what's meant. Canonicalized here (rather than left to
+  // fall through to the generic-label case below) so typed "nu"/"NU"/"Nu"
+  // all land on the same, properly-cased placeholder as the dedicated
+  // reactive-site picker buttons (Sidebar's ReactiveSitePicker) produce.
+  const PLACEHOLDER_CANONICAL: Record<string, string> = { nu: "Nu", e: "E" };
+  const placeholderCanonical = PLACEHOLDER_CANONICAL[s.toLowerCase()];
+  if (placeholderCanonical) return { kind: "generic", text: placeholderCanonical, charge };
+
   const tokens = tokenizeFormula(s);
   if (tokens) {
     if (tokens.length === 1 && tokens[0].count === 1) {

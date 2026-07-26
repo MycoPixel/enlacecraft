@@ -376,6 +376,57 @@ export async function fetchIupacName(smiles: string): Promise<string> {
 }
 
 /**
+ * Fetches InChI and InChIKey for a structure — the standardized,
+ * algorithmically-canonical identifiers (unlike SMILES, which isn't
+ * canonical unless the whole toolchain agrees on one) that PubChem,
+ * ChemSpider, and Google Scholar all use as their own lookup key. Same
+ * PUG REST property endpoint as fetchIupacName just above (a single
+ * request can ask for multiple properties at once), so this shares its
+ * error handling and POST-not-GET reasoning exactly — see that function's
+ * doc comment for why POST matters here (SMILES's "/" characters).
+ *
+ * Deliberately not implemented locally: InChI generation is defined by
+ * IUPAC's own reference algorithm (canonicalization, tautomer
+ * normalization, layered formula/connection/charge/stereo encoding) and
+ * every real implementation wraps that exact reference library rather
+ * than reimplementing it — asking PubChem, which already computes this
+ * from the same input this app already sends for naming, is the
+ * appropriate approach rather than bundling a multi-megabyte WASM build
+ * of the reference library for one feature.
+ */
+export async function fetchInChI(smiles: string): Promise<{ inchi: string; inchikey: string }> {
+  const trimmed = smiles.trim();
+  if (!trimmed) throw new PubChemError("EMPTY_QUERY");
+
+  let res: Response;
+  try {
+    res = await fetch(`${PUG_REST_BASE}/compound/smiles/property/InChI,InChIKey/JSON`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `smiles=${encodeURIComponent(trimmed)}`,
+    });
+  } catch {
+    throw new PubChemError("NETWORK");
+  }
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 400) throw new PubChemError("NOT_FOUND", { name: trimmed });
+    throw new PubChemError("HTTP", { status: res.status });
+  }
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new PubChemError("NOT_FOUND", { name: trimmed });
+  }
+  const props = (data as { PropertyTable?: { Properties?: { InChI?: string; InChIKey?: string }[] } })?.PropertyTable?.Properties;
+  const inchi = props?.[0]?.InChI;
+  const inchikey = props?.[0]?.InChIKey;
+  if (!inchi || !inchikey) throw new PubChemError("NOT_FOUND", { name: trimmed });
+  return { inchi, inchikey };
+}
+
+/**
  * Batch-fetches just the name/formula for a list of CIDs — used to give
  * search results a readable label without fetching each one's full
  * structure up front (that only happens once the person actually picks a

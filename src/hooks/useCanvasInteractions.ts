@@ -215,14 +215,17 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (tool === "atom") {
       if (hitAtom) {
-        if (store.atomGroup) store.setAtomGroupOf(hitAtom, store.atomGroup);
+        if (store.atomReactiveSite) store.setAtomReactiveSiteOf(hitAtom, store.atomReactiveSite);
+        else if (store.atomGroup) store.setAtomGroupOf(hitAtom, store.atomGroup);
         else if (store.atomIsotope) store.setAtomIsotopeOf(hitAtom, store.atomIsotope);
         else store.setAtomElementOf(hitAtom, store.atomElement);
         store.setAtomEditTarget(hitAtom);
         store.setSelected(new Set([hitAtom]));
       } else {
         store.setAtomEditTarget(null);
-        if (store.atomIsotope) {
+        if (store.atomReactiveSite) {
+          store.addReactiveSiteAtom(pt, store.atomReactiveSite);
+        } else if (store.atomIsotope) {
           const preset = ISOTOPE_PRESETS.find((p) => p.id === store.atomIsotope);
           if (preset) store.addAtom(pt, preset.element, undefined, preset.massNumber);
         } else {

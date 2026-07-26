@@ -109,6 +109,32 @@ function computeDoubleBondStereo(mol: Molecule, children: Map<string, { id: stri
     return false;
   }
 
+  // Bounded recursive "shape" signature for a substituent subtree, from
+  // `from` and never stepping back into `avoid` — used to tell whether
+  // two substituents on the same double-bond atom are chemically
+  // identical (e.g. a gem-dimethyl "=C(CH3)(CH3)"), in which case there's
+  // no real cis/trans distinction to encode no matter what their 2D
+  // positions happen to be. Not a full canonical-form/graph-isomorphism
+  // algorithm (which would need to handle every possible symmetry) — just
+  // element/charge/isotope/group at each atom plus the sorted multiset of
+  // its own children's signatures, which is exactly what two genuinely
+  // identical simple substituents (two methyls, two chlorines, two
+  // phenyls) already agree on.
+  function substituentSignature(from: string, avoid: Set<string>): string {
+    const a = mol.atoms[from];
+    const label = a.group ? `G:${a.group}` : `${a.element}${a.isotope ?? ""}:${a.charge}`;
+    const nextAvoid = new Set(avoid);
+    nextAvoid.add(from);
+    const childSigs = neighborIds(mol, from)
+      .filter((n) => !avoid.has(n))
+      .map((n) => {
+        const nb = bondBetween(mol, from, n);
+        return `${nb?.order ?? 1}:${substituentSignature(n, nextAvoid)}`;
+      })
+      .sort();
+    return `${label}(${childSigs.join(",")})`;
+  }
+
   for (const bond of Object.values(mol.bonds)) {
     if (bond.order !== 2) continue;
     let b: string, c: string;
@@ -124,11 +150,15 @@ function computeDoubleBondStereo(mol: Molecule, children: Map<string, { id: stri
 
     // Collect usable (tree-edge, non-collinear, single-bond) substituents
     // for each side before marking anything — a side with none means
-    // there's nothing for the other side to be cis/trans relative to.
+    // there's nothing for the other side to be cis/trans relative to,
+    // and a side whose two substituents are identical (see
+    // substituentSignature) means there's no real stereochemistry on
+    // *that* side regardless of their 2D positions, which is just as
+    // disqualifying for the whole bond as having none at all.
     const usable: { y: string; x: string; side: 1 | -1; childOfY: boolean }[] = [];
     for (const y of [b, c]) {
       const yAtom = mol.atoms[y];
-      let sideHasAny = false;
+      const sideEntries: typeof usable = [];
       for (const x of neighborIds(mol, y)) {
         if (x === b || x === c) continue;
         const sBond = bondBetween(mol, y, x);
@@ -140,10 +170,15 @@ function computeDoubleBondStereo(mol: Molecule, children: Map<string, { id: stri
         const xAtom = mol.atoms[x];
         const cr = axisX * (xAtom.y - yAtom.y) - axisY * (xAtom.x - yAtom.x);
         if (Math.abs(cr) < 1e-6) continue; // collinear with the double bond
-        usable.push({ y, x, side: cr > 0 ? 1 : -1, childOfY });
-        sideHasAny = true;
+        sideEntries.push({ y, x, side: cr > 0 ? 1 : -1, childOfY });
       }
-      if (!sideHasAny) { usable.length = 0; break; }
+      if (sideEntries.length === 0) { usable.length = 0; break; }
+      if (sideEntries.length === 2) {
+        const sig0 = substituentSignature(sideEntries[0].x, new Set([b, c]));
+        const sig1 = substituentSignature(sideEntries[1].x, new Set([b, c]));
+        if (sig0 === sig1) { usable.length = 0; break; }
+      }
+      usable.push(...sideEntries);
     }
 
     for (const { y, x, side, childOfY } of usable) {

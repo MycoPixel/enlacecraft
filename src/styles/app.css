@@ -1312,6 +1312,28 @@
   color: var(--ink);
 }
 
+.molecule-info__inchi-btn {
+  border: 1px dashed var(--panel-border);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.molecule-info__inchi-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.molecule-info__inchi-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .export-bg-picker {
   display: flex;
   gap: 8px;

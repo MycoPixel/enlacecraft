@@ -115,6 +115,36 @@ export function setAtomChargeAbsolute(mol: Molecule, id: string, charge: number)
   return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, charge } } };
 }
 
+/** Sets an atom's shown lone-pair count directly, rather than the
+ * lone-pair tool's one-click-at-a-time cycling (model/molecule.ts's
+ * cycleAtomLonePairs) — for the reactive-site presets (Nu:, Nu:-, ...)
+ * that need a specific count applied in the same click as everything
+ * else about the atom. */
+export function setAtomLonePairs(mol: Molecule, id: string, count: number): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, lonePairs: count || undefined, lonePairOffsets: undefined } } };
+}
+
+/** Applies a whole REACTIVE_SITE_PRESETS entry (label, charge, lone
+ * pairs) to an atom in one go — the mechanism-arrow placeholders (Nu,
+ * Nu:, Nu:-, E, E+). Same "group" mechanism as an abbreviated group
+ * (see Atom.group's doc comment) — element becomes a plain "C"
+ * placeholder, `group` carries the actual shown label — but with
+ * charge/lone-pairs set alongside it instead of left at whatever the
+ * atom had before. */
+export function setAtomReactiveSite(mol: Molecule, id: string, label: string, charge: number, lonePairs: number): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return {
+    ...mol,
+    atoms: {
+      ...mol.atoms,
+      [id]: { ...a, element: "C", group: label, groupFormula: undefined, isotope: undefined, charge, lonePairs: lonePairs || undefined, lonePairOffsets: undefined },
+    },
+  };
+}
+
 export function setAtomChargeOffset(mol: Molecule, id: string, dx: number, dy: number): Molecule {
   const a = mol.atoms[id];
   if (!a) return mol;

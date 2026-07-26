@@ -327,6 +327,32 @@ export const ABBREVIATED_GROUPS: AbbreviatedGroup[] = [
   { id: "Ts", label: "Ts", formula: "C7H7O2S" },
 ];
 
+export interface ReactiveSitePreset {
+  id: string;
+  /** What's actually drawn — a colon stands in for a shown lone pair and
+   * a superscript sign for a shown charge, matching how organic chemistry
+   * texts write these same generic placeholders by hand. */
+  label: string;
+  charge: number;
+  lonePairs: number;
+}
+
+/**
+ * Generic nucleophile/electrophile placeholders for mechanism-arrow
+ * teaching diagrams — not real elements or formulas (so, unlike
+ * ABBREVIATED_GROUPS, contribute nothing to formula/MW; see
+ * valence.ts's isPlaceholderLabel), just a labeled vertex with whatever
+ * charge/lone-pair mark the diagram calls for already set, in one click
+ * instead of three (place atom, set charge, add lone pair).
+ */
+export const REACTIVE_SITE_PRESETS: ReactiveSitePreset[] = [
+  { id: "Nu", label: "Nu", charge: 0, lonePairs: 0 },
+  { id: "Nu-lp", label: "Nu", charge: 0, lonePairs: 1 },
+  { id: "Nu-lp-neg", label: "Nu", charge: -1, lonePairs: 1 },
+  { id: "E", label: "E", charge: 0, lonePairs: 0 },
+  { id: "E-plus", label: "E", charge: 1, lonePairs: 0 },
+];
+
 export const RING_TEMPLATES: RingTemplate[] = [
   { id: "benzene", label: "Benzene", sides: 6, aromatic: true },
   { id: "cyclohexane", label: "Cyclohexane", sides: 6, aromatic: false },

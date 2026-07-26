@@ -12,6 +12,7 @@ import { ElementPicker } from "../Sidebar/ElementPicker";
 import { GroupPicker } from "../Sidebar/GroupPicker";
 import { FunctionalGroupPicker } from "../Sidebar/FunctionalGroupPicker";
 import { IsotopePicker } from "../Sidebar/IsotopePicker";
+import { ReactiveSitePicker } from "../Sidebar/ReactiveSitePicker";
 import { RingPicker } from "../Sidebar/RingPicker";
 import { StructureTemplatePicker } from "../Sidebar/StructureTemplatePicker";
 import { UserTemplatePicker } from "../Sidebar/UserTemplatePicker";
@@ -61,6 +62,8 @@ export function MobileToolbar() {
   const setAtomGroup = useMoleculeStore((s) => s.setAtomGroup);
   const atomIsotope = useMoleculeStore((s) => s.atomIsotope);
   const setAtomIsotope = useMoleculeStore((s) => s.setAtomIsotope);
+  const atomReactiveSite = useMoleculeStore((s) => s.atomReactiveSite);
+  const setAtomReactiveSite = useMoleculeStore((s) => s.setAtomReactiveSite);
   const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
   const setFunctionalGroupTemplateId = useMoleculeStore((s) => s.setFunctionalGroupTemplateId);
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -193,6 +196,12 @@ export function MobileToolbar() {
               />
               <SubsectionLabel>{t("section.isotope")}</SubsectionLabel>
               <IsotopePicker value={atomIsotope} onChange={(p) => { setAtomIsotope(p); choose("atom"); }} active={tool === "atom" && !!atomIsotope} />
+              <SubsectionLabel>{t("tool.reactiveSites")}</SubsectionLabel>
+              <ReactiveSitePicker
+                value={atomReactiveSite}
+                onChange={(id) => { setAtomReactiveSite(id); choose("atom"); }}
+                active={tool === "atom" && !!atomReactiveSite}
+              />
 
               {STRUCTURE_TEMPLATES.length > 0 && (
                 <>

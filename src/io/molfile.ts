@@ -79,7 +79,16 @@ export function exportMol(mol: Molecule, name = "molecule"): string {
     // exotic than that (not a concern for our own preset list) falls back
     // to 0 rather than writing a garbled value.
     const massDiff = a.isotope ? Math.max(-9, Math.min(9, a.isotope - (STANDARD_MASS_NUMBER[a.element] ?? a.isotope))) : 0;
-    out += `${symbol.padEnd(3)} ${String(massDiff).padStart(2)}  ${String(chargeToMolCode(a.charge)).padStart(2)}`;
+    // Field widths match the V2000 spec exactly: symbol(3) + mass-diff(2)
+    // + charge(3), then ten more unused 3-char fields (stereo parity, H
+    // count, stereo-care, valence, ...). This app's own importer above
+    // tokenizes by whitespace rather than fixed columns, so it never
+    // noticed, but an earlier version of this line had a stray extra
+    // space and a too-narrow charge field — harmless to this app, but a
+    // stricter external reader (or, as found while validating stereo-
+    // SMILES output, RDKit's own atom-map-number field alignment) could
+    // misparse it.
+    out += `${symbol.padEnd(3)}${String(massDiff).padStart(2)}${String(chargeToMolCode(a.charge)).padStart(3)}`;
     out += "  0  0  0  0  0  0  0  0  0  0\n";
   }
 

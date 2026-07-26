@@ -9,7 +9,7 @@ import { nextId } from "../model/id";
 import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../model/geometry";
-import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS } from "../model/constants";
+import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS, REACTIVE_SITE_PRESETS } from "../model/constants";
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
 import { parseAtomLabel } from "../model/atomLabelParser";
 
@@ -157,6 +157,10 @@ interface MoleculeStore {
   atomElement: Element;
   atomGroup: string | null;
   atomIsotope: string | null;
+  /** Selected REACTIVE_SITE_PRESETS id (Nu, Nu:, Nu:-, E, E+) for the next
+   * atom the "atom" tool places or relabels — mutually exclusive with
+   * atomGroup/atomIsotope, same pattern as those two. */
+  atomReactiveSite: string | null;
   atomEditTarget: string | null;
   /** Atom currently showing the free-text label editor (see
    * AtomLabelEditor / model/atomLabelParser.ts) — at most one at a time,
@@ -244,6 +248,7 @@ interface MoleculeStore {
   setAtomElement: (e: Element) => void;
   setAtomGroup: (g: string | null) => void;
   setAtomIsotope: (presetId: string | null) => void;
+  setAtomReactiveSite: (presetId: string | null) => void;
   setAtomEditTarget: (id: string | null) => void;
   setLabelEditTarget: (id: string | null) => void;
   setHoverAtomId: (id: string | null) => void;
@@ -308,6 +313,9 @@ interface MoleculeStore {
 
   // --- structural actions (committed to history) ---
   addAtom: (p: Point, element: Element, group?: string, isotope?: number) => string;
+  /** Places a new atom with a whole REACTIVE_SITE_PRESETS entry applied
+   * (label, charge, lone pairs) in one commit/undo step. */
+  addReactiveSiteAtom: (p: Point, presetId: string) => void;
   addBond: (a1: string, a2: string, order?: BondOrder, stereo?: BondStereo) => void;
   /**
    * Adds a whole carbon chain in one undo step. If `fromAtomId` is null, a
@@ -319,6 +327,7 @@ interface MoleculeStore {
   addChain: (fromAtomId: string | null, anchor: Point, points: Point[]) => void;
   setAtomElementOf: (id: string, element: Element) => void;
   setAtomGroupOf: (id: string, group: string) => void;
+  setAtomReactiveSiteOf: (id: string, presetId: string) => void;
   /** Parses free-typed text (model/atomLabelParser.ts) and applies
    * whichever result it resolves to — a real element, a preset group, a
    * custom condensed formula, or a generic placeholder label. Invalid
@@ -529,6 +538,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     atomElement: "C",
     atomGroup: null,
     atomIsotope: null,
+    atomReactiveSite: null,
     atomEditTarget: null,
     labelEditTarget: null,
     hoverAtomId: null,
@@ -561,9 +571,10 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     canvasSize: { width: 800, height: 600 },
 
     setTool: (t) => set({ tool: t }),
-    setAtomElement: (e) => set({ atomElement: e, atomGroup: null, atomIsotope: null }),
-    setAtomGroup: (g) => set({ atomGroup: g, atomIsotope: null }),
-    setAtomIsotope: (presetId) => set({ atomIsotope: presetId, atomGroup: null }),
+    setAtomElement: (e) => set({ atomElement: e, atomGroup: null, atomIsotope: null, atomReactiveSite: null }),
+    setAtomGroup: (g) => set({ atomGroup: g, atomIsotope: null, atomReactiveSite: null }),
+    setAtomIsotope: (presetId) => set({ atomIsotope: presetId, atomGroup: null, atomReactiveSite: null }),
+    setAtomReactiveSite: (presetId) => set({ atomReactiveSite: presetId, atomGroup: null, atomIsotope: null }),
     setAtomEditTarget: (id) => set({ atomEditTarget: id }),
     setLabelEditTarget: (id) => set({ labelEditTarget: id }),
     setHoverAtomId: (id) => set({ hoverAtomId: id }),
@@ -626,6 +637,18 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       return id;
     },
 
+    addReactiveSiteAtom: (p, presetId) => {
+      const preset = REACTIVE_SITE_PRESETS.find((pr) => pr.id === presetId);
+      if (!preset) return;
+      const id = nextId();
+      commit((mol) => {
+        let next = M.addAtom(mol, id, p, "C", preset.label);
+        next = M.setAtomChargeAbsolute(next, id, preset.charge);
+        next = M.setAtomLonePairs(next, id, preset.lonePairs);
+        return next;
+      });
+    },
+
     addBond: (a1, a2, order = 1, stereo = "none") => {
       commit((mol) => M.addBond(mol, nextId(), a1, a2, order, stereo));
     },
@@ -657,6 +680,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     setAtomElementOf: (id, element) => commit((mol) => M.setAtomElement(mol, id, element)),
     setAtomGroupOf: (id, group) => commit((mol) => M.setAtomGroup(mol, id, group)),
+    setAtomReactiveSiteOf: (id, presetId) => {
+      const preset = REACTIVE_SITE_PRESETS.find((pr) => pr.id === presetId);
+      if (!preset) return;
+      commit((mol) => M.setAtomReactiveSite(mol, id, preset.label, preset.charge, preset.lonePairs));
+    },
     setAtomLabelOf: (id, raw) => {
       const parsed = parseAtomLabel(raw);
       if (parsed.kind === "invalid") {

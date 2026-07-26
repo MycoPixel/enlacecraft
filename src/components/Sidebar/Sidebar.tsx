@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group,
+  MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus,
 } from "lucide-react";
@@ -9,6 +9,7 @@ import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
 import { BondGlyph } from "./BondGlyphs";
 import { ElementPicker } from "./ElementPicker";
 import { GroupPicker } from "./GroupPicker";
+import { ReactiveSitePicker } from "./ReactiveSitePicker";
 import { IsotopeButton } from "./IsotopeButton";
 import { RingPicker, RingIcon } from "./RingPicker";
 import { FunctionalGroupPicker } from "./FunctionalGroupPicker";
@@ -32,6 +33,8 @@ export function Sidebar() {
   const setAtomGroup = useMoleculeStore((s) => s.setAtomGroup);
   const atomIsotope = useMoleculeStore((s) => s.atomIsotope);
   const setAtomIsotope = useMoleculeStore((s) => s.setAtomIsotope);
+  const atomReactiveSite = useMoleculeStore((s) => s.atomReactiveSite);
+  const setAtomReactiveSite = useMoleculeStore((s) => s.setAtomReactiveSite);
   const setAtomElement = useMoleculeStore((s) => s.setAtomElement);
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
   const setRingTemplateId = useMoleculeStore((s) => s.setRingTemplateId);
@@ -194,7 +197,7 @@ export function Sidebar() {
       <ElementPicker
         value={atomElement}
         onChange={(el) => { setAtomElement(el); setTool("atom"); }}
-        active={tool === "atom" && !atomGroup && !atomIsotope}
+        active={tool === "atom" && !atomGroup && !atomIsotope && !atomReactiveSite}
         trailing={
           <IsotopeButton
             value={atomIsotope}
@@ -228,6 +231,19 @@ export function Sidebar() {
           )}
         >
           <Group size={18} />
+        </ToolDropdown>
+        <ToolDropdown
+          title={t("tool.reactiveSites")}
+          active={tool === "atom" && !!atomReactiveSite}
+          renderContent={(close) => (
+            <ReactiveSitePicker
+              value={atomReactiveSite}
+              onChange={(id) => { setAtomReactiveSite(id); setTool("atom"); close(); }}
+              active={tool === "atom" && !!atomReactiveSite}
+            />
+          )}
+        >
+          <Zap size={18} />
         </ToolDropdown>
       </div>
 
