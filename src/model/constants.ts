@@ -386,6 +386,40 @@ export const RING_TEMPLATES: RingTemplate[] = [
     bondOrders: [1, 2, 1, 2, 1],
   },
   {
+    // Ring walk: N1(0)-C2(1)-N3(2)-C4(3)-C5(4)-C6(5) — the generic
+    // alternating-double-bond heuristic (see placeRing) already gives the
+    // right Kekulé pattern for any 6-ring, aromatic or not, so unlike the
+    // 5-membered heteroaromatics above this needs no bondOrders override.
+    id: "pyrimidine", label: "Pyrimidine", sides: 6, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 2, element: "N" }],
+  },
+  {
+    id: "piperidine", label: "Piperidine", sides: 6, aromatic: false,
+    heteroatoms: [{ position: 0, element: "N" }],
+  },
+  {
+    id: "pyrrolidine", label: "Pyrrolidine", sides: 5, aromatic: false,
+    heteroatoms: [{ position: 0, element: "N" }],
+  },
+  {
+    id: "tetrahydrofuran", label: "Tetrahydrofuran", sides: 5, aromatic: false,
+    heteroatoms: [{ position: 0, element: "O" }],
+  },
+  {
+    id: "tetrahydropyran", label: "Tetrahydropyran", sides: 6, aromatic: false,
+    heteroatoms: [{ position: 0, element: "O" }],
+  },
+  {
+    // O and N directly across the ring from each other (a 1,4
+    // relationship — position 0 and position 3 of 6 are opposite).
+    id: "morpholine", label: "Morpholine", sides: 6, aromatic: false,
+    heteroatoms: [{ position: 0, element: "O" }, { position: 3, element: "N" }],
+  },
+  {
+    id: "piperazine", label: "Piperazine", sides: 6, aromatic: false,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 3, element: "N" }],
+  },
+  {
     // Two fused regular hexagons (10 C, 11 bonds) — not a single polygon,
     // so `sides` here is nominal/unused; see placeNaphthalene in
     // engine/ringPlacement.ts for its actual (fixed) geometry and Kekulé
