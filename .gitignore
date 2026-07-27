@@ -16,6 +16,11 @@ release/
 *.deb
 *.snap
 
+# Bundled NMR prediction server (see packaging notes in ELECTRON.md) -
+# a large generated artifact copied in manually from the NMRGraph
+# project's PyInstaller build output, not something to commit.
+resources/nmrgraph_server/
+
 # Logs
 
 logs/

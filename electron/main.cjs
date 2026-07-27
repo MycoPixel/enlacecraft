@@ -1,8 +1,9 @@
 // Electron main process. Kept as plain CommonJS (.cjs) regardless of the
 // rest of the project being ESM ("type": "module" in package.json), since
 // Electron's main process is simplest and most compatible as CJS.
-const { app, BrowserWindow, shell, Menu, dialog } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require("electron");
 const path = require("node:path");
+const nmrServer = require("./server.cjs");
 
 // Set by `npm run electron:dev` to point at the Vite dev server instead of
 // the built dist/ files, so you get hot reload while working on the app.
@@ -64,12 +65,25 @@ function createWindow() {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   createWindow();
+  nmrServer.startServer(); // no-op in dev/preview - see server.cjs
 
   app.on("activate", () => {
     // macOS convention: re-create a window when the dock icon is clicked
     // and no windows are open. Harmless no-op on Windows/Linux.
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// Lets the renderer check whether the bundled NMR server is up yet
+// (e.g. to show "starting up" instead of a generic network error on
+// the very first prediction attempt right after launch). Not wired
+// into the UI yet - this is the plumbing for that, ready to use
+// whenever NmrPredictionButton.tsx wants it via
+// window.electron.getNmrServerStatus().
+ipcMain.handle("nmr-server:get-status", () => nmrServer.getStatus());
+
+app.on("before-quit", () => {
+  nmrServer.stopServer();
 });
 
 app.on("window-all-closed", () => {

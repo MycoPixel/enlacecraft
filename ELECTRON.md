@@ -39,6 +39,58 @@ target on its own OS, or use their CI action if you want both from one
 machine. If `dist:win` fails on Linux, run it on an actual Windows machine
 (or a Windows CI runner) instead.
 
+## Bundling the NMR prediction server
+
+The NMR prediction feature needs a small Python/PyTorch backend, which lives
+in a **separate project** (NMRGraph). For the packaged desktop build to work
+without the end user installing Python/conda/anything, that backend gets
+frozen into a standalone executable (via PyInstaller, in the NMRGraph repo)
+and copied in here before running electron-builder.
+
+**This copy step is manual, every time you rebuild the server** - it's not
+automated yet:
+
+1. In the NMRGraph project, build the frozen server (see its
+   `packaging/README.md`):
+   ```
+   pyinstaller packaging/nmrgraph_server.spec
+   ```
+   Then copy the model checkpoints into the build output:
+   ```
+   cp data/models/*.pt dist/nmrgraph_server/data/models/
+   ```
+
+2. Copy the ENTIRE output folder into this project, at exactly this path:
+   ```
+   cp -r <path-to-NMRGraph>/dist/nmrgraph_server ./resources/nmrgraph_server
+   ```
+   `resources/nmrgraph_server/` is gitignored (it's a large generated
+   artifact - regenerate it from NMRGraph rather than committing it).
+
+3. Now `npm run dist:win` / `dist:linux` will pick it up automatically -
+   `package.json`'s `build.extraResources` config bundles whatever's in
+   `resources/nmrgraph_server/` into the installer, and
+   `electron/server.cjs` spawns it (as `nmrgraph_server` on Linux,
+   `nmrgraph_server.exe` on Windows) when the packaged app launches.
+
+**Important: the frozen server is platform-specific.** A Linux build of
+`nmrgraph_server` only runs on Linux - repeat step 1 ON a Windows machine to
+get a Windows-compatible one before running `dist:win`. There's no
+cross-compiling this part, unlike some of Electron's own cross-building
+support mentioned above.
+
+**Dev mode (`electron:dev` / `electron:preview`) does NOT auto-start this
+server** - `electron/server.cjs` only spawns it in a truly packaged build
+(`app.isPackaged === true`). While developing, keep running the server
+yourself the way you already do (`uvicorn src.api.main:app --reload`, or the
+frozen binary directly) - this was a deliberate choice to avoid hardcoding
+machine-specific Python paths into the dev workflow.
+
+**If predictions don't work in a packaged build**, check the app's console
+output for lines prefixed `[nmr-server]` - `electron/server.cjs` logs the
+server's own stdout/stderr through with that prefix, plus its own
+start/stop/health-check status.
+
 ## Adding features later
 
 There's only one app — you keep editing the same `src/` files as always.

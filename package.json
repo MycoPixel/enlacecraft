@@ -43,6 +43,12 @@
       "dist/**/*",
       "electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/nmrgraph_server",
+        "to": "nmrgraph_server"
+      }
+    ],
     "directories": {
       "buildResources": "build",
       "output": "release"
