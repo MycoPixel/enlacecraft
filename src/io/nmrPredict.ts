@@ -13,6 +13,8 @@
  * than pointing at localhost.
  */
 
+import type { Molecule } from "../types/chemistry";
+
 const NMR_API_BASE = "http://localhost:8000";
 
 export type NmrPredictErrorCode = "EMPTY_QUERY" | "INVALID_SMILES" | "NETWORK" | "HTTP";
@@ -30,9 +32,10 @@ export class NmrPredictError extends Error {
 
 export interface ShiftPrediction {
   /** Index into the RDKit atom ordering of the SMILES that was sent -
-   * NOT the same as this app's own atom ids. See the doc comment on
-   * NmrPredictionButton for why these can't be cross-referenced back
-   * onto specific canvas atoms yet. */
+   * NOT the same as this app's own atom ids. Resolve back to a real
+   * atom id via atomOrder from exportSmilesWithAtomOrder (io/smiles.ts)
+   * - see buildAtomLabels below, or NmrReportView.tsx for the diagram
+   * that does this. */
   atomIndex: number;
   predictedShiftPpm: number;
 }
@@ -49,6 +52,27 @@ export interface NmrPredictResult {
   predictions: ShiftPrediction[];
   predictionsH1: H1ShiftPrediction[];
   warnings: string[];
+}
+
+/**
+ * Builds short, stable display labels ("C1", "C2", "O1"...) for each
+ * atom in atomOrder, one per element, counted in traversal order.
+ * Shared between NmrPredictionButton's compact list and
+ * NmrReportView's diagram so the same atom gets the same label in
+ * both places. Not IUPAC numbering - just a readable, deterministic
+ * tag for cross-referencing a prediction back to a drawn atom.
+ */
+export function buildAtomLabels(fragment: Molecule, atomOrder: string[]): Map<string, string> {
+  const counts = new Map<string, number>();
+  const labels = new Map<string, string>();
+  for (const atomId of atomOrder) {
+    const atom = fragment.atoms[atomId];
+    if (!atom) continue;
+    const n = (counts.get(atom.element) ?? 0) + 1;
+    counts.set(atom.element, n);
+    labels.set(atomId, `${atom.element}${n}`);
+  }
+  return labels;
 }
 
 export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResult> {

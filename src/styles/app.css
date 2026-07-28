@@ -940,6 +940,179 @@
   color: var(--ink-soft);
 }
 
+.nmr-result__view-report {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 9px 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.nmr-result__view-report:hover {
+  filter: brightness(0.97);
+}
+
+.nmr-report-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+
+.nmr-report-dialog {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: min(920px, 100%);
+  max-height: min(85vh, 800px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.nmr-report-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.nmr-report-dialog__header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.nmr-report-dialog__close {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+}
+
+.nmr-report-dialog__close:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.nmr-report-dialog__hint {
+  margin: 12px 20px 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+
+.nmr-report-dialog__caveat {
+  margin: 0;
+  padding: 10px 20px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  border-top: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.nmr-report-dialog__body {
+  overflow-y: auto;
+  padding: 12px 20px 20px;
+  display: grid;
+  grid-template-columns: minmax(320px, 1.3fr) minmax(240px, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .nmr-report-dialog__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nmr-report-svg {
+  width: 100%;
+  min-height: 320px;
+  background: var(--canvas-bg, #fff);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+}
+
+.nmr-report-svg__bond {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+
+.nmr-report-svg__atom {
+  fill: var(--panel);
+  stroke: var(--panel-border);
+  stroke-width: 1;
+}
+
+.nmr-report-svg__atom-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ink);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.nmr-report-svg__badge {
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.nmr-report-svg__badge--c {
+  fill: #2f6fed;
+}
+
+.nmr-report-svg__badge--h {
+  fill: #1f9d63;
+}
+
+.nmr-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.nmr-report-table th,
+.nmr-report-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.nmr-report-table th {
+  font-weight: 650;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.nmr-report-table td {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
 .arrow-variant-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

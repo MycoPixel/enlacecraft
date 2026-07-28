@@ -1,11 +1,13 @@
-import { useState } from "react";
-import { Activity, Loader2 } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Activity, Loader2, Expand } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
-import { exportSmiles } from "../../io/smiles";
+import { exportSmilesWithAtomOrder } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
-import { predictNmrSpectrum, NmrPredictError, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
+import { predictNmrSpectrum, NmrPredictError, buildAtomLabels, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import { useT } from "../../i18n/useT";
+import { NmrReportView } from "./NmrReportView";
+import type { Molecule } from "../../types/chemistry";
 
 type PredictState =
   | { phase: "loading" }
@@ -13,41 +15,46 @@ type PredictState =
   | {
       phase: "result";
       smiles: string;
+      fragment: Molecule;
+      atomOrder: string[];
       predictions: ShiftPrediction[];
       predictionsH1: H1ShiftPrediction[];
       warnings: string[];
     };
 
 /**
- * Predicts 13C NMR shifts for the drawn structure (or selection), via
- * the separate NMRGraph model API (io/nmrPredict.ts) — a different
- * backend from PubChem, so this can fail in ways IupacNameButton's
- * PubChem calls can't (most notably: the API just isn't running).
- * Structurally this mirrors IupacNameButton.tsx closely (same
- * loading/error/result dropdown shape, same "export current selection
- * or whole molecule to SMILES first" approach) since it's the same
- * shape of feature: structure -> external service -> read-only result.
+ * Predicts 13C and 1H NMR shifts for the drawn structure (or
+ * selection), via the separate NMRGraph model API (io/nmrPredict.ts) —
+ * a different backend from PubChem, so this can fail in ways
+ * IupacNameButton's PubChem calls can't (most notably: the API just
+ * isn't running). Structurally this mirrors IupacNameButton.tsx
+ * closely (same loading/error/result dropdown shape, same "export
+ * current selection or whole molecule to SMILES first" approach)
+ * since it's the same shape of feature: structure -> external
+ * service -> read-only result.
  *
- * IMPORTANT LIMITATION, worth understanding before extending this:
- * each returned atomIndex refers to the position of that atom in the
- * RDKit parsing of the exported SMILES string - NOT this app's own
- * atom ids. Those two orderings are usually different (SMILES export
- * here writes atoms via a DFS spanning tree - see writeFragment in
- * io/smiles.ts - which very rarely matches this app's internal
- * insertion-order atom ids). That's why results are shown as a plain
- * list rather than labels drawn next to each atom on the canvas: doing
- * that safely needs a real index -> atom id mapping returned alongside
- * each prediction (e.g. by threading atom ids through as SMILES atom
- * map numbers, or walking the same DFS order client-side to reconstruct
- * the correspondence), which doesn't exist yet. Labeling the wrong atom
- * with the wrong shift would be worse than not labeling at all, so this
- * intentionally stays a list until that mapping is built.
+ * Atom identification: each returned atomIndex is the position of
+ * that atom in the RDKit parsing of the exported SMILES string - NOT
+ * this app's own atom ids, and the two orderings are usually
+ * different (SMILES export writes atoms via a DFS spanning tree - see
+ * writeFragment in io/smiles.ts). exportSmilesWithAtomOrder returns
+ * that DFS order alongside the SMILES, which is exactly the order
+ * RDKit assigns atom indices when it parses the string with no
+ * canonicalization in between - so atomOrder[atomIndex] recovers the
+ * real atom id. That mapping is what NmrReportView uses to draw each
+ * result next to the actual atom instead of an opaque index.
  */
 export function NmrPredictionButton() {
   const t = useT();
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
   const [state, setState] = useState<PredictState | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const atomLabels = useMemo(() => {
+    if (state?.phase !== "result") return new Map<string, string>();
+    return buildAtomLabels(state.fragment, state.atomOrder);
+  }, [state]);
 
   const hasContent = Object.keys(molecule.atoms).length > 0;
 
@@ -72,11 +79,14 @@ export function NmrPredictionButton() {
     if (ids.length === 0) return;
     setState({ phase: "loading" });
     try {
-      const smiles = exportSmiles(extractFragment(molecule, ids));
+      const fragment = extractFragment(molecule, ids);
+      const { smiles, atomOrder } = exportSmilesWithAtomOrder(fragment);
       const result = await predictNmrSpectrum(smiles);
       setState({
         phase: "result",
         smiles: result.smiles,
+        fragment,
+        atomOrder,
         predictions: result.predictions,
         predictionsH1: result.predictionsH1,
         warnings: result.warnings,
@@ -124,7 +134,7 @@ export function NmrPredictionButton() {
                     .map((p) => (
                       <li key={p.atomIndex} className="nmr-result__row">
                         <span className="nmr-result__atom">
-                          {t("nmr.atomLabel", { index: String(p.atomIndex) })}
+                          {atomLabels.get(state.atomOrder[p.atomIndex]) ?? t("nmr.atomLabel", { index: String(p.atomIndex) })}
                         </span>
                         <span className="nmr-result__shift">{p.predictedShiftPpm.toFixed(2)} ppm</span>
                       </li>
@@ -142,13 +152,21 @@ export function NmrPredictionButton() {
                     .map((p) => (
                       <li key={p.atomIndex} className="nmr-result__row">
                         <span className="nmr-result__atom">
-                          {t("nmr.atomLabelH", { index: String(p.atomIndex), count: String(p.numHs) })}
+                          {t("nmr.atomLabelH", {
+                            label: atomLabels.get(state.atomOrder[p.atomIndex]) ?? String(p.atomIndex),
+                            count: String(p.numHs),
+                          })}
                         </span>
                         <span className="nmr-result__shift">{p.predictedShiftPpm.toFixed(2)} ppm</span>
                       </li>
                     ))}
                 </ul>
               )}
+
+              <button type="button" className="nmr-result__view-report" onClick={() => setReportOpen(true)}>
+                <Expand size={13} />
+                {t("nmr.viewReport")}
+              </button>
 
               <p className="nmr-result__caveat">{t("nmr.caveat")}</p>
             </div>
@@ -157,6 +175,16 @@ export function NmrPredictionButton() {
       )}
     >
       <Activity size={16} />
+      {state?.phase === "result" && (
+        <NmrReportView
+          open={reportOpen}
+          onClose={() => setReportOpen(false)}
+          fragment={state.fragment}
+          atomOrder={state.atomOrder}
+          predictions={state.predictions}
+          predictionsH1={state.predictionsH1}
+        />
+      )}
     </ToolDropdown>
   );
 }

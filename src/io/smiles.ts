@@ -328,7 +328,7 @@ function computeChiralTags(
 
 /** Writes one connected fragment as a SMILES string, via a DFS spanning
  * tree with ring-closure digits for any non-tree ("back") edges. */
-function writeFragment(mol: Molecule, atomIds: string[]): string {
+function writeFragment(mol: Molecule, atomIds: string[]): { text: string; order: string[] } {
   const idSet = new Set(atomIds);
   const visited = new Set<string>();
   const children = new Map<string, { id: string; order: BondOrder }[]>();
@@ -414,7 +414,7 @@ function writeFragment(mol: Molecule, atomIds: string[]): string {
     return s;
   }
 
-  return emit(atomIds[0]);
+  return { text: emit(atomIds[0]), order: [...atomIds].sort((a, b) => visitOrder.get(a)! - visitOrder.get(b)!) };
 }
 
 /**
@@ -447,5 +447,35 @@ function writeFragment(mol: Molecule, atomIds: string[]): string {
  */
 export function exportSmiles(mol: Molecule): string {
   const fragments = findConnectedFragments(mol);
-  return fragments.map((ids) => writeFragment(mol, ids)).filter(Boolean).join(".");
+  return fragments.map((ids) => writeFragment(mol, ids).text).filter(Boolean).join(".");
+}
+
+/**
+ * Same as exportSmiles, but also returns the RDKit-atom-index -> this
+ * app's-atom-id mapping: atomOrder[i] is the atom id written at
+ * position i in the returned SMILES. Since a service like NMRGraph
+ * parses this string with Chem.MolFromSmiles(...) directly (no
+ * canonicalization in between), RDKit numbers its atoms in exactly the
+ * order they appear in the string — so atomOrder[i] is also exactly
+ * the atom that service's atom_index i refers to. This is what lets
+ * per-atom results coming back from such a service (see
+ * io/nmrPredict.ts) be matched back to the actual drawn atom, rather
+ * than shown only as an opaque index (see NmrReportView.tsx).
+ *
+ * Multi-fragment molecules ("A.B", disconnected components) still
+ * line up correctly: RDKit's atom numbering continues sequentially
+ * across dot-separated components in the order they're written, same
+ * as atomOrder's concatenation below.
+ */
+export function exportSmilesWithAtomOrder(mol: Molecule): { smiles: string; atomOrder: string[] } {
+  const fragments = findConnectedFragments(mol);
+  const parts: string[] = [];
+  const atomOrder: string[] = [];
+  for (const ids of fragments) {
+    const { text, order } = writeFragment(mol, ids);
+    if (!text) continue;
+    parts.push(text);
+    atomOrder.push(...order);
+  }
+  return { smiles: parts.join("."), atomOrder };
 }
