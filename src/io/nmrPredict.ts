@@ -37,9 +37,17 @@ export interface ShiftPrediction {
   predictedShiftPpm: number;
 }
 
+export interface H1ShiftPrediction extends ShiftPrediction {
+  /** Number of protons this one shift represents - equivalent
+   * protons on the same heavy atom are averaged into a single value,
+   * so a CH2/CH3 group is one row here, not two/three. */
+  numHs: number;
+}
+
 export interface NmrPredictResult {
   smiles: string;
   predictions: ShiftPrediction[];
+  predictionsH1: H1ShiftPrediction[];
   warnings: string[];
 }
 
@@ -66,6 +74,7 @@ export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResu
   const data = (await res.json()) as {
     smiles: string;
     predictions: { atom_index: number; predicted_shift_ppm: number }[];
+    predictions_h1: { atom_index: number; predicted_shift_ppm: number; num_hs: number }[];
     warnings: string[];
   };
 
@@ -74,6 +83,11 @@ export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResu
     predictions: data.predictions.map((p) => ({
       atomIndex: p.atom_index,
       predictedShiftPpm: p.predicted_shift_ppm,
+    })),
+    predictionsH1: (data.predictions_h1 ?? []).map((p) => ({
+      atomIndex: p.atom_index,
+      predictedShiftPpm: p.predicted_shift_ppm,
+      numHs: p.num_hs,
     })),
     warnings: data.warnings,
   };

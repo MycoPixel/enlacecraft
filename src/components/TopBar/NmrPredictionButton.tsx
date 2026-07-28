@@ -4,13 +4,19 @@ import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { exportSmiles } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
-import { predictNmrSpectrum, NmrPredictError, type ShiftPrediction } from "../../io/nmrPredict";
+import { predictNmrSpectrum, NmrPredictError, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import { useT } from "../../i18n/useT";
 
 type PredictState =
   | { phase: "loading" }
   | { phase: "error"; message: string }
-  | { phase: "result"; smiles: string; predictions: ShiftPrediction[]; warnings: string[] };
+  | {
+      phase: "result";
+      smiles: string;
+      predictions: ShiftPrediction[];
+      predictionsH1: H1ShiftPrediction[];
+      warnings: string[];
+    };
 
 /**
  * Predicts 13C NMR shifts for the drawn structure (or selection), via
@@ -72,6 +78,7 @@ export function NmrPredictionButton() {
         phase: "result",
         smiles: result.smiles,
         predictions: result.predictions,
+        predictionsH1: result.predictionsH1,
         warnings: result.warnings,
       });
     } catch (err) {
@@ -107,6 +114,7 @@ export function NmrPredictionButton() {
                 </p>
               ))}
 
+              <p className="nmr-result__section">{t("nmr.section13c")}</p>
               {state.predictions.length === 0 ? (
                 <p className="align-menu__hint">{t("nmr.noCarbons")}</p>
               ) : (
@@ -117,6 +125,24 @@ export function NmrPredictionButton() {
                       <li key={p.atomIndex} className="nmr-result__row">
                         <span className="nmr-result__atom">
                           {t("nmr.atomLabel", { index: String(p.atomIndex) })}
+                        </span>
+                        <span className="nmr-result__shift">{p.predictedShiftPpm.toFixed(2)} ppm</span>
+                      </li>
+                    ))}
+                </ul>
+              )}
+
+              <p className="nmr-result__section">{t("nmr.section1h")}</p>
+              {state.predictionsH1.length === 0 ? (
+                <p className="align-menu__hint">{t("nmr.noProtons")}</p>
+              ) : (
+                <ul className="nmr-result__list">
+                  {[...state.predictionsH1]
+                    .sort((a, b) => b.predictedShiftPpm - a.predictedShiftPpm)
+                    .map((p) => (
+                      <li key={p.atomIndex} className="nmr-result__row">
+                        <span className="nmr-result__atom">
+                          {t("nmr.atomLabelH", { index: String(p.atomIndex), count: String(p.numHs) })}
                         </span>
                         <span className="nmr-result__shift">{p.predictedShiftPpm.toFixed(2)} ppm</span>
                       </li>

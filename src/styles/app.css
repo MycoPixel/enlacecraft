@@ -889,22 +889,29 @@
 }
 
 .nmr-result__warning {
-  margin: 2px 9px 6px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--warn-soft, rgba(230, 160, 30, 0.15));
-  font-size: 11px;
+  margin: 2px 9px 4px;
+  font-size: 10.5px;
   line-height: 1.4;
-  color: var(--ink);
+  color: var(--warning, #c47a1f);
+}
+
+.nmr-result__section {
+  margin: 8px 9px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--ink-soft);
+}
+
+.nmr-result__section:first-child {
+  margin-top: 2px;
 }
 
 .nmr-result__list {
   display: flex;
   flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  max-height: 260px;
+  max-height: 160px;
   overflow-y: auto;
 }
 
@@ -912,24 +919,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 6px 9px;
+  gap: 8px;
+  padding: 4px 9px;
   font-size: 12.5px;
-  border-radius: 6px;
-}
-
-.nmr-result__row:hover {
-  background: var(--accent-soft);
 }
 
 .nmr-result__atom {
-  color: var(--ink-soft);
+  color: var(--ink);
 }
 
 .nmr-result__shift {
-  font-weight: 600;
-  color: var(--ink);
   font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
 }
 
 .nmr-result__caveat {
