@@ -234,7 +234,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         // separate tool actions.
         let newAtomId: string;
         if (store.atomReactiveSite) {
-          newAtomId = store.addReactiveSiteAtom(pt, store.atomReactiveSite);
+          newAtomId = store.addReactiveSiteAtom(pt, store.atomReactiveSite) ?? store.addAtom(pt, store.atomElement, store.atomGroup ?? undefined);
         } else if (store.atomIsotope) {
           const preset = ISOTOPE_PRESETS.find((p) => p.id === store.atomIsotope);
           newAtomId = preset

@@ -315,7 +315,7 @@ interface MoleculeStore {
   addAtom: (p: Point, element: Element, group?: string, isotope?: number) => string;
   /** Places a new atom with a whole REACTIVE_SITE_PRESETS entry applied
    * (label, charge, lone pairs) in one commit/undo step. */
-  addReactiveSiteAtom: (p: Point, presetId: string) => void;
+  addReactiveSiteAtom: (p: Point, presetId: string) => string | null;
   addBond: (a1: string, a2: string, order?: BondOrder, stereo?: BondStereo) => void;
   /**
    * Adds a whole carbon chain in one undo step. If `fromAtomId` is null, a
@@ -639,7 +639,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     addReactiveSiteAtom: (p, presetId) => {
       const preset = REACTIVE_SITE_PRESETS.find((pr) => pr.id === presetId);
-      if (!preset) return;
+      if (!preset) return null;
       const id = nextId();
       commit((mol) => {
         let next = M.addAtom(mol, id, p, "C", preset.label);
@@ -647,6 +647,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         next = M.setAtomLonePairs(next, id, preset.lonePairs);
         return next;
       });
+      return id;
     },
 
     addBond: (a1, a2, order = 1, stereo = "none") => {
