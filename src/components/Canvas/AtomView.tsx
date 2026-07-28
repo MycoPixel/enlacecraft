@@ -1,5 +1,5 @@
 import type { Atom, Molecule } from "../../types/chemistry";
-import { atomLabelInfo } from "../../model/valence";
+import { atomLabelInfo, neighborAngles } from "../../model/valence";
 import { defaultLonePairPosition } from "../../model/lonePairs";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -56,6 +56,22 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const color = overValent ? "var(--danger)" : monochrome ? "var(--ink)" : ELEMENT_COLOR[atom.element] || "var(--ink)";
   const labelParts = useMemo(() => formatLabelWithSubscripts(text), [text]);
   const hSuffixParts = useMemo(() => (hSuffix ? formatLabelWithSubscripts(hSuffix) : []), [hSuffix]);
+  // The suffix always renders straight out to one side, along the
+  // horizontal (see its <text> below) — normally the right, matching
+  // convention ("OH", "NH2"). But if a bond happens to leave this atom
+  // in roughly that same direction, the suffix lands right on top of
+  // it — this is the "H ends up inside the bond" problem: it only ever
+  // showed up when the molecule was rotated/drawn so the bond pointed
+  // rightward out of a heteroatom, e.g. "-OH" on the left end of a
+  // chain. Rather than a manual flip control, this just checks the
+  // atom's actual bond angle(s) and mirrors the suffix to the empty
+  // side automatically - "HO" instead of "OH" - whenever a bond is
+  // within ~60° of due east. Bonds elsewhere (left, up, down) leave
+  // the conventional right-side placement alone.
+  const suffixOnLeft = useMemo(() => {
+    if (!hSuffix) return false;
+    return neighborAngles(mol, atom.id).some((a) => Math.cos(a) > 0.5);
+  }, [hSuffix, mol, atom.id]);
   // The element symbol's *actual* rendered half-width, measured via
   // getBBox rather than estimated from character count — a flat
   // per-character estimate badly undershoots for some glyphs (an "O" is
@@ -87,6 +103,12 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   // distinguish the two parts, just how much horizontal space they take
   // up together.
   const fullTextLength = text.length + (hSuffix?.length ?? 0);
+  // NOTE: this sits at the upper-left regardless of suffixOnLeft below -
+  // an isotope-labeled heteroatom whose implicit-H suffix also flips to
+  // the left (e.g. a rotated "18OH") can crowd the two together. Rare
+  // enough in practice (needs both an isotope label and a rightward
+  // bond on the same atom) that it's left alone for now rather than
+  // adding a second positioning mode here.
   const isotopeOffsetX = -(fullTextLength * 3.6) / 2 - 4.5;
   const isotopeOffsetY = -8.5;
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -316,16 +338,19 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           {hSuffix && (
             <text
               // Starts just past the (centered, unaffected) element
-              // symbol's *measured* right edge instead of being centered
-              // as part of one combined string — see hSuffix's doc
-              // comment in valence.ts for why: otherwise the element
-              // glyph itself would sit visibly off the atom's true
-              // (x, y), which is where bonds and lone pairs correctly
-              // anchor. measuredHalfWidth (not a char-count guess) is
-              // what keeps this gap looking right regardless of which
-              // element symbol it is.
-              x={measuredHalfWidth + 1.5}
-              textAnchor="start"
+              // symbol's *measured* edge instead of being centered as
+              // part of one combined string — see hSuffix's doc comment
+              // in valence.ts for why: otherwise the element glyph
+              // itself would sit visibly off the atom's true (x, y),
+              // which is where bonds and lone pairs correctly anchor.
+              // measuredHalfWidth (not a char-count guess) is what keeps
+              // this gap looking right regardless of which element
+              // symbol it is. Mirrors to the left (see suffixOnLeft
+              // above) when a bond occupies the conventional right-side
+              // spot instead, so the suffix never renders on top of a
+              // bond line.
+              x={suffixOnLeft ? -(measuredHalfWidth + 1.5) : measuredHalfWidth + 1.5}
+              textAnchor={suffixOnLeft ? "end" : "start"}
               dominantBaseline="central"
               fontSize="14.5"
               fontWeight="500"

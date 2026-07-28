@@ -16,6 +16,7 @@ type DragState =
   | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> }; anchor: { atomId: string; neighborPos: Point; originalLength: number } | null }
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
+  | { mode: "atom-bond"; from: string }
   | { mode: "functional-group"; template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point }
   | { mode: "chain"; from: string | null; start: Point }
   | { mode: "erase"; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
@@ -223,14 +224,26 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         store.setSelected(new Set([hitAtom]));
       } else {
         store.setAtomEditTarget(null);
+        // A plain click just places the atom, same as before. But this
+        // also starts tracking the drag (see onPointerMove/onPointerUp's
+        // "atom-bond" branches, mirroring the "bond" tool almost
+        // exactly): if the pointer moves past the click threshold before
+        // release, a single bond is drawn from this atom out to a new
+        // (or existing, if you drag onto one) atom in that direction —
+        // "place an atom with a bond" in one motion instead of two
+        // separate tool actions.
+        let newAtomId: string;
         if (store.atomReactiveSite) {
-          store.addReactiveSiteAtom(pt, store.atomReactiveSite);
+          newAtomId = store.addReactiveSiteAtom(pt, store.atomReactiveSite);
         } else if (store.atomIsotope) {
           const preset = ISOTOPE_PRESETS.find((p) => p.id === store.atomIsotope);
-          if (preset) store.addAtom(pt, preset.element, undefined, preset.massNumber);
+          newAtomId = preset
+            ? store.addAtom(pt, preset.element, undefined, preset.massNumber)
+            : store.addAtom(pt, store.atomElement, store.atomGroup ?? undefined);
         } else {
-          store.addAtom(pt, store.atomElement, store.atomGroup ?? undefined);
+          newAtomId = store.addAtom(pt, store.atomElement, store.atomGroup ?? undefined);
         }
+        dragRef.current = { mode: "atom-bond", from: newAtomId };
       }
       return;
     }
@@ -448,7 +461,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
-    if (drag.mode === "bond") {
+    if (drag.mode === "bond" || drag.mode === "atom-bond") {
       const fromAtom = store.molecule.atoms[drag.from];
       if (fromAtom) {
         const movedEnough = dist(fromAtom, pt) > 12;
@@ -458,6 +471,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         if (hit) {
           previewPoint = { x: store.molecule.atoms[hit].x, y: store.molecule.atoms[hit].y };
           targetAtomId = hit;
+        } else if (drag.mode === "atom-bond" && !movedEnough) {
+          // Unlike the bond tool (which always ends in a bond, so it
+          // always shows a preview toward some default angle even
+          // before the cursor moves), a plain click here should place
+          // only the atom - no preview until the drag actually clears
+          // the click threshold, so it's clear nothing else is
+          // committing yet.
+          store.setBondPreview(null);
+          return;
         } else {
           const desired = movedEnough ? angleOf(fromAtom, pt) : null;
           const ang = bestNewAngle(store.molecule, drag.from, desired, e.shiftKey);
@@ -575,6 +597,31 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const order = (tool === "bond-2" ? 2 : tool === "bond-3" ? 3 : 1) as BondOrder;
       const stereo: BondStereo = tool === "wedge" ? "wedge" : tool === "dash" ? "dash" : tool === "wavy" ? "wavy" : "none";
       store.addBond(from, toAtom, stereo === "none" ? order : 1, stereo);
+      store.setStatus("status.ready");
+      return;
+    }
+
+    if (drag.mode === "atom-bond") {
+      // Mirrors "bond" above almost exactly, with one deliberate
+      // difference: a plain click (not moved past the threshold) here
+      // means "just place the atom" - the atom itself was already
+      // created back in onPointerDown, so a non-drag release adds
+      // nothing further. Only a real drag adds the bond (+ endpoint
+      // atom, or snaps onto an existing one) that "bond" mode always
+      // adds regardless of drag distance.
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const { molecule } = store;
+      const from = drag.from;
+      const fromAtom = molecule.atoms[from];
+      if (!fromAtom) return;
+      const movedEnough = dist(fromAtom, pt) > 12;
+      if (!movedEnough) {
+        store.setStatus("status.ready");
+        return;
+      }
+      const hitAtom = atomAt(molecule, pt, 16, from);
+      const toAtom = hitAtom ?? store.addAtom(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), e.shiftKey)), "C");
+      store.addBond(from, toAtom, 1, "none");
       store.setStatus("status.ready");
       return;
     }
