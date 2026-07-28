@@ -7,6 +7,7 @@ import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { CompoundSearch } from "./CompoundSearch";
 import { StructureSearchButton } from "./StructureSearchButton";
 import { IupacNameButton } from "./IupacNameButton";
+import { NmrPredictionButton } from "./NmrPredictionButton";
 import { MoleculeInfoButton } from "./MoleculeInfoButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent } from "../../model/valence";
@@ -158,6 +159,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
       <CompoundSearch />
       <StructureSearchButton />
       <IupacNameButton />
+      <NmrPredictionButton />
 
       {hasOverValence && (
         <div className="valence-warn" title={t("valence.exceeded")}>
