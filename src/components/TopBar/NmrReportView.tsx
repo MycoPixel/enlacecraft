@@ -81,6 +81,46 @@ export function NmrReportView({
   const atoms = Object.values(fragment.atoms);
   const bonds = Object.values(fragment.bonds);
 
+  // Which atoms each atom is bonded to, so we can push its result
+  // badge(s) away from its neighbors instead of always offsetting to a
+  // fixed spot (which drifts into a neighboring atom/bond on anything
+  // but an isolated, rightward-pointing atom).
+  const neighborIdsByAtom = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const addNeighbor = (id: string, neighborId: string) => {
+      const list = map.get(id);
+      if (list) list.push(neighborId);
+      else map.set(id, [neighborId]);
+    };
+    for (const bond of bonds) {
+      addNeighbor(bond.a1, bond.a2);
+      addNeighbor(bond.a2, bond.a1);
+    }
+    return map;
+  }, [bonds]);
+
+  /** Unit vector pointing away from an atom's bonded neighbors - i.e.
+   * into whatever open space exists around it - so labels land
+   * somewhere legible instead of on top of the structure. */
+  const awayDirection = (atomId: string): { x: number; y: number } => {
+    const atom = fragment.atoms[atomId];
+    const neighborIds = neighborIdsByAtom.get(atomId) ?? [];
+    let dx = 0;
+    let dy = 0;
+    for (const nId of neighborIds) {
+      const n = fragment.atoms[nId];
+      if (!atom || !n) continue;
+      const ndx = atom.x - n.x;
+      const ndy = atom.y - n.y;
+      const len = Math.hypot(ndx, ndy) || 1;
+      dx += ndx / len;
+      dy += ndy / len;
+    }
+    const len = Math.hypot(dx, dy);
+    if (len < 0.01) return { x: 1, y: -0.6 };
+    return { x: dx / len, y: dy / len };
+  };
+
   const viewBox = useMemo(() => {
     if (atoms.length === 0) return "0 0 100 100";
     const xs = atoms.map((a) => a.x);
@@ -141,20 +181,49 @@ export function NmrReportView({
               const label = labelOf.get(atom.id);
               const shifts = shiftsByAtom.get(atom.id);
               if (!label) return null;
+
+              const dir = awayDirection(atom.id);
+              const hasC = shifts?.c13 !== undefined;
+              const hasH = shifts?.h1 !== undefined;
+              // Both badges sit along the same open-space direction,
+              // stacked one past the other, so they stay together and
+              // clear of whichever way this atom's bonds point.
+              const cAnchor = { x: atom.x + dir.x * 20, y: atom.y + dir.y * 20 - 2 };
+              const hAnchor = { x: atom.x + dir.x * 20, y: atom.y + dir.y * 20 + (hasC ? 13 : 0) };
+
               return (
                 <g key={atom.id}>
+                  {(hasC || hasH) && (
+                    <line
+                      x1={atom.x + dir.x * 10}
+                      y1={atom.y + dir.y * 10}
+                      x2={atom.x + dir.x * 18}
+                      y2={atom.y + dir.y * 18}
+                      className="nmr-report-svg__leader"
+                    />
+                  )}
                   <circle cx={atom.x} cy={atom.y} r={10} className="nmr-report-svg__atom" />
                   <text x={atom.x} y={atom.y} className="nmr-report-svg__atom-label">
                     {label}
                   </text>
-                  {shifts?.c13 !== undefined && (
-                    <text x={atom.x + 14} y={atom.y - 12} className="nmr-report-svg__badge nmr-report-svg__badge--c">
-                      {shifts.c13.toFixed(1)}
+                  {hasC && (
+                    <text
+                      x={cAnchor.x}
+                      y={cAnchor.y}
+                      textAnchor={dir.x >= 0 ? "start" : "end"}
+                      className="nmr-report-svg__badge nmr-report-svg__badge--c"
+                    >
+                      {shifts!.c13!.toFixed(1)}
                     </text>
                   )}
-                  {shifts?.h1 !== undefined && (
-                    <text x={atom.x + 14} y={atom.y + 22} className="nmr-report-svg__badge nmr-report-svg__badge--h">
-                      {shifts.h1.shift.toFixed(2)} ({shifts.h1.numHs}H)
+                  {hasH && (
+                    <text
+                      x={hAnchor.x}
+                      y={hAnchor.y}
+                      textAnchor={dir.x >= 0 ? "start" : "end"}
+                      className="nmr-report-svg__badge nmr-report-svg__badge--h"
+                    >
+                      {shifts!.h1!.shift.toFixed(2)} ({shifts!.h1!.numHs}H)
                     </text>
                   )}
                 </g>

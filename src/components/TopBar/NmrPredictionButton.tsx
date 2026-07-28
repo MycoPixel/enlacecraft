@@ -101,7 +101,7 @@ export function NmrPredictionButton() {
       title={hasContent ? t("nmr.button") : t("nmr.buttonDisabled")}
       active={false}
       onOpen={hasContent ? runPrediction : undefined}
-      renderContent={() => (
+      renderContent={(close) => (
         <div className="nmr-menu">
           {!hasContent && <p className="align-menu__hint">{t("nmr.needStructure")}</p>}
 
@@ -163,7 +163,17 @@ export function NmrPredictionButton() {
                 </ul>
               )}
 
-              <button type="button" className="nmr-result__view-report" onClick={() => setReportOpen(true)}>
+              <button
+                type="button"
+                className="nmr-result__view-report"
+                onClick={() => {
+                  // Close the dropdown itself, not just open the report -
+                  // otherwise the dropdown (z-index 1000) stays mounted on
+                  // top of the report overlay and hides it.
+                  setReportOpen(true);
+                  close();
+                }}
+              >
                 <Expand size={13} />
                 {t("nmr.viewReport")}
               </button>

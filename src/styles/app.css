@@ -967,7 +967,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  /* Must stay above .tool-dropdown (z-index: 1000) - the NmrPredict
+     dropdown closes itself when the report opens, but this is a safety
+     net against it (or any other dropdown) ending up on top. */
+  z-index: 1100;
   padding: 24px;
 }
 
@@ -1066,6 +1069,12 @@
   stroke-width: 1;
 }
 
+.nmr-report-svg__leader {
+  stroke: var(--panel-border);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
 .nmr-report-svg__atom-label {
   font-size: 11px;
   font-weight: 600;
@@ -1077,6 +1086,10 @@
 .nmr-report-svg__badge {
   font-size: 9.5px;
   font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--canvas-bg, #fff);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 
 .nmr-report-svg__badge--c {
