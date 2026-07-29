@@ -335,6 +335,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           )}
           <text
             ref={mainTextRef}
+            x={atom.group ? (groupAnchorEnd ? 3.6 : -3.6) : undefined}
             textAnchor={atom.group ? (groupAnchorEnd ? "end" : "start") : "middle"}
             dominantBaseline="central"
             fontSize="14.5"
