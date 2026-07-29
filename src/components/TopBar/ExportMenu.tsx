@@ -28,7 +28,7 @@ interface ExportMenuProps {
  */
 export function ExportMenu({ onPNG, onSVG, onMOL, onCDXML, onSmiles, onSaveProject }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
-  const [background, setBackground] = useState<ExportBackground>("white");
+  const [background, setBackground] = useState<ExportBackground>("transparent");
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
   const btnWrapRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
