@@ -567,7 +567,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     marqueeRect: null,
     showHydrogens: false,
     showExpandedFormula: false,
-    monochromeAtoms: false,
+    monochromeAtoms: true,
     canvasSize: { width: 800, height: 600 },
 
     setTool: (t) => set({ tool: t }),

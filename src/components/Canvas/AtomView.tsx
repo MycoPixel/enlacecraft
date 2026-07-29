@@ -1,5 +1,5 @@
 import type { Atom, Molecule } from "../../types/chemistry";
-import { atomLabelInfo, neighborAngles } from "../../model/valence";
+import { atomLabelInfo, hasEastBond } from "../../model/valence";
 import { defaultLonePairPosition } from "../../model/lonePairs";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -70,8 +70,25 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   // the conventional right-side placement alone.
   const suffixOnLeft = useMemo(() => {
     if (!hSuffix) return false;
-    return neighborAngles(mol, atom.id).some((a) => Math.cos(a) > 0.5);
+    return hasEastBond(mol, atom.id);
   }, [hSuffix, mol, atom.id]);
+  // Group labels ("COOH", "OMe", ...) are multiple characters wide, and
+  // unlike a plain element symbol they represent a specific chain of
+  // atoms starting from whichever end is actually bonded to the rest of
+  // the structure - so centering the whole string on the vertex (the old
+  // behavior) made the bond visually point at some character in the
+  // middle, not at the attachment atom. Anchoring the near end of the
+  // string to the vertex instead fixes that: text-anchor "start" (default)
+  // puts the *first* typed character at the bond, which is exactly where
+  // it should be for a normally-typed group like "COOH" sitting below/
+  // above/to the left of its neighbor. "end" is only for when a bond
+  // heads east - the user's own workaround for that (typing the group
+  // backwards, e.g. "HOOC", so the attaching "C" is still the character
+  // nearest the bond) only works if the anchor also flips to match.
+  const groupAnchorEnd = useMemo(() => {
+    if (!atom.group) return false;
+    return hasEastBond(mol, atom.id);
+  }, [atom.group, mol, atom.id]);
   // The element symbol's *actual* rendered half-width, measured via
   // getBBox rather than estimated from character count — a flat
   // per-character estimate badly undershoots for some glyphs (an "O" is
@@ -318,7 +335,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           )}
           <text
             ref={mainTextRef}
-            textAnchor="middle"
+            textAnchor={atom.group ? (groupAnchorEnd ? "end" : "start") : "middle"}
             dominantBaseline="central"
             fontSize="14.5"
             fontWeight="500"

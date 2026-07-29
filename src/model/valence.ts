@@ -38,6 +38,16 @@ export function neighborAngles(mol: Molecule, atomId: string): number[] {
   });
 }
 
+/** True when this atom has a bond heading roughly east (within ~60° of due
+ * right) — used to flip label content that would otherwise sit on top of
+ * that bond over to the atom's other side instead. Shared by the implicit-H
+ * suffix (AtomView) and multi-character group-label anchoring below, since
+ * both are really the same problem: something reads left-to-right starting
+ * at the atom, so it needs to know which side is actually clear. */
+export function hasEastBond(mol: Molecule, atomId: string): boolean {
+  return neighborAngles(mol, atomId).some((a) => Math.cos(a) > 0.5);
+}
+
 /**
  * Effective valence given charge. This is a simplified organic-chemistry
  * approximation, not a full valence-electron model:
@@ -156,6 +166,14 @@ export function atomLabelInfo(mol: Molecule, atomId: string, showHydrogens: bool
 export function atomLabelRadius(mol: Molecule, atomId: string, showHydrogens: boolean, forceLabel = false): number {
   const { visible, text, isotopePrefix } = atomLabelInfo(mol, atomId, showHydrogens, forceLabel);
   if (!visible) return 0;
+  if (mol.atoms[atomId]?.group) {
+    // Group labels ("COOH", "OMe", ...) are anchored to whichever end
+    // sits nearest the bond (see AtomView), not centered on the atom
+    // like a plain element symbol - so the bond only ever needs to
+    // clear that one near character, regardless of how long the rest
+    // of the label is.
+    return 11;
+  }
   const prefixWidth = isotopePrefix ? isotopePrefix.length * 2.6 : 0;
   // Deliberately sized off the element symbol alone, not the implicit-H
   // suffix ("OH", "NH2", ...) — the suffix only renders out to one side
