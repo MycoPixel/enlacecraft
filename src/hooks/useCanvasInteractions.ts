@@ -468,6 +468,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         const hit = atomAt(store.molecule, pt, 16, drag.from);
         let previewPoint: Point;
         let targetAtomId: string | null = null;
+        let targetBondId: string | null = null;
         if (hit) {
           previewPoint = { x: store.molecule.atoms[hit].x, y: store.molecule.atoms[hit].y };
           targetAtomId = hit;
@@ -481,11 +482,33 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
           store.setBondPreview(null);
           return;
         } else {
-          const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-          const ang = bestNewAngle(store.molecule, drag.from, desired, e.shiftKey);
-          previewPoint = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
+          // No atom to snap onto - check whether the cursor is instead
+          // riding close to an existing bond's line (excluding bonds
+          // already touching the atom we're dragging from, which the
+          // angle snap below handles on its own). If so, snap the new
+          // bond's endpoint onto that line rather than wherever the
+          // angle grid would otherwise put it, so a new atom doesn't
+          // land squarely on top of unrelated geometry - and surface
+          // which bond it snapped to for MoleculeCanvas to highlight.
+          const nearBond = bondAt(store.molecule, pt, 10);
+          const nb = nearBond ? store.molecule.bonds[nearBond] : null;
+          if (nb && nb.a1 !== drag.from && nb.a2 !== drag.from) {
+            const ba1 = store.molecule.atoms[nb.a1];
+            const ba2 = store.molecule.atoms[nb.a2];
+            const len = dist(ba1, ba2) || 1;
+            const t = Math.max(
+              0,
+              Math.min(1, ((pt.x - ba1.x) * (ba2.x - ba1.x) + (pt.y - ba1.y) * (ba2.y - ba1.y)) / (len * len))
+            );
+            previewPoint = { x: ba1.x + t * (ba2.x - ba1.x), y: ba1.y + t * (ba2.y - ba1.y) };
+            targetBondId = nearBond;
+          } else {
+            const desired = movedEnough ? angleOf(fromAtom, pt) : null;
+            const ang = bestNewAngle(store.molecule, drag.from, desired, e.shiftKey);
+            previewPoint = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
+          }
         }
-        store.setBondPreview({ from: drag.from, to: previewPoint, targetAtomId });
+        store.setBondPreview({ from: drag.from, to: previewPoint, targetAtomId, targetBondId });
       }
       store.setStatus("status.dragBond");
       return;

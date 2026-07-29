@@ -303,6 +303,34 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
               <circle cx={bondPreview.to.x} cy={bondPreview.to.y} r={3.5} fill="var(--accent)" />
             )}
             {!bondPreview.targetAtomId && <DragReadout from={molecule.atoms[bondPreview.from]} to={bondPreview.to} />}
+            {bondPreview.targetAtomId && molecule.atoms[bondPreview.targetAtomId] && (
+              // The endpoint has snapped exactly onto this atom - a solid
+              // ring around it (vs. the dashed idle-hover ring below) makes
+              // that commitment clear, distinct from just hovering nearby.
+              <circle
+                cx={molecule.atoms[bondPreview.targetAtomId].x}
+                cy={molecule.atoms[bondPreview.targetAtomId].y}
+                r={11}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth={2}
+                opacity={0.9}
+              />
+            )}
+            {bondPreview.targetBondId && molecule.bonds[bondPreview.targetBondId] &&
+              molecule.atoms[molecule.bonds[bondPreview.targetBondId].a1] &&
+              molecule.atoms[molecule.bonds[bondPreview.targetBondId].a2] && (
+                <line
+                  x1={molecule.atoms[molecule.bonds[bondPreview.targetBondId].a1].x}
+                  y1={molecule.atoms[molecule.bonds[bondPreview.targetBondId].a1].y}
+                  x2={molecule.atoms[molecule.bonds[bondPreview.targetBondId].a2].x}
+                  y2={molecule.atoms[molecule.bonds[bondPreview.targetBondId].a2].y}
+                  stroke="var(--accent)"
+                  strokeWidth={3.5}
+                  strokeLinecap="round"
+                  opacity={0.5}
+                />
+              )}
           </g>
         )}
         {atomMoveAnchor && molecule.atoms[atomMoveAnchor.atomId] && (
@@ -374,6 +402,61 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             />
           )
         )}
+        {(tool.startsWith("bond") || tool === "wedge" || tool === "dash" || tool === "wavy") &&
+          !bondPreview &&
+          hoverPoint &&
+          (hoverAtomId && molecule.atoms[hoverAtomId] ? (
+            // Hovering an existing atom: a click/drag will start a new
+            // bond from here (or, on a plain click with no drag, cycle
+            // its element/edit as usual) - highlight it so it's clear
+            // this is where the bond will originate.
+            <circle
+              cx={molecule.atoms[hoverAtomId].x}
+              cy={molecule.atoms[hoverAtomId].y}
+              r={11}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth={1.6}
+              strokeDasharray="3 2"
+              opacity={0.8}
+              pointerEvents="none"
+              data-export-exclude="true"
+            />
+          ) : hoverBondId && molecule.bonds[hoverBondId] &&
+            molecule.atoms[molecule.bonds[hoverBondId].a1] &&
+            molecule.atoms[molecule.bonds[hoverBondId].a2] ? (
+            // Hovering an existing bond: clicking it changes its
+            // order/stereo in place rather than starting a new one -
+            // highlight the whole bond so that's clear before the click.
+            <line
+              x1={molecule.atoms[molecule.bonds[hoverBondId].a1].x}
+              y1={molecule.atoms[molecule.bonds[hoverBondId].a1].y}
+              x2={molecule.atoms[molecule.bonds[hoverBondId].a2].x}
+              y2={molecule.atoms[molecule.bonds[hoverBondId].a2].y}
+              stroke="var(--accent)"
+              strokeWidth={3.5}
+              strokeLinecap="round"
+              opacity={0.55}
+              pointerEvents="none"
+              data-export-exclude="true"
+            />
+          ) : (
+            // Empty canvas: a click/drag here places a fresh atom to
+            // bond from.
+            <circle
+              cx={hoverPoint.x}
+              cy={hoverPoint.y}
+              r={9}
+              fill="var(--accent)"
+              fillOpacity={0.16}
+              stroke="var(--accent)"
+              strokeWidth={1.4}
+              strokeDasharray="2 2"
+              opacity={0.75}
+              pointerEvents="none"
+              data-export-exclude="true"
+            />
+          ))}
         {ringPreviewLoops && (
           <g opacity={0.6} pointerEvents="none" data-export-exclude="true">
             {ringPreviewLoops.map((loop, i) => (

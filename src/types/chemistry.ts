@@ -134,6 +134,7 @@ export interface BondPreview {
   from: string; // Atom id the bond is being dragged from
   to: Point; // Current (possibly snapped) endpoint
   targetAtomId: string | null; // Set when the drag is hovering an existing atom
+  targetBondId: string | null; // Set when the drag has snapped onto an existing bond's line (no nearby atom)
 }
 
 /** Live state while repositioning a single atom that has exactly one bond

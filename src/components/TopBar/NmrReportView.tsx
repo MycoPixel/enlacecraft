@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { Molecule } from "../../types/chemistry";
@@ -44,6 +44,21 @@ export function NmrReportView({
 }) {
   const t = useT();
 
+  // Which shift badges are drawn on the structure. The table below
+  // always shows both columns regardless of this - it's just the
+  // on-structure labels that can get crowded on a busy molecule, so
+  // this lets the user thin them out to whichever one they're
+  // currently reading off.
+  const [visibleShifts, setVisibleShifts] = useState<"both" | "c13" | "h1" | "none">("both");
+  const showC = visibleShifts === "both" || visibleShifts === "c13";
+  const showH = visibleShifts === "both" || visibleShifts === "h1";
+
+  // Atom currently under the pointer, if it has a shift showing - while
+  // hovered, that atom's shift number(s) swap back to its plain label
+  // (e.g. "C3") so the user can identify it without losing the shift
+  // display everywhere else.
+  const [hoveredAtomId, setHoveredAtomId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -81,51 +96,11 @@ export function NmrReportView({
   const atoms = Object.values(fragment.atoms);
   const bonds = Object.values(fragment.bonds);
 
-  // Which atoms each atom is bonded to, so we can push its result
-  // badge(s) away from its neighbors instead of always offsetting to a
-  // fixed spot (which drifts into a neighboring atom/bond on anything
-  // but an isolated, rightward-pointing atom).
-  const neighborIdsByAtom = useMemo(() => {
-    const map = new Map<string, string[]>();
-    const addNeighbor = (id: string, neighborId: string) => {
-      const list = map.get(id);
-      if (list) list.push(neighborId);
-      else map.set(id, [neighborId]);
-    };
-    for (const bond of bonds) {
-      addNeighbor(bond.a1, bond.a2);
-      addNeighbor(bond.a2, bond.a1);
-    }
-    return map;
-  }, [bonds]);
-
-  /** Unit vector pointing away from an atom's bonded neighbors - i.e.
-   * into whatever open space exists around it - so labels land
-   * somewhere legible instead of on top of the structure. */
-  const awayDirection = (atomId: string): { x: number; y: number } => {
-    const atom = fragment.atoms[atomId];
-    const neighborIds = neighborIdsByAtom.get(atomId) ?? [];
-    let dx = 0;
-    let dy = 0;
-    for (const nId of neighborIds) {
-      const n = fragment.atoms[nId];
-      if (!atom || !n) continue;
-      const ndx = atom.x - n.x;
-      const ndy = atom.y - n.y;
-      const len = Math.hypot(ndx, ndy) || 1;
-      dx += ndx / len;
-      dy += ndy / len;
-    }
-    const len = Math.hypot(dx, dy);
-    if (len < 0.01) return { x: 1, y: -0.6 };
-    return { x: dx / len, y: dy / len };
-  };
-
   const viewBox = useMemo(() => {
     if (atoms.length === 0) return "0 0 100 100";
     const xs = atoms.map((a) => a.x);
     const ys = atoms.map((a) => a.y);
-    const pad = 55;
+    const pad = 30;
     const minX = Math.min(...xs) - pad;
     const minY = Math.min(...ys) - pad;
     const w = Math.max(...xs) - Math.min(...xs) + pad * 2;
@@ -140,7 +115,11 @@ export function NmrReportView({
     .filter((r) => r.shifts?.c13 !== undefined || r.shifts?.h1 !== undefined);
 
   return createPortal(
-    <div className="nmr-report-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="nmr-report-overlay"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="nmr-report-dialog" role="dialog" aria-modal="true" aria-label={t("nmr.reportTitle")}>
         <div className="nmr-report-dialog__header">
           <h2>{t("nmr.reportTitle")}</h2>
@@ -150,6 +129,31 @@ export function NmrReportView({
         </div>
 
         <p className="nmr-report-dialog__hint">{t("nmr.reportHint")}</p>
+
+        <div className="nmr-report-shift-toggle" role="group" aria-label={t("nmr.reportShiftToggleLabel")}>
+          {(["both", "c13", "h1", "none"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={
+                "nmr-report-shift-toggle__btn" +
+                (visibleShifts === option ? " nmr-report-shift-toggle__btn--active" : "")
+              }
+              aria-pressed={visibleShifts === option}
+              onClick={() => setVisibleShifts(option)}
+            >
+              {t(
+                option === "both"
+                  ? "nmr.reportShiftBoth"
+                  : option === "c13"
+                    ? "nmr.reportShiftC"
+                    : option === "h1"
+                      ? "nmr.reportShiftH"
+                      : "nmr.reportShiftNone"
+              )}
+            </button>
+          ))}
+        </div>
 
         <div className="nmr-report-dialog__body">
           <svg className="nmr-report-svg" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
@@ -182,48 +186,59 @@ export function NmrReportView({
               const shifts = shiftsByAtom.get(atom.id);
               if (!label) return null;
 
-              const dir = awayDirection(atom.id);
-              const hasC = shifts?.c13 !== undefined;
-              const hasH = shifts?.h1 !== undefined;
-              // Both badges sit along the same open-space direction,
-              // stacked one past the other, so they stay together and
-              // clear of whichever way this atom's bonds point.
-              const cAnchor = { x: atom.x + dir.x * 20, y: atom.y + dir.y * 20 - 2 };
-              const hAnchor = { x: atom.x + dir.x * 20, y: atom.y + dir.y * 20 + (hasC ? 13 : 0) };
+              const hasC = shifts?.c13 !== undefined && showC;
+              const hasH = shifts?.h1 !== undefined && showH;
+              const hasShift = hasC || hasH;
+              // Shift numbers sit right on the atom itself now, rather
+              // than offset toward whatever open space the old
+              // away-direction heuristic guessed at - that guess could
+              // land one atom's shift on top of a neighboring atom's
+              // label in a crowded structure. Anchoring to the atom
+              // means a shift can only ever cover its own label, and
+              // hovering (see below) swaps it back to that label on
+              // demand, so nothing is permanently hidden.
+              const isHovered = hoveredAtomId === atom.id;
+              const showingShift = hasShift && !isHovered;
 
               return (
-                <g key={atom.id}>
-                  {(hasC || hasH) && (
-                    <line
-                      x1={atom.x + dir.x * 10}
-                      y1={atom.y + dir.y * 10}
-                      x2={atom.x + dir.x * 18}
-                      y2={atom.y + dir.y * 18}
-                      className="nmr-report-svg__leader"
-                    />
-                  )}
-                  <circle cx={atom.x} cy={atom.y} r={10} className="nmr-report-svg__atom" />
-                  <text x={atom.x} y={atom.y} className="nmr-report-svg__atom-label">
-                    {label}
-                  </text>
-                  {hasC && (
-                    <text
-                      x={cAnchor.x}
-                      y={cAnchor.y}
-                      textAnchor={dir.x >= 0 ? "start" : "end"}
-                      className="nmr-report-svg__badge nmr-report-svg__badge--c"
-                    >
-                      {shifts!.c13!.toFixed(1)}
-                    </text>
-                  )}
-                  {hasH && (
-                    <text
-                      x={hAnchor.x}
-                      y={hAnchor.y}
-                      textAnchor={dir.x >= 0 ? "start" : "end"}
-                      className="nmr-report-svg__badge nmr-report-svg__badge--h"
-                    >
-                      {shifts!.h1!.shift.toFixed(2)} ({shifts!.h1!.numHs}H)
+                <g
+                  key={atom.id}
+                  onMouseEnter={() => hasShift && setHoveredAtomId(atom.id)}
+                  onMouseLeave={() => setHoveredAtomId((id) => (id === atom.id ? null : id))}
+                  style={hasShift ? { cursor: "pointer" } : undefined}
+                >
+                  <circle
+                    cx={atom.x}
+                    cy={atom.y}
+                    r={11}
+                    className={
+                      "nmr-report-svg__atom" + (isHovered && hasShift ? " nmr-report-svg__atom--hovered" : "")
+                    }
+                  />
+                  {showingShift ? (
+                    <>
+                      {hasC && (
+                        <text
+                          x={atom.x}
+                          y={atom.y + (hasH ? -6 : 0)}
+                          className="nmr-report-svg__badge nmr-report-svg__badge--c nmr-report-svg__badge--oncenter"
+                        >
+                          {shifts!.c13!.toFixed(1)}
+                        </text>
+                      )}
+                      {hasH && (
+                        <text
+                          x={atom.x}
+                          y={atom.y + (hasC ? 7 : 0)}
+                          className="nmr-report-svg__badge nmr-report-svg__badge--h nmr-report-svg__badge--oncenter"
+                        >
+                          {shifts!.h1!.shift.toFixed(2)}
+                        </text>
+                      )}
+                    </>
+                  ) : (
+                    <text x={atom.x} y={atom.y} className="nmr-report-svg__atom-label">
+                      {label}
                     </text>
                   )}
                 </g>
