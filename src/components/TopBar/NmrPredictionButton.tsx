@@ -4,7 +4,7 @@ import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { exportSmilesWithAtomOrder } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
-import { predictNmrSpectrum, NmrPredictError, buildAtomLabels, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
+import { predictNmrSpectrum, NmrPredictError, buildAtomLabels, type NmrIsomerResult } from "../../io/nmrPredict";
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
 import type { Molecule } from "../../types/chemistry";
@@ -17,8 +17,7 @@ type PredictState =
       smiles: string;
       fragment: Molecule;
       atomOrder: string[];
-      predictions: ShiftPrediction[];
-      predictionsH1: H1ShiftPrediction[];
+      results: NmrIsomerResult[];
       warnings: string[];
     };
 
@@ -50,11 +49,19 @@ export function NmrPredictionButton() {
   const selected = useMoleculeStore((s) => s.selected);
   const [state, setState] = useState<PredictState | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  // Which entry of state.results is currently shown - almost always
+  // just [0], but can have multiple entries when the input had
+  // unassigned ring stereocenters (see NmrPredictResult.results).
+  // Reset to 0 on every new prediction, below.
+  const [selectedIsomer, setSelectedIsomer] = useState(0);
 
   const atomLabels = useMemo(() => {
     if (state?.phase !== "result") return new Map<string, string>();
     return buildAtomLabels(state.fragment, state.atomOrder);
   }, [state]);
+
+  const current: NmrIsomerResult | undefined =
+    state?.phase === "result" ? state.results[selectedIsomer] ?? state.results[0] : undefined;
 
   const hasContent = Object.keys(molecule.atoms).length > 0;
 
@@ -82,13 +89,13 @@ export function NmrPredictionButton() {
       const fragment = extractFragment(molecule, ids);
       const { smiles, atomOrder } = exportSmilesWithAtomOrder(fragment);
       const result = await predictNmrSpectrum(smiles);
+      setSelectedIsomer(0);
       setState({
         phase: "result",
         smiles: result.smiles,
         fragment,
         atomOrder,
-        predictions: result.predictions,
-        predictionsH1: result.predictionsH1,
+        results: result.results,
         warnings: result.warnings,
       });
     } catch (err) {
@@ -116,7 +123,7 @@ export function NmrPredictionButton() {
             <p className="align-menu__hint">{state.message}</p>
           )}
 
-          {hasContent && state?.phase === "result" && (
+          {hasContent && state?.phase === "result" && current && (
             <div className="nmr-result">
               {state.warnings.map((warning, i) => (
                 <p key={i} className="nmr-result__warning">
@@ -124,12 +131,37 @@ export function NmrPredictionButton() {
                 </p>
               ))}
 
+              {state.results.length > 1 && (
+                <>
+                  <div className="nmr-result__isomer-tabs" role="tablist">
+                    {state.results.map((r, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        role="tab"
+                        aria-selected={selectedIsomer === i}
+                        className={
+                          "nmr-result__isomer-tab" +
+                          (selectedIsomer === i ? " nmr-result__isomer-tab--active" : "")
+                        }
+                        onClick={() => setSelectedIsomer(i)}
+                      >
+                        {t("nmr.isomerTab", { index: String(i + 1) })}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="nmr-result__isomer-smiles">
+                    {t("nmr.isomerSmiles", { smiles: current.smiles })}
+                  </p>
+                </>
+              )}
+
               <p className="nmr-result__section">{t("nmr.section13c")}</p>
-              {state.predictions.length === 0 ? (
+              {current.predictions.length === 0 ? (
                 <p className="align-menu__hint">{t("nmr.noCarbons")}</p>
               ) : (
                 <ul className="nmr-result__list">
-                  {[...state.predictions]
+                  {[...current.predictions]
                     .sort((a, b) => b.predictedShiftPpm - a.predictedShiftPpm)
                     .map((p) => (
                       <li key={p.atomIndex} className="nmr-result__row">
@@ -143,11 +175,11 @@ export function NmrPredictionButton() {
               )}
 
               <p className="nmr-result__section">{t("nmr.section1h")}</p>
-              {state.predictionsH1.length === 0 ? (
+              {current.predictionsH1.length === 0 ? (
                 <p className="align-menu__hint">{t("nmr.noProtons")}</p>
               ) : (
                 <ul className="nmr-result__list">
-                  {[...state.predictionsH1]
+                  {[...current.predictionsH1]
                     .sort((a, b) => b.predictedShiftPpm - a.predictedShiftPpm)
                     .map((p) => (
                       <li key={p.atomIndex} className="nmr-result__row">
@@ -157,7 +189,18 @@ export function NmrPredictionButton() {
                             count: String(p.numHs),
                           })}
                         </span>
-                        <span className="nmr-result__shift">{p.predictedShiftPpm.toFixed(2)} ppm</span>
+                        <span className="nmr-result__shift">
+                          {p.predictedShiftPpm.toFixed(2)} ppm
+                          {p.multiplicity && (
+                            <span
+                              className="nmr-result__multiplicity"
+                              title={p.multiplicityDetail || undefined}
+                            >
+                              {" "}
+                              ({p.multiplicity})
+                            </span>
+                          )}
+                        </span>
                       </li>
                     ))}
                 </ul>
@@ -191,8 +234,9 @@ export function NmrPredictionButton() {
           onClose={() => setReportOpen(false)}
           fragment={state.fragment}
           atomOrder={state.atomOrder}
-          predictions={state.predictions}
-          predictionsH1={state.predictionsH1}
+          results={state.results}
+          selectedIsomer={selectedIsomer}
+          onSelectIsomer={setSelectedIsomer}
         />
       )}
     </ToolDropdown>

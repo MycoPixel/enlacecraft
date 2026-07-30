@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { Molecule } from "../../types/chemistry";
 import { useT } from "../../i18n/useT";
-import type { ShiftPrediction, H1ShiftPrediction } from "../../io/nmrPredict";
+import type { NmrIsomerResult } from "../../io/nmrPredict";
 import { buildAtomLabels } from "../../io/nmrPredict";
 
 interface AtomShifts {
   c13?: number;
-  h1?: { shift: number; numHs: number };
+  h1?: { shift: number; numHs: number; multiplicity: string; multiplicityDetail: string };
 }
 
 /**
@@ -32,17 +32,25 @@ export function NmrReportView({
   onClose,
   fragment,
   atomOrder,
-  predictions,
-  predictionsH1,
+  results,
+  selectedIsomer,
+  onSelectIsomer,
 }: {
   open: boolean;
   onClose: () => void;
   fragment: Molecule;
   atomOrder: string[];
-  predictions: ShiftPrediction[];
-  predictionsH1: H1ShiftPrediction[];
+  /** One entry normally, more than one when the source molecule had
+   * unassigned ring stereocenters - see NmrPredictResult.results in
+   * io/nmrPredict.ts. */
+  results: NmrIsomerResult[];
+  selectedIsomer: number;
+  onSelectIsomer: (index: number) => void;
 }) {
   const t = useT();
+  const current = results[selectedIsomer] ?? results[0];
+  const predictions = current?.predictions ?? [];
+  const predictionsH1 = current?.predictionsH1 ?? [];
 
   // Which shift badges are drawn on the structure. The table below
   // always shows both columns regardless of this - it's just the
@@ -87,7 +95,12 @@ export function NmrReportView({
       const atomId = atomOrder[p.atomIndex];
       if (!atomId) continue;
       const entry = map.get(atomId) ?? {};
-      entry.h1 = { shift: p.predictedShiftPpm, numHs: p.numHs };
+      entry.h1 = {
+        shift: p.predictedShiftPpm,
+        numHs: p.numHs,
+        multiplicity: p.multiplicity,
+        multiplicityDetail: p.multiplicityDetail,
+      };
       map.set(atomId, entry);
     }
     return map;
@@ -129,6 +142,33 @@ export function NmrReportView({
         </div>
 
         <p className="nmr-report-dialog__hint">{t("nmr.reportHint")}</p>
+
+        {results.length > 1 && (
+          <>
+            <div className="nmr-result__isomer-tabs" role="tablist">
+              {results.map((r, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedIsomer === i}
+                  className={
+                    "nmr-result__isomer-tab" +
+                    (selectedIsomer === i ? " nmr-result__isomer-tab--active" : "")
+                  }
+                  onClick={() => onSelectIsomer(i)}
+                >
+                  {t("nmr.isomerTab", { index: String(i + 1) })}
+                </button>
+              ))}
+            </div>
+            {current && (
+              <p className="nmr-result__isomer-smiles">
+                {t("nmr.isomerSmiles", { smiles: current.smiles })}
+              </p>
+            )}
+          </>
+        )}
 
         <div className="nmr-report-shift-toggle" role="group" aria-label={t("nmr.reportShiftToggleLabel")}>
           {(["both", "c13", "h1", "none"] as const).map((option) => (
@@ -233,6 +273,7 @@ export function NmrReportView({
                           className="nmr-report-svg__badge nmr-report-svg__badge--h nmr-report-svg__badge--oncenter"
                         >
                           {shifts!.h1!.shift.toFixed(2)}
+                          {shifts!.h1!.multiplicity ? ` (${shifts!.h1!.multiplicity})` : ""}
                         </text>
                       )}
                     </>
@@ -252,6 +293,7 @@ export function NmrReportView({
                 <th>{t("nmr.reportColAtom")}</th>
                 <th>{t("nmr.section13c")}</th>
                 <th>{t("nmr.section1h")}</th>
+                <th>{t("nmr.reportColMultiplicity")}</th>
               </tr>
             </thead>
             <tbody>
@@ -260,6 +302,12 @@ export function NmrReportView({
                   <td>{r.label}</td>
                   <td>{r.shifts?.c13 !== undefined ? `${r.shifts.c13.toFixed(2)} ppm` : "\u2014"}</td>
                   <td>{r.shifts?.h1 !== undefined ? `${r.shifts.h1.shift.toFixed(2)} ppm (${r.shifts.h1.numHs}H)` : "\u2014"}</td>
+                  <td
+                    title={r.shifts?.h1?.multiplicityDetail || undefined}
+                    className={r.shifts?.h1?.multiplicityDetail ? "nmr-report-table__mult-cell--hasdetail" : undefined}
+                  >
+                    {r.shifts?.h1?.multiplicity || "\u2014"}
+                  </td>
                 </tr>
               ))}
             </tbody>

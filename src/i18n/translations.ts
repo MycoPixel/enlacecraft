@@ -70,6 +70,10 @@ export const translations: Record<Lang, Dict> = {
     "nmr.reportShiftC": "\u00b9\u00b3C only",
     "nmr.reportShiftH": "\u00b9H only",
     "nmr.reportShiftNone": "None",
+    "nmr.reportColMultiplicity": "Mult.",
+    "nmr.multiplicityDetailTitle": "Hover for coupling detail",
+    "nmr.isomerTab": "Isomer {index}",
+    "nmr.isomerSmiles": "Stereochemistry: {smiles}",
 
     "status.ready": "Ready",
     "status.dragBond": "Drag to set bond direction, release to place atom (hold Shift for a free angle)",
@@ -425,6 +429,10 @@ export const translations: Record<Lang, Dict> = {
     "nmr.reportShiftC": "Solo \u00b9\u00b3C",
     "nmr.reportShiftH": "Solo \u00b9H",
     "nmr.reportShiftNone": "Ninguno",
+    "nmr.reportColMultiplicity": "Mult.",
+    "nmr.multiplicityDetailTitle": "Pasa el cursor para ver el detalle del acoplamiento",
+    "nmr.isomerTab": "Isómero {index}",
+    "nmr.isomerSmiles": "Estereoquímica: {smiles}",
 
     "status.ready": "Listo",
     "status.dragBond": "Arrastra para fijar el ángulo del enlace, suelta para colocar el átomo (mantén Shift para ángulo libre)",
