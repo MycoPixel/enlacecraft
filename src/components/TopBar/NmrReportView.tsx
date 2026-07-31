@@ -5,10 +5,16 @@ import type { Molecule } from "../../types/chemistry";
 import { useT } from "../../i18n/useT";
 import type { NmrIsomerResult } from "../../io/nmrPredict";
 import { buildAtomLabels } from "../../io/nmrPredict";
+import { NmrSpectrumView } from "./NmrSpectrumView";
 
 interface AtomShifts {
   c13?: number;
   h1?: { shift: number; numHs: number; multiplicity: string; multiplicityDetail: string };
+  /** Same atom's equivalence_group from either prediction (they always
+   * agree - it's a per-atom property, not per-nucleus). Used only to
+   * group table rows for constitutionally equivalent atoms into one
+   * line - see the table rendering below. */
+  equivalenceGroup?: number;
 }
 
 /**
@@ -57,6 +63,7 @@ export function NmrReportView({
   // on-structure labels that can get crowded on a busy molecule, so
   // this lets the user thin them out to whichever one they're
   // currently reading off.
+  const [activeTab, setActiveTab] = useState<"structure" | "spectrum">("structure");
   const [visibleShifts, setVisibleShifts] = useState<"both" | "c13" | "h1" | "none">("both");
   const showC = visibleShifts === "both" || visibleShifts === "c13";
   const showH = visibleShifts === "both" || visibleShifts === "h1";
@@ -89,6 +96,7 @@ export function NmrReportView({
       if (!atomId) continue;
       const entry = map.get(atomId) ?? {};
       entry.c13 = p.predictedShiftPpm;
+      entry.equivalenceGroup = p.equivalenceGroup;
       map.set(atomId, entry);
     }
     for (const p of predictionsH1) {
@@ -101,6 +109,7 @@ export function NmrReportView({
         multiplicity: p.multiplicity,
         multiplicityDetail: p.multiplicityDetail,
       };
+      entry.equivalenceGroup = p.equivalenceGroup;
       map.set(atomId, entry);
     }
     return map;
@@ -127,6 +136,28 @@ export function NmrReportView({
     .map(([atomId, label]) => ({ atomId, label, shifts: shiftsByAtom.get(atomId) }))
     .filter((r) => r.shifts?.c13 !== undefined || r.shifts?.h1 !== undefined);
 
+  // Combine rows for constitutionally equivalent atoms (e.g. a
+  // tert-butyl group's 3 methyl carbons) into one table row, the way
+  // a real NMR report would ("C5, C6, C7 — 0.90 ppm (s), 9H") rather
+  // than one line per atom. Atoms without an equivalence_group (only
+  // happens if a row somehow has neither c13 nor h1 - filtered out
+  // above already) fall back to their own atomId as a unique key.
+  const groupedRows = (() => {
+    const byGroup = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const key = r.shifts?.equivalenceGroup !== undefined ? `g${r.shifts.equivalenceGroup}` : `atom-${r.atomId}`;
+      const arr = byGroup.get(key);
+      if (arr) arr.push(r);
+      else byGroup.set(key, [r]);
+    }
+    return [...byGroup.values()].map((members) => ({
+      key: members[0].atomId,
+      label: members.map((m) => m.label).join(", "),
+      shifts: members[0].shifts,
+      totalHs: members.reduce((sum, m) => sum + (m.shifts?.h1?.numHs ?? 0), 0),
+    }));
+  })();
+
   return createPortal(
     <div
       className="nmr-report-overlay"
@@ -142,6 +173,23 @@ export function NmrReportView({
         </div>
 
         <p className="nmr-report-dialog__hint">{t("nmr.reportHint")}</p>
+
+        <div className="nmr-report-main-tabs" role="tablist">
+          {(["structure", "spectrum"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              className={
+                "nmr-report-main-tabs__btn" + (activeTab === tab ? " nmr-report-main-tabs__btn--active" : "")
+              }
+              onClick={() => setActiveTab(tab)}
+            >
+              {t(tab === "structure" ? "nmr.tabStructure" : "nmr.tabSpectrum")}
+            </button>
+          ))}
+        </div>
 
         {results.length > 1 && (
           <>
@@ -170,6 +218,7 @@ export function NmrReportView({
           </>
         )}
 
+        {activeTab === "structure" && (
         <div className="nmr-report-shift-toggle" role="group" aria-label={t("nmr.reportShiftToggleLabel")}>
           {(["both", "c13", "h1", "none"] as const).map((option) => (
             <button
@@ -194,7 +243,9 @@ export function NmrReportView({
             </button>
           ))}
         </div>
+        )}
 
+        {activeTab === "structure" && (
         <div className="nmr-report-dialog__body">
           <svg className="nmr-report-svg" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
             {bonds.map((bond) => {
@@ -297,11 +348,11 @@ export function NmrReportView({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.atomId}>
+              {groupedRows.map((r) => (
+                <tr key={r.key}>
                   <td>{r.label}</td>
                   <td>{r.shifts?.c13 !== undefined ? `${r.shifts.c13.toFixed(2)} ppm` : "\u2014"}</td>
-                  <td>{r.shifts?.h1 !== undefined ? `${r.shifts.h1.shift.toFixed(2)} ppm (${r.shifts.h1.numHs}H)` : "\u2014"}</td>
+                  <td>{r.shifts?.h1 !== undefined ? `${r.shifts.h1.shift.toFixed(2)} ppm (${r.totalHs}H)` : "\u2014"}</td>
                   <td
                     title={r.shifts?.h1?.multiplicityDetail || undefined}
                     className={r.shifts?.h1?.multiplicityDetail ? "nmr-report-table__mult-cell--hasdetail" : undefined}
@@ -313,6 +364,16 @@ export function NmrReportView({
             </tbody>
           </table>
         </div>
+        )}
+
+        {activeTab === "spectrum" && current && (
+          <NmrSpectrumView
+            predictions={current.predictions}
+            predictionsH1={current.predictionsH1}
+            atomOrder={atomOrder}
+            atomLabels={labelOf}
+          />
+        )}
 
         <p className="nmr-report-dialog__caveat">{t("nmr.caveat")}</p>
       </div>

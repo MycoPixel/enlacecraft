@@ -4,7 +4,14 @@ import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { exportSmilesWithAtomOrder } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
-import { predictNmrSpectrum, NmrPredictError, buildAtomLabels, type NmrIsomerResult } from "../../io/nmrPredict";
+import {
+  predictNmrSpectrum,
+  NmrPredictError,
+  buildAtomLabels,
+  groupByEquivalence,
+  equivalenceGroupLabel,
+  type NmrIsomerResult,
+} from "../../io/nmrPredict";
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
 import type { Molecule } from "../../types/chemistry";
@@ -161,14 +168,17 @@ export function NmrPredictionButton() {
                 <p className="align-menu__hint">{t("nmr.noCarbons")}</p>
               ) : (
                 <ul className="nmr-result__list">
-                  {[...current.predictions]
-                    .sort((a, b) => b.predictedShiftPpm - a.predictedShiftPpm)
-                    .map((p) => (
-                      <li key={p.atomIndex} className="nmr-result__row">
+                  {groupByEquivalence(current.predictions)
+                    .sort((a, b) => b.representative.predictedShiftPpm - a.representative.predictedShiftPpm)
+                    .map((group) => (
+                      <li key={group.representative.equivalenceGroup} className="nmr-result__row">
                         <span className="nmr-result__atom">
-                          {atomLabels.get(state.atomOrder[p.atomIndex]) ?? t("nmr.atomLabel", { index: String(p.atomIndex) })}
+                          {equivalenceGroupLabel(group.members, state.atomOrder, atomLabels) ||
+                            t("nmr.atomLabel", { index: String(group.representative.atomIndex) })}
                         </span>
-                        <span className="nmr-result__shift">{p.predictedShiftPpm.toFixed(2)} ppm</span>
+                        <span className="nmr-result__shift">
+                          {group.representative.predictedShiftPpm.toFixed(2)} ppm
+                        </span>
                       </li>
                     ))}
                 </ul>
@@ -179,30 +189,36 @@ export function NmrPredictionButton() {
                 <p className="align-menu__hint">{t("nmr.noProtons")}</p>
               ) : (
                 <ul className="nmr-result__list">
-                  {[...current.predictionsH1]
-                    .sort((a, b) => b.predictedShiftPpm - a.predictedShiftPpm)
-                    .map((p) => (
-                      <li key={p.atomIndex} className="nmr-result__row">
-                        <span className="nmr-result__atom">
-                          {t("nmr.atomLabelH", {
-                            label: atomLabels.get(state.atomOrder[p.atomIndex]) ?? String(p.atomIndex),
-                            count: String(p.numHs),
-                          })}
-                        </span>
-                        <span className="nmr-result__shift">
-                          {p.predictedShiftPpm.toFixed(2)} ppm
-                          {p.multiplicity && (
-                            <span
-                              className="nmr-result__multiplicity"
-                              title={p.multiplicityDetail || undefined}
-                            >
-                              {" "}
-                              ({p.multiplicity})
-                            </span>
-                          )}
-                        </span>
-                      </li>
-                    ))}
+                  {groupByEquivalence(current.predictionsH1)
+                    .sort((a, b) => b.representative.predictedShiftPpm - a.representative.predictedShiftPpm)
+                    .map((group) => {
+                      const totalHs = group.members.reduce((sum, m) => sum + m.numHs, 0);
+                      const rep = group.representative;
+                      return (
+                        <li key={rep.equivalenceGroup} className="nmr-result__row">
+                          <span className="nmr-result__atom">
+                            {t("nmr.atomLabelH", {
+                              label:
+                                equivalenceGroupLabel(group.members, state.atomOrder, atomLabels) ||
+                                String(rep.atomIndex),
+                              count: String(totalHs),
+                            })}
+                          </span>
+                          <span className="nmr-result__shift">
+                            {rep.predictedShiftPpm.toFixed(2)} ppm
+                            {rep.multiplicity && (
+                              <span
+                                className="nmr-result__multiplicity"
+                                title={rep.multiplicityDetail || undefined}
+                              >
+                                {" "}
+                                ({rep.multiplicity})
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
                 </ul>
               )}
 

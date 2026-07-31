@@ -38,6 +38,13 @@ export interface ShiftPrediction {
    * that does this. */
   atomIndex: number;
   predictedShiftPpm: number;
+  /** Atoms sharing this value are constitutionally symmetry-equivalent
+   * (RDKit canonical ranking, stereo not considered) - e.g. a
+   * tert-butyl group's 3 methyl carbons. Same value for a given atom
+   * across both ShiftPrediction and H1ShiftPrediction, and stable
+   * across different isomers of the same molecule. Purely a display
+   * grouping hint - see groupByEquivalence below. */
+  equivalenceGroup: number;
 }
 
 export interface H1ShiftPrediction extends ShiftPrediction {
@@ -55,6 +62,13 @@ export interface H1ShiftPrediction extends ShiftPrediction {
    * per-neighbor J values in Hz, or a tier 1 caveat note. Empty
    * string when there's nothing extra to say. */
   multiplicityDetail: string;
+  /** Raw, unclustered J values (Hz) behind the multiplicity label -
+   * only ever populated for tier 2 atoms (ring/stereocenter
+   * geometry); empty for tier 1, which has no real coupling
+   * magnitude, only a topological count. See io/nmrSpectrum.ts for
+   * where this feeds a simulated spectrum (falls back to a default
+   * illustrative J when empty). */
+  couplingHz: number[];
 }
 
 export interface NmrIsomerResult {
@@ -104,6 +118,56 @@ export function buildAtomLabels(fragment: Molecule, atomOrder: string[]): Map<st
   return labels;
 }
 
+export interface EquivalenceGroup<T> {
+  /** First member by atomIndex - stands in for the whole group's
+   * shift/multiplicity, since constitutionally equivalent atoms
+   * should already predict near-identical values (this is a display
+   * convenience, not an average - see the group's `members` for the
+   * individual per-atom values if they ever need to be compared). */
+  representative: T;
+  /** All members of this equivalence group, sorted by atomIndex. */
+  members: T[];
+}
+
+/**
+ * Groups predictions that share an equivalenceGroup value into one
+ * entry each - the display-side counterpart to NMRGraph's
+ * equivalence_group field, so e.g. a tert-butyl group's 3 methyl
+ * carbons render as one combined row ("C5, C6, C7 — 9H, 0.90 ppm (s)")
+ * instead of three separate ones, the way a real NMR report would.
+ * Order of the returned groups follows first-occurrence order in
+ * `items` (typically already sorted by shift before calling this).
+ */
+export function groupByEquivalence<T extends { atomIndex: number; equivalenceGroup: number }>(
+  items: T[],
+): EquivalenceGroup<T>[] {
+  const byGroup = new Map<number, T[]>();
+  for (const item of items) {
+    const arr = byGroup.get(item.equivalenceGroup);
+    if (arr) arr.push(item);
+    else byGroup.set(item.equivalenceGroup, [item]);
+  }
+  return [...byGroup.values()].map((members) => ({
+    representative: members[0],
+    members: [...members].sort((a, b) => a.atomIndex - b.atomIndex),
+  }));
+}
+
+/**
+ * Joins an equivalence group's member atom labels into one string
+ * ("C5, C6, C7") using the same atomOrder/atomLabels convention as
+ * a single atom's label elsewhere in this file.
+ */
+export function equivalenceGroupLabel(
+  members: { atomIndex: number }[],
+  atomOrder: string[],
+  atomLabels: Map<string, string>,
+): string {
+  return members
+    .map((m) => atomLabels.get(atomOrder[m.atomIndex]) ?? String(m.atomIndex))
+    .join(", ");
+}
+
 export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResult> {
   const trimmed = smiles.trim();
   if (!trimmed) throw new NmrPredictError("EMPTY_QUERY");
@@ -128,13 +192,15 @@ export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResu
     smiles: string;
     results: {
       smiles: string;
-      predictions: { atom_index: number; predicted_shift_ppm: number }[];
+      predictions: { atom_index: number; predicted_shift_ppm: number; equivalence_group: number }[];
       predictions_h1: {
         atom_index: number;
         predicted_shift_ppm: number;
         num_hs: number;
         multiplicity: string;
         multiplicity_detail: string;
+        coupling_hz: number[];
+        equivalence_group: number;
       }[];
     }[];
     warnings: string[];
@@ -147,6 +213,7 @@ export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResu
       predictions: r.predictions.map((p) => ({
         atomIndex: p.atom_index,
         predictedShiftPpm: p.predicted_shift_ppm,
+        equivalenceGroup: p.equivalence_group,
       })),
       predictionsH1: r.predictions_h1.map((p) => ({
         atomIndex: p.atom_index,
@@ -154,6 +221,8 @@ export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResu
         numHs: p.num_hs,
         multiplicity: p.multiplicity,
         multiplicityDetail: p.multiplicity_detail ?? "",
+        couplingHz: p.coupling_hz ?? [],
+        equivalenceGroup: p.equivalence_group,
       })),
     })),
     warnings: data.warnings,
