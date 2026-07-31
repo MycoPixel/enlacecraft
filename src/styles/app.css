@@ -1268,14 +1268,48 @@
 
 .nmr-spectrum-plot__toolbar {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
   margin-bottom: 2px;
+}
+
+.nmr-spectrum-plot__reset-zoom {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.nmr-spectrum-plot__reset-zoom:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.nmr-spectrum-plot__zoom-selection {
+  fill: var(--accent-soft);
+  opacity: 0.5;
+  stroke: var(--accent);
+  stroke-width: 0.5;
+}
+
+.nmr-spectrum-plot__zoom-hint {
+  text-align: center;
+  font-size: 9.5px;
+  color: var(--ink-soft);
+  opacity: 0.75;
+  margin: 2px 0 0;
 }
 
 .nmr-spectrum-plot__svg {
   width: 100%;
   height: 180px;
   display: block;
+  cursor: crosshair;
+  touch-action: none;
 }
 
 .nmr-spectrum-plot__axis {
