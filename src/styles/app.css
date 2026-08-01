@@ -1021,7 +1021,7 @@
      dropdown closes itself when the report opens, but this is a safety
      net against it (or any other dropdown) ending up on top. */
   z-index: 1100;
-  padding: 24px;
+  padding: 14px;
 }
 
 .nmr-report-dialog {
@@ -1029,8 +1029,9 @@
   border: 1px solid var(--panel-border);
   border-radius: 14px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  width: min(920px, 100%);
-  max-height: min(85vh, 800px);
+  width: min(1800px, 96vw);
+  height: 94vh;
+  max-height: 94vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1117,6 +1118,8 @@
 }
 
 .nmr-report-dialog__body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 20px 20px;
   display: grid;
@@ -1133,7 +1136,7 @@
 
 .nmr-report-svg {
   width: 100%;
-  min-height: 320px;
+  height: clamp(240px, 34vh, 380px);
   background: var(--canvas-bg, #fff);
   border: 1px solid var(--panel-border);
   border-radius: 10px;
@@ -1249,6 +1252,7 @@
   padding: 4px 20px 0;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .nmr-spectrum-view__section-title {
@@ -1258,6 +1262,13 @@
   color: var(--ink-soft);
   text-transform: uppercase;
   letter-spacing: 0.3px;
+}
+
+.nmr-spectrum-view__nucleus-toggle {
+  /* .nmr-report-shift-toggle's own margin assumes a container with no
+     horizontal padding; .nmr-spectrum-view already has 20px of its
+     own, so drop the toggle's extra side margin to avoid doubling it. */
+  margin: 10px 0 0;
 }
 
 .nmr-spectrum-plot {
@@ -1306,7 +1317,7 @@
 
 .nmr-spectrum-plot__svg {
   width: 100%;
-  height: 180px;
+  height: clamp(340px, 52vh, 620px);
   display: block;
   cursor: crosshair;
   touch-action: none;
@@ -1348,6 +1359,13 @@
   font-size: 8.5px;
   fill: var(--ink);
   text-anchor: middle;
+}
+
+.nmr-spectrum-plot__label-leader {
+  stroke: var(--ink-soft);
+  stroke-width: 0.6;
+  stroke-dasharray: 1.5 1.5;
+  opacity: 0.6;
 }
 
 .nmr-spectrum-plot__axis-label {
