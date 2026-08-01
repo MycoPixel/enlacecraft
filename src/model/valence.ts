@@ -1,6 +1,6 @@
 import type { Atom, Molecule } from "../types/chemistry";
 import { VALENCE, ATOMIC_WEIGHT, ABBREVIATED_GROUPS, ISOTOPE_PRESETS } from "./constants";
-import { angleOf } from "./geometry";
+import { angleOf, largestGapAngle } from "./geometry";
 
 const GROUP_BY_ID = Object.fromEntries(ABBREVIATED_GROUPS.map((g) => [g.id, g]));
 const ISOTOPE_BY_ELEMENT_MASS = new Map(ISOTOPE_PRESETS.map((p) => [`${p.element}:${p.massNumber}`, p]));
@@ -46,6 +46,38 @@ export function neighborAngles(mol: Molecule, atomId: string): number[] {
  * at the atom, so it needs to know which side is actually clear. */
 export function hasEastBond(mol: Molecule, atomId: string): boolean {
   return neighborAngles(mol, atomId).some((a) => Math.cos(a) > 0.5);
+}
+
+export type HSuffixPlacement = "right" | "left" | "top" | "bottom";
+
+/** Which side of the atom the implicit-H suffix ("H" in "OH", "NH", "NH2",
+ * ...) should render on, so it lands in whatever open space actually
+ * exists instead of assuming the conventional right (or east-flipped-to-
+ * left) slot is free. That old east-only check works fine for a terminal
+ * heteroatom - one bond leaves ~300° of open space opposite it, which is
+ * still overwhelmingly left- or right-ish in a normal zigzag chain - but
+ * falls apart for a *bridging* heteroatom like an interior chain's -NH-,
+ * which has bonds on both its left and right (e.g. one up-right, one
+ * down-left in a zigzag) and no clear horizontal opening at all. This
+ * finds the single widest open gap among all of the atom's bonds and
+ * only then decides whether that gap is closer to horizontal (render
+ * right/left, same as before) or closer to vertical (render top/bottom
+ * instead, dropping the suffix into whichever of those is actually free -
+ * e.g. below the N at the bottom of a "V" in the chain). Ties toward
+ * horizontal, since that's the more familiar-looking rendering whenever
+ * it's genuinely just as open as the vertical option. */
+export function hSuffixPlacement(mol: Molecule, atomId: string): HSuffixPlacement {
+  const angles = neighborAngles(mol, atomId);
+  if (angles.length === 0) return "right";
+  const center = largestGapAngle(angles);
+  const cos = Math.cos(center);
+  const sin = Math.sin(center);
+  if (Math.abs(cos) >= Math.abs(sin)) {
+    return cos < 0 ? "left" : "right";
+  }
+  // Screen/SVG y grows downward, so a positive sin means the open gap
+  // points down.
+  return sin < 0 ? "top" : "bottom";
 }
 
 /**

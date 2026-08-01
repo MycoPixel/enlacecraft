@@ -37,6 +37,33 @@ export function insetSegment(a1: Point, a2: Point, r1: number, r2: number): { p1
 }
 
 /**
+ * The angular midpoint of the largest gap between consecutive angles
+ * (sorted, wrapping around the circle) - i.e. the direction with the most
+ * open space around a point that already has things placed at `angles`
+ * around it. Used anywhere something new needs to be placed in whatever
+ * room is actually free (fanning out implicit hydrogens, deciding which
+ * side an atom label suffix should render on, ...). Returns 0 (due east)
+ * for a point with nothing around it yet, since every direction is
+ * equally open.
+ */
+export function largestGapAngle(angles: number[]): number {
+  if (angles.length === 0) return 0;
+  const sorted = [...angles].sort((a, b) => a - b);
+  let bestGap = -Infinity;
+  let bestCenter = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    const a = sorted[i];
+    const b = (i + 1 < sorted.length ? sorted[i + 1] : sorted[0] + 2 * Math.PI);
+    const gap = b - a;
+    if (gap > bestGap) {
+      bestGap = gap;
+      bestCenter = a + gap / 2;
+    }
+  }
+  return bestCenter;
+}
+
+/**
  * Shared layout math for the bracket tool's drag-to-place-a-pair gesture:
  * the dragged rectangle (corner1 to corner2) becomes the enclosed region,
  * with an open bracket hugging its left edge and a close bracket hugging

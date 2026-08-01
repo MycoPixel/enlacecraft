@@ -1,5 +1,5 @@
 import type { Atom, Molecule } from "../../types/chemistry";
-import { atomLabelInfo, hasEastBond } from "../../model/valence";
+import { atomLabelInfo, hasEastBond, hSuffixPlacement } from "../../model/valence";
 import { defaultLonePairPosition } from "../../model/lonePairs";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -56,22 +56,25 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const color = overValent ? "var(--danger)" : monochrome ? "var(--ink)" : ELEMENT_COLOR[atom.element] || "var(--ink)";
   const labelParts = useMemo(() => formatLabelWithSubscripts(text), [text]);
   const hSuffixParts = useMemo(() => (hSuffix ? formatLabelWithSubscripts(hSuffix) : []), [hSuffix]);
-  // The suffix always renders straight out to one side, along the
-  // horizontal (see its <text> below) — normally the right, matching
-  // convention ("OH", "NH2"). But if a bond happens to leave this atom
-  // in roughly that same direction, the suffix lands right on top of
-  // it — this is the "H ends up inside the bond" problem: it only ever
-  // showed up when the molecule was rotated/drawn so the bond pointed
-  // rightward out of a heteroatom, e.g. "-OH" on the left end of a
-  // chain. Rather than a manual flip control, this just checks the
-  // atom's actual bond angle(s) and mirrors the suffix to the empty
-  // side automatically - "HO" instead of "OH" - whenever a bond is
-  // within ~60° of due east. Bonds elsewhere (left, up, down) leave
-  // the conventional right-side placement alone.
-  const suffixOnLeft = useMemo(() => {
-    if (!hSuffix) return false;
-    return hasEastBond(mol, atom.id);
+  // The suffix normally renders straight out to one side, along the
+  // horizontal (see its <text> below), matching convention ("OH", "NH2").
+  // But if a bond happens to leave this atom in roughly that same
+  // direction, the suffix lands right on top of it — this is the "H ends
+  // up inside the bond" problem. A terminal atom (one bond) always has a
+  // free ~300° opposite that bond, so mirroring left/right handles it
+  // fine. A bridging atom - an interior chain's -NH-, say - can have
+  // bonds on *both* its left and right (one up-right, one down-left in a
+  // zigzag), leaving no horizontal opening at all; for those this drops
+  // the suffix above or below instead, into whichever of those is
+  // actually the open side (e.g. below the N at the bottom of a chain's
+  // "V"). hSuffixPlacement finds the widest actual gap around the atom
+  // and picks whichever of the four sides that gap is closest to.
+  const suffixPlacement = useMemo(() => {
+    if (!hSuffix) return "right";
+    return hSuffixPlacement(mol, atom.id);
   }, [hSuffix, mol, atom.id]);
+  const suffixOnLeft = suffixPlacement === "left";
+  const suffixVertical = suffixPlacement === "top" || suffixPlacement === "bottom";
   // Group labels ("COOH", "OMe", ...) are multiple characters wide, and
   // unlike a plain element symbol they represent a specific chain of
   // atoms starting from whichever end is actually bonded to the rest of
@@ -353,7 +356,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
               </tspan>
             ))}
           </text>
-          {hSuffix && (
+          {hSuffix && !suffixVertical && (
             <text
               // Starts just past the (centered, unaffected) element
               // symbol's *measured* edge instead of being centered as
@@ -369,6 +372,35 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
               // bond line.
               x={suffixOnLeft ? -(measuredHalfWidth + 1.5) : measuredHalfWidth + 1.5}
               textAnchor={suffixOnLeft ? "end" : "start"}
+              dominantBaseline="central"
+              fontSize="14.5"
+              fontWeight="500"
+              fill={color}
+              className="atom-label"
+            >
+              {hSuffixParts.map((part, i) => (
+                <tspan
+                  key={i}
+                  dy={part.subscript ? 4 : i === 0 ? 0 : -4}
+                  fontSize={part.subscript ? "10" : "14.5"}
+                >
+                  {part.text}
+                </tspan>
+              ))}
+            </text>
+          )}
+          {hSuffix && suffixVertical && (
+            <text
+              // Same suffix, but for a bridging heteroatom with bonds on
+              // both its left and right (see suffixPlacement above) -
+              // the only open space is above or below, so the suffix
+              // centers under (or over) the element symbol instead of
+              // running off to either side. Vertical gap is a flat
+              // offset rather than measuredHalfWidth-based since it's
+              // not trying to clear the symbol's width, just its height.
+              x={0}
+              y={suffixPlacement === "top" ? -15 : 15}
+              textAnchor="middle"
               dominantBaseline="central"
               fontSize="14.5"
               fontWeight="500"

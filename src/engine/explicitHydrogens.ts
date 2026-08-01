@@ -1,5 +1,5 @@
 import type { Molecule, Point } from "../types/chemistry";
-import { polar } from "../model/geometry";
+import { polar, largestGapAngle } from "../model/geometry";
 import { implicitH, neighborAngles } from "../model/valence";
 import { BOND_LEN } from "../model/constants";
 
@@ -63,25 +63,7 @@ function fanAngles(existingBondAngles: number[], count: number): number[] {
     // starting straight up, e.g. methane's four H's as a symmetric cross.
     return Array.from({ length: count }, (_, i) => -Math.PI / 2 + (i * 2 * Math.PI) / count);
   }
-  const center = largestGapCenter(existingBondAngles);
+  const center = largestGapAngle(existingBondAngles);
   const mid = (count - 1) / 2;
   return Array.from({ length: count }, (_, i) => center + (i - mid) * H_FAN_SPACING);
-}
-
-/** The angular midpoint of the largest gap between consecutive angles
- * (sorted, wrapping around the circle). `angles` must be non-empty. */
-function largestGapCenter(angles: number[]): number {
-  const sorted = [...angles].sort((a, b) => a - b);
-  let bestGap = -Infinity;
-  let bestCenter = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    const a = sorted[i];
-    const b = (i + 1 < sorted.length ? sorted[i + 1] : sorted[0] + 2 * Math.PI);
-    const gap = b - a;
-    if (gap > bestGap) {
-      bestGap = gap;
-      bestCenter = a + gap / 2;
-    }
-  }
-  return bestCenter;
 }
