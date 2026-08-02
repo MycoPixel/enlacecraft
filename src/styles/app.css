@@ -401,15 +401,13 @@
   justify-content: center;
 }
 
-/* Bonds: fixed at exactly two columns regardless of sidebar width (unlike
-   `.row`, which wraps based on however many buttons fit per line — with
-   seven bond buttons that could drift to three-per-row on a widened
-   sidebar). Bond types are looked up by position more than by icon shape
-   at a glance, so keeping the grid shape stable matters more here than it
-   does for the shorter, less-frequently-scanned rows elsewhere. */
+/* Bonds: as many columns as fit the current sidebar width (auto-fill),
+   rather than a fixed count — so a narrow/default sidebar shows one or two
+   per row, while a widened one can show three-plus, and a very narrow one
+   collapses to a single column instead of clipping or forcing overflow. */
 .bonds-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   gap: 4px;
   width: 100%;
   justify-items: center;
