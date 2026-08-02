@@ -159,28 +159,118 @@ export function Sidebar() {
 
       <div className="sidebar-divider" />
 
+      {/* Rings/Templates: placed right after the interaction tools rather
+          than after Atom/Bonds, since dropping in a ring or a whole
+          fragment template is usually the *fastest* way to start a
+          structure — faster than building it bond-by-bond — so it's worth
+          reaching before the bond-by-bond tools rather than after them. */}
+      <SectionLabel>{t("section.rings")}</SectionLabel>
+      <div className="row">
+        <ToolDropdown title={t("tool.ring")} active={tool === "ring"} renderContent={(close) => (
+          <RingPicker
+            value={ringTemplateId}
+            onChange={(id) => { setRingTemplateId(id); setTool("ring"); close(); }}
+            active={tool === "ring"}
+          />
+        )}>
+          <RingIcon templateId={ringTemplateId} />
+        </ToolDropdown>
+        {STRUCTURE_TEMPLATES.length > 0 && (
+          <ToolDropdown title={t("tool.structures")} active={false} renderContent={(close) => (
+            <StructureTemplatePicker
+              onChoose={(id) => {
+                const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
+                if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+                close();
+              }}
+            />
+          )}>
+            <StructureTemplateIcon />
+          </ToolDropdown>
+        )}
+        <ToolDropdown title={t("tool.userTemplates")} active={false} renderContent={(close) => (
+          <UserTemplatePicker
+            templates={userTemplates}
+            onChoose={(id) => {
+              const tmpl = userTemplates.find((s) => s.id === id);
+              if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+              close();
+            }}
+            onDelete={deleteUserTemplate}
+          />
+        )}>
+          <Bookmark size={18} />
+        </ToolDropdown>
+        <ToolDropdown
+          title={hasSelectionToSave ? t("tool.saveTemplate") : t("tool.saveTemplateDisabled")}
+          active={false}
+          renderContent={(close) => (
+            <div className="save-template-menu">
+              {hasSelectionToSave ? (
+                <>
+                  <input
+                    className="save-template-menu__input"
+                    type="text"
+                    autoFocus
+                    placeholder={t("userTemplate.namePlaceholder")}
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newTemplateName.trim()) {
+                        saveUserTemplate(newTemplateName.trim());
+                        setNewTemplateName("");
+                        close();
+                      }
+                    }}
+                  />
+                  <button
+                    className="save-template-menu__save"
+                    disabled={newTemplateName.trim().length === 0}
+                    onClick={() => {
+                      saveUserTemplate(newTemplateName.trim());
+                      setNewTemplateName("");
+                      close();
+                    }}
+                  >
+                    {t("userTemplate.save")}
+                  </button>
+                </>
+              ) : (
+                <p className="align-menu__hint">{t("userTemplate.needSelection")}</p>
+              )}
+            </div>
+          )}
+        >
+          <BookmarkPlus size={18} />
+        </ToolDropdown>
+      </div>
+
+      <div className="sidebar-divider" />
+
       <SectionLabel>{t("section.bonds")}</SectionLabel>
-      <ToolButton title={t("tool.bondSingle")} active={tool === "bond-1"} onClick={() => setTool("bond-1")}>
-        {BondGlyph.single}
-      </ToolButton>
-      <ToolButton title={t("tool.bondDouble")} active={tool === "bond-2"} onClick={() => setTool("bond-2")}>
-        {BondGlyph.double}
-      </ToolButton>
-      <ToolButton title={t("tool.bondTriple")} active={tool === "bond-3"} onClick={() => setTool("bond-3")}>
-        {BondGlyph.triple}
-      </ToolButton>
-      <ToolButton title={t("tool.wedge")} active={tool === "wedge"} onClick={() => setTool("wedge")}>
-        {BondGlyph.wedge}
-      </ToolButton>
-      <ToolButton title={t("tool.dash")} active={tool === "dash"} onClick={() => setTool("dash")}>
-        {BondGlyph.dash}
-      </ToolButton>
-      <ToolButton title={t("tool.wavy")} active={tool === "wavy"} onClick={() => setTool("wavy")}>
-        {BondGlyph.wavy}
-      </ToolButton>
-      <ToolButton title={t("tool.chain")} active={tool === "chain"} onClick={() => setTool("chain")}>
-        {BondGlyph.chain}
-      </ToolButton>
+      <div className="bonds-grid">
+        <ToolButton title={t("tool.bondSingle")} active={tool === "bond-1"} onClick={() => setTool("bond-1")}>
+          {BondGlyph.single}
+        </ToolButton>
+        <ToolButton title={t("tool.bondDouble")} active={tool === "bond-2"} onClick={() => setTool("bond-2")}>
+          {BondGlyph.double}
+        </ToolButton>
+        <ToolButton title={t("tool.bondTriple")} active={tool === "bond-3"} onClick={() => setTool("bond-3")}>
+          {BondGlyph.triple}
+        </ToolButton>
+        <ToolButton title={t("tool.wedge")} active={tool === "wedge"} onClick={() => setTool("wedge")}>
+          {BondGlyph.wedge}
+        </ToolButton>
+        <ToolButton title={t("tool.dash")} active={tool === "dash"} onClick={() => setTool("dash")}>
+          {BondGlyph.dash}
+        </ToolButton>
+        <ToolButton title={t("tool.wavy")} active={tool === "wavy"} onClick={() => setTool("wavy")}>
+          {BondGlyph.wavy}
+        </ToolButton>
+        <ToolButton title={t("tool.chain")} active={tool === "chain"} onClick={() => setTool("chain")}>
+          {BondGlyph.chain}
+        </ToolButton>
+      </div>
 
       <div className="sidebar-divider" />
 
@@ -264,89 +354,6 @@ export function Sidebar() {
         <ToolButton title={t("tool.stereoLabel")} active={tool === "stereo-label"} onClick={() => setTool("stereo-label")}>
           <StereoLabelIcon />
         </ToolButton>
-      </div>
-
-      <div className="sidebar-divider" />
-
-      <SectionLabel>{t("section.rings")}</SectionLabel>
-      <div className="row">
-        <ToolDropdown title={t("tool.ring")} active={tool === "ring"} renderContent={(close) => (
-          <RingPicker
-            value={ringTemplateId}
-            onChange={(id) => { setRingTemplateId(id); setTool("ring"); close(); }}
-            active={tool === "ring"}
-          />
-        )}>
-          <RingIcon templateId={ringTemplateId} />
-        </ToolDropdown>
-        {STRUCTURE_TEMPLATES.length > 0 && (
-          <ToolDropdown title={t("tool.structures")} active={false} renderContent={(close) => (
-            <StructureTemplatePicker
-              onChoose={(id) => {
-                const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
-                if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
-                close();
-              }}
-            />
-          )}>
-            <StructureTemplateIcon />
-          </ToolDropdown>
-        )}
-        <ToolDropdown title={t("tool.userTemplates")} active={false} renderContent={(close) => (
-          <UserTemplatePicker
-            templates={userTemplates}
-            onChoose={(id) => {
-              const tmpl = userTemplates.find((s) => s.id === id);
-              if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
-              close();
-            }}
-            onDelete={deleteUserTemplate}
-          />
-        )}>
-          <Bookmark size={18} />
-        </ToolDropdown>
-        <ToolDropdown
-          title={hasSelectionToSave ? t("tool.saveTemplate") : t("tool.saveTemplateDisabled")}
-          active={false}
-          renderContent={(close) => (
-            <div className="save-template-menu">
-              {hasSelectionToSave ? (
-                <>
-                  <input
-                    className="save-template-menu__input"
-                    type="text"
-                    autoFocus
-                    placeholder={t("userTemplate.namePlaceholder")}
-                    value={newTemplateName}
-                    onChange={(e) => setNewTemplateName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newTemplateName.trim()) {
-                        saveUserTemplate(newTemplateName.trim());
-                        setNewTemplateName("");
-                        close();
-                      }
-                    }}
-                  />
-                  <button
-                    className="save-template-menu__save"
-                    disabled={newTemplateName.trim().length === 0}
-                    onClick={() => {
-                      saveUserTemplate(newTemplateName.trim());
-                      setNewTemplateName("");
-                      close();
-                    }}
-                  >
-                    {t("userTemplate.save")}
-                  </button>
-                </>
-              ) : (
-                <p className="align-menu__hint">{t("userTemplate.needSelection")}</p>
-              )}
-            </div>
-          )}
-        >
-          <BookmarkPlus size={18} />
-        </ToolDropdown>
       </div>
 
       <div className="sidebar-divider" />

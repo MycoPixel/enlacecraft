@@ -1,9 +1,10 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Atom, Languages, Contrast, AlertTriangle, Grid2x2, Square, Grid3x3, HelpCircle } from "lucide-react";
+import { Undo2, Redo2, Upload, Sun, Moon, Languages, AlertTriangle, HelpCircle } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
+import { ViewOptionsMenu } from "./ViewOptionsMenu";
 import { CompoundSearch } from "./CompoundSearch";
 import { StructureSearchButton } from "./StructureSearchButton";
 import { IupacNameButton } from "./IupacNameButton";
@@ -182,40 +183,25 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
         <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
         <MoleculeInfoButton />
         <Divider />
-        <ToolButton title={showHydrogens ? t("tool.hideHydrogens") : t("tool.showHydrogens")} active={showHydrogens} onClick={toggleShowHydrogens}>
-          <Atom size={18} />
-        </ToolButton>
-        <ToolButton
-          title={showExpandedFormula ? t("tool.hideExpandedFormula") : t("tool.showExpandedFormula")}
-          active={showExpandedFormula}
-          onClick={toggleShowExpandedFormula}
-        >
-          <ExpandedFormulaIcon />
-        </ToolButton>
-        <ToolButton title={monochromeAtoms ? t("tool.monochromeOff") : t("tool.monochromeOn")} active={monochromeAtoms} onClick={toggleMonochromeAtoms}>
-          <Contrast size={18} />
-        </ToolButton>
+        <ViewOptionsMenu
+          showHydrogens={showHydrogens}
+          onToggleHydrogens={toggleShowHydrogens}
+          showExpandedFormula={showExpandedFormula}
+          onToggleExpandedFormula={toggleShowExpandedFormula}
+          monochromeAtoms={monochromeAtoms}
+          onToggleMonochromeAtoms={toggleMonochromeAtoms}
+          showGrid={showGrid}
+          onToggleGrid={toggleShowGrid}
+          canvasBackground={canvasBackground}
+          onToggleCanvasBackground={toggleCanvasBackground}
+          isDarkTheme={theme === "dark"}
+        />
         <ToolButton title={t("tool.language")} onClick={toggleLanguage}>
           <Languages size={18} />
         </ToolButton>
         <Divider />
         <ToolButton title={t("tool.theme")} onClick={toggleTheme}>
           {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-        </ToolButton>
-        <ToolButton
-          title={theme === "dark" ? t("tool.canvasBgUnavailableDark") : (canvasBackground === "white" ? t("tool.canvasBgUseTheme") : t("tool.canvasBgUseWhite"))}
-          active={theme === "light" && canvasBackground === "white"}
-          disabled={theme === "dark"}
-          onClick={toggleCanvasBackground}
-        >
-          {canvasBackground === "white" ? <Grid2x2 size={18} /> : <Square size={18} />}
-        </ToolButton>
-        <ToolButton
-          title={showGrid ? t("tool.gridOff") : t("tool.gridOn")}
-          active={showGrid}
-          onClick={toggleShowGrid}
-        >
-          <Grid3x3 size={18} />
         </ToolButton>
         <ToolButton title={t("tool.shortcuts")} onClick={onOpenShortcuts}>
           <HelpCircle size={18} />
@@ -234,22 +220,3 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   );
 }
 
-/** A central vertex fanned out to three explicit substituents — evokes the
- * "expanded structural formula" view (implicit hydrogens drawn as real
- * bonds) without depicting any one specific element, since the toggle
- * applies to whatever's on the canvas. Deliberately distinct from the
- * plain-atom "Atom" icon used for the showHydrogens (text-only) toggle
- * right next to it. */
-function ExpandedFormulaIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-      <circle cx="12" cy="14" r="1.6" fill="currentColor" stroke="none" />
-      <line x1="12" y1="14" x2="12" y2="4" />
-      <line x1="12" y1="14" x2="20" y2="18" />
-      <line x1="12" y1="14" x2="4" y2="18" />
-      <circle cx="12" cy="4" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="20" cy="18" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="4" cy="18" r="1.6" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
