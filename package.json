@@ -4,6 +4,7 @@
     "name": "Paulo",
     "email": "paulo.castro@usach.cl"
   },
+  "desktopName": "enlacecraft.desktop",
   "version": "1.0.0",
   "description": "A browser-based molecule drawing application, inspired by ChemDraw.",
   "private": true,
@@ -75,7 +76,9 @@
         "deb"
       ],
       "icon": "build/icon.png",
-      "category": "Education"
+      "category": "Education",
+      "synopsis": "A browser-based molecule drawing application, inspired by ChemDraw.",
+      "syncDesktopName": true
     }
   }
 }
