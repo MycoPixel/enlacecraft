@@ -11,7 +11,7 @@ import { useT } from "../../i18n/useT";
 type NameState =
   | { phase: "loading" }
   | { phase: "error"; message: string }
-  | { phase: "result"; english: string; spanish?: string };
+  | { phase: "result"; english: string; spanish?: string; stereoOmitted?: boolean };
 
 /**
  * The naming counterpart to StructureSearchButton and CompoundSearch: those
@@ -53,12 +53,34 @@ export function IupacNameButton() {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     if (ids.length === 0) return;
     setState({ phase: "loading" });
+    const fragment = extractFragment(molecule, ids);
+    const smiles = exportSmiles(fragment);
     try {
-      const smiles = exportSmiles(extractFragment(molecule, ids));
       const english = await fetchIupacName(smiles);
       const spanish = language === "es" ? approximateSpanishIupacName(english) : undefined;
       setState({ phase: "result", english, spanish });
     } catch (err) {
+      // PubChem's naming service can fail on a *specific* stereoisomer
+      // that isn't itself indexed, even when the flat skeleton (and even
+      // other stereoisomers of the same skeleton) resolve fine. Rather
+      // than surface that as a dead end, retry once with stereochemistry
+      // stripped and show that name with a caveat — a less precise result
+      // beats none. Only worth trying when the SMILES actually had stereo
+      // markers to strip, and only on the "couldn't resolve this" errors
+      // (not network/HTTP failures, which stripping stereo won't fix).
+      const isUnresolved = err instanceof PubChemError && (err.code === "NOT_FOUND" || err.code === "NO_STRUCTURE");
+      const hadStereo = /[@/\\]/.test(smiles);
+      if (isUnresolved && hadStereo) {
+        try {
+          const flatSmiles = exportSmiles(fragment, { includeStereo: false });
+          const english = await fetchIupacName(flatSmiles);
+          const spanish = language === "es" ? approximateSpanishIupacName(english) : undefined;
+          setState({ phase: "result", english, spanish, stereoOmitted: true });
+          return;
+        } catch {
+          // Fall through to surfacing the original error below.
+        }
+      }
       setState({ phase: "error", message: messageForError(err) });
     }
   };
@@ -94,6 +116,7 @@ export function IupacNameButton() {
               <button type="button" className="iupac-result__name" onClick={() => copy(state.english)} title={t("iupac.copy")}>
                 {state.english}
               </button>
+              {state.stereoOmitted && <p className="iupac-result__caveat">{t("iupac.stereoOmitted")}</p>}
               {state.spanish && (
                 <>
                   <div className="iupac-result__label">{t("iupac.spanishLabel")}</div>

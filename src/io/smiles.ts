@@ -327,8 +327,11 @@ function computeChiralTags(
 }
 
 /** Writes one connected fragment as a SMILES string, via a DFS spanning
- * tree with ring-closure digits for any non-tree ("back") edges. */
-function writeFragment(mol: Molecule, atomIds: string[]): { text: string; order: string[] } {
+ * tree with ring-closure digits for any non-tree ("back") edges.
+ * `includeStereo=false` skips both tetrahedral and cis/trans stereo
+ * descriptors entirely — used to produce a flat fallback SMILES when a
+ * fully-stereo one fails to resolve (see exportSmiles's doc comment). */
+function writeFragment(mol: Molecule, atomIds: string[], includeStereo: boolean): { text: string; order: string[] } {
   const idSet = new Set(atomIds);
   const visited = new Set<string>();
   const children = new Map<string, { id: string; order: BondOrder }[]>();
@@ -371,8 +374,8 @@ function writeFragment(mol: Molecule, atomIds: string[]): { text: string; order:
     for (const kid of kids) parentOf.set(kid.id, u);
   }
 
-  const doubleBondChar = computeDoubleBondStereo(mol, children);
-  const chiralTag = computeChiralTags(mol, children, parentOf, backEdges);
+  const doubleBondChar = includeStereo ? computeDoubleBondStereo(mol, children) : new Map<string, "/" | "\\">();
+  const chiralTag = includeStereo ? computeChiralTags(mol, children, parentOf, backEdges) : new Map<string, "@" | "@@">();
 
   const digitOf = new Map<string, number>(); // `${a}|${b}` -> digit, for each back-edge
   backEdges.forEach((be, i) => {
@@ -444,10 +447,18 @@ function writeFragment(mol: Molecule, atomIds: string[]): { text: string; order:
  *  - An abbreviated-group vertex (Ph, Boc, ...) has no stored substructure
  *    to expand, so it's written as `*`, SMILES's standard wildcard atom,
  *    rather than asserting a structure that isn't actually there.
+ *
+ * Pass `{ includeStereo: false }` to omit tetrahedral and cis/trans
+ * descriptors entirely, writing the flat skeleton instead. Naming
+ * services in particular can fail on a *specific* stereoisomer that
+ * isn't itself indexed even though the flat structure resolves fine —
+ * see IupacNameButton's fallback retry, which uses this to still return
+ * a usable (if less precise) name rather than nothing.
  */
-export function exportSmiles(mol: Molecule): string {
+export function exportSmiles(mol: Molecule, options?: { includeStereo?: boolean }): string {
+  const includeStereo = options?.includeStereo ?? true;
   const fragments = findConnectedFragments(mol);
-  return fragments.map((ids) => writeFragment(mol, ids).text).filter(Boolean).join(".");
+  return fragments.map((ids) => writeFragment(mol, ids, includeStereo).text).filter(Boolean).join(".");
 }
 
 /**
@@ -472,7 +483,7 @@ export function exportSmilesWithAtomOrder(mol: Molecule): { smiles: string; atom
   const parts: string[] = [];
   const atomOrder: string[] = [];
   for (const ids of fragments) {
-    const { text, order } = writeFragment(mol, ids);
+    const { text, order } = writeFragment(mol, ids, true);
     if (!text) continue;
     parts.push(text);
     atomOrder.push(...order);
