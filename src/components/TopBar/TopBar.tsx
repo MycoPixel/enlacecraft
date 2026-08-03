@@ -38,8 +38,8 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const redo = useMoleculeStore((s) => s.redo);
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
-  const loadMolecule = useMoleculeStore((s) => s.loadMolecule);
-  const loadProject = useMoleculeStore((s) => s.loadProject);
+  const importMoleculeAsNewTab = useMoleculeStore((s) => s.importMoleculeAsNewTab);
+  const importProjectAsNewTabs = useMoleculeStore((s) => s.importProjectAsNewTabs);
   const markProjectSaved = useMoleculeStore((s) => s.markProjectSaved);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
@@ -131,13 +131,14 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
       try {
         if (isProject) {
           const project = importProject(String(reader.result));
-          loadProject(project);
+          importProjectAsNewTabs(project);
           const atomCount = project.tabs.reduce((sum, tb) => sum + Object.keys(tb.molecule.atoms).length, 0);
           setStatus(t("status.imported", { count: atomCount }));
           return;
         }
         const parsed = isCdxml ? importCdxml(String(reader.result)) : importMol(String(reader.result));
-        loadMolecule(parsed);
+        const title = file.name.replace(/\.(mol|cdxml)$/i, "");
+        importMoleculeAsNewTab(parsed, title);
         setStatus(t("status.imported", { count: Object.keys(parsed.atoms).length }));
       } catch (err) {
         setStatus(t(err instanceof ProjectParseError ? "status.projectImportError" : "status.importError", { name: file.name }));

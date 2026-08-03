@@ -365,9 +365,17 @@ interface MoleculeStore {
   placeFunctionalGroup: (template: FunctionalGroupTemplate, center: Point, attachment: FunctionalGroupAttachment) => void;
   loadMolecule: (mol: Molecule) => void;
   /** Reopens a full saved project — every tab it had, unlike loadMolecule
-   * which is also used for MOL/CDXML/PubChem imports that intentionally
-   * only ever bring in a molecule into the current tab. See io/project.ts. */
+   * which is also used for PubChem imports that intentionally only ever
+   * bring in a molecule into the current tab. See io/project.ts. */
   loadProject: (data: { activeTabId: string; tabs: SavedTab[] }) => void;
+  /** Brings in an imported MOL/CDXML molecule as a brand-new tab instead of
+   * overwriting whatever's in the current one — used by the toolbar Import
+   * button, so importing a file never destroys the active drawing. */
+  importMoleculeAsNewTab: (mol: Molecule, title?: string) => void;
+  /** Brings in a full saved .enlacecraft project as additional new tabs
+   * alongside whatever tabs already exist, instead of replacing them —
+   * used by the toolbar Import button. */
+  importProjectAsNewTabs: (data: { activeTabId: string; tabs: SavedTab[] }) => void;
   /** Assembles every tab's current data (the active tab's from the live
    * top-level fields, everything else from tabDocuments) for "Save
    * project" to write out — see io/project.ts. */
@@ -782,6 +790,52 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         hasUnsavedChanges: false,
         ...transientResetFields(),
       });
+    },
+    importMoleculeAsNewTab: (mol, title) => {
+      tabNumberCounter += 1;
+      const id = `tab-${nextId()}`;
+      const tabTitle = title ?? translate(get().language, "tab.defaultTitle", { n: tabNumberCounter });
+      set((s) => ({
+        tabs: [...s.tabs, { id, title: tabTitle }],
+        tabDocuments: {
+          ...s.tabDocuments,
+          [s.activeTabId]: snapshotActiveDocument(s),
+        },
+        activeTabId: id,
+        molecule: mol,
+        annotations: {},
+        view: DEFAULT_VIEW,
+        past: [],
+        future: [],
+        hasUnsavedChanges: true,
+        ...transientResetFields(),
+      }));
+    },
+    importProjectAsNewTabs: (data) => {
+      const activeSaved = data.tabs.find((tb) => tb.id === data.activeTabId) ?? data.tabs[0];
+      const idMap = new Map<string, string>();
+      const newTabInfos: TabInfo[] = [];
+      const newTabDocuments: Record<string, TabDocument> = {};
+      for (const tb of data.tabs) {
+        const newId = `tab-${nextId()}`;
+        idMap.set(tb.id, newId);
+        newTabInfos.push({ id: newId, title: tb.title });
+        if (tb.id === activeSaved.id) continue; // lives in the top-level fields below instead
+        newTabDocuments[newId] = { molecule: tb.molecule, annotations: tb.annotations, view: tb.view, past: [], future: [], hasUnsavedChanges: true };
+      }
+      const newActiveId = idMap.get(activeSaved.id)!;
+      set((s) => ({
+        tabs: [...s.tabs, ...newTabInfos],
+        tabDocuments: { ...s.tabDocuments, [s.activeTabId]: snapshotActiveDocument(s), ...newTabDocuments },
+        activeTabId: newActiveId,
+        molecule: activeSaved.molecule,
+        annotations: activeSaved.annotations,
+        view: activeSaved.view,
+        past: [],
+        future: [],
+        hasUnsavedChanges: true,
+        ...transientResetFields(),
+      }));
     },
     getAllTabsForSave: () => {
       const s = get();
