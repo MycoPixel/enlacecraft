@@ -21,7 +21,7 @@ import { downloadBlob } from "../../io/exportImage";
 import { useT } from "../../i18n/useT";
 
 interface TopBarProps {
-  svgRef: React.RefObject<SVGSVGElement>;
+  svgRef: React.RefObject<SVGSVGElement | null>;
   onOpenShortcuts: () => void;
 }
 

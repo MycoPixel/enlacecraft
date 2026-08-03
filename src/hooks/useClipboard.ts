@@ -75,7 +75,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
  *    anything, say so via a status message rather than doing nothing with
  *    no explanation.
  */
-export function useClipboard(svgRef: React.RefObject<SVGSVGElement>) {
+export function useClipboard(svgRef: React.RefObject<SVGSVGElement | null>) {
   const selected = useMoleculeStore((s) => s.selected);
   const molecule = useMoleculeStore((s) => s.molecule);
   const annotations = useMoleculeStore((s) => s.annotations);

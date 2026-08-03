@@ -17,10 +17,10 @@ export function CompoundSearch() {
   const importCompound = useMoleculeStore((s) => s.importCompound);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const t = useT();
-  const errorTimeout = useRef<ReturnType<typeof setTimeout>>();
-  const suggestionDebounce = useRef<ReturnType<typeof setTimeout>>();
+  const errorTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const suggestionDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
   const suggestionRequestId = useRef(0);
-  const blurCloseTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const blurCloseTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => () => {
     clearTimeout(errorTimeout.current);
