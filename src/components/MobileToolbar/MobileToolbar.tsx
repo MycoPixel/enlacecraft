@@ -3,7 +3,7 @@ import {
   MousePointer2, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
   MoreHorizontal, Group, Bookmark, BookmarkPlus, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "../Sidebar/ToolButton";
@@ -85,6 +85,11 @@ export function MobileToolbar() {
   const hasSelectionToSave = selected.size > 0 || selectedAnnotationIds.size > 0;
   const addReagentText = useMoleculeStore((s) => s.addReagentText);
   const canAddReagentText = !!selectedArrowId;
+  const view = useMoleculeStore((s) => s.view);
+  const setView = useMoleculeStore((s) => s.setView);
+  const resetView = useMoleculeStore((s) => s.resetView);
+  const zoomBy = (factor: number) =>
+    setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
 
   const choose = (toolId: ToolId) => { setTool(toolId); setPanel(null); };
 
@@ -276,6 +281,19 @@ export function MobileToolbar() {
               <div className="row">
                 <ToolButton big title={t("tool.addReagentText")} disabled={!canAddReagentText} onClick={() => { addReagentText(); setPanel(null); }}>
                   <ReagentTextIcon />
+                </ToolButton>
+              </div>
+
+              <SectionLabel>{t("section.view")}</SectionLabel>
+              <div className="row">
+                <ToolButton big title={t("tool.zoomIn")} onClick={() => zoomBy(1.2)}>
+                  <ZoomIn size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.zoomOut")} onClick={() => zoomBy(1 / 1.2)}>
+                  <ZoomOut size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.resetView")} onClick={() => { resetView(); setPanel(null); }}>
+                  <MoveDiagonal size={18} />
                 </ToolButton>
               </div>
             </div>

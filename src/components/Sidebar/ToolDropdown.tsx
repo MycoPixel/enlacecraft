@@ -34,12 +34,35 @@ export function ToolDropdown({ title, active, children, renderContent, onOpen }:
     const btn = btnWrapRef.current;
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
-    setCoords({ top: rect.top, left: rect.right + 8 });
+    // Clamp within the viewport instead of always anchoring off the
+    // button's right edge — on a narrow/mobile top bar (this dropdown
+    // backs the top bar's structure-search/IUPAC/NMR buttons, which sit
+    // well left of center) `rect.right + 8` plus the panel's own width
+    // routinely overflows past the right edge with nothing to pull it
+    // back. Same reasoning as ClearDrawingButton's popover, which already
+    // does this; falls back to a generous width estimate before the panel
+    // has mounted once (its content is data-dependent), then re-measures
+    // its real width/height on the next layout pass.
+    const estimatedWidth = dropdownRef.current?.offsetWidth ?? 260;
+    const estimatedHeight = dropdownRef.current?.offsetHeight ?? 240;
+    const left = Math.min(rect.right + 8, window.innerWidth - estimatedWidth - 8);
+    const fitsBelowTop = rect.top + estimatedHeight <= window.innerHeight - 8;
+    const top = fitsBelowTop ? rect.top : Math.max(8, window.innerHeight - estimatedHeight - 8);
+    setCoords({ top, left: Math.max(8, left) });
   };
 
   useLayoutEffect(() => {
     if (open) reposition();
   }, [open]);
+
+  // Re-run once the panel has actually mounted so the clamping above uses
+  // its real measured size instead of the estimate (its content is
+  // data-dependent — search results, an IUPAC name, an NMR prediction —
+  // so the first open can't know the real width/height in advance).
+  useLayoutEffect(() => {
+    if (open && coords) reposition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, !!coords]);
 
   useEffect(() => {
     if (!open) return;
