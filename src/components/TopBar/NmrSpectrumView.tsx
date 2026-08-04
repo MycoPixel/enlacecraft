@@ -41,6 +41,25 @@ function tallestLine(group: SimulatedPeakGroup): SimulatedLine | null {
   );
 }
 
+// Rounds a ppm value to a friendly 2-decimal string for pre-filling the
+// range inputs — the raw natural-range numbers can carry long float
+// tails (e.g. 7.834521...) that would look odd sitting in a text box
+// the user is expected to edit.
+function formatPpmForInput(n: number): string {
+  return (Math.round(n * 100) / 100).toString();
+}
+
+// How many decimal places a tick step needs so labels don't round a
+// custom interval like 0.05 down to indistinguishable values (a fixed
+// 1-decimal display would print "0.1" for every tick of a 0.05 step).
+// Reads it straight off how the step itself prints, since that's
+// already exactly as precise as the number needs to be.
+function decimalsForStep(step: number): number {
+  const s = step.toString();
+  const dot = s.indexOf(".");
+  return dot === -1 ? 0 : Math.min(4, s.length - dot - 1);
+}
+
 /**
  * One nucleus's spectrum plot (shared by the 1H and 13C tabs below) -
  * an SVG panel with a ppm axis (decreasing left-to-right, standard
@@ -80,6 +99,62 @@ function SpectrumPlot({
 
   const naturalRange = useMemo(() => suggestedRange(peakGroups, nucleus), [peakGroups, nucleus]);
   const [minPpm, maxPpm] = zoomRangePpm ?? naturalRange;
+
+  // Manual range inputs (start/finish ppm) — a text-editable alternative
+  // to drag-to-zoom, for typing an exact window (e.g. "0 to 10") rather
+  // than eyeballing a drag. Committing a valid range reuses the same
+  // zoomRangePpm state as drag-zoom, so "Reset zoom" clears either one,
+  // and the two stay interchangeable. Local text state so a value being
+  // actively typed isn't clobbered mid-edit by the sync effect below.
+  const [rangeFromText, setRangeFromText] = useState(() => formatPpmForInput(minPpm));
+  const [rangeToText, setRangeToText] = useState(() => formatPpmForInput(maxPpm));
+  useEffect(() => {
+    setRangeFromText(formatPpmForInput(minPpm));
+    setRangeToText(formatPpmForInput(maxPpm));
+    // Only re-sync when the actual displayed range changes (drag-zoom,
+    // reset, or a just-committed manual edit) — not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minPpm, maxPpm]);
+
+  const applyRange = () => {
+    const from = parseFloat(rangeFromText);
+    const to = parseFloat(rangeToText);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) {
+      // Invalid or empty — snap the inputs back to whatever's currently
+      // shown instead of leaving unparseable text sitting there.
+      setRangeFromText(formatPpmForInput(minPpm));
+      setRangeToText(formatPpmForInput(maxPpm));
+      return;
+    }
+    setZoomRangePpm([Math.min(from, to), Math.max(from, to)]);
+  };
+
+  // Tick interval (e.g. "every 0.5 ppm") — an explicit alternative to the
+  // default fixed-count axis division, so gridlines land on the same
+  // absolute ppm values (0, 0.5, 1.0, ...) no matter what range is
+  // showing. That's what makes two different spectra visually
+  // comparable: matching step + matching range lines their ticks up
+  // exactly. Empty text means "auto" (current fixed-count behavior).
+  const [tickStepText, setTickStepText] = useState("");
+  const [tickStep, setTickStep] = useState<number | null>(null);
+  const applyTickStep = () => {
+    const trimmed = tickStepText.trim();
+    if (trimmed === "") {
+      setTickStep(null);
+      return;
+    }
+    const val = parseFloat(trimmed);
+    if (!Number.isFinite(val) || val <= 0) {
+      setTickStepText(tickStep !== null ? tickStep.toString() : "");
+      return;
+    }
+    setTickStep(val);
+  };
+
+  // Shows each peak/group's ppm value right on its label (e.g. "H3
+  // (2.34)") instead of just the atom label — handy for reading exact
+  // shifts off the plot itself rather than cross-referencing the table.
+  const [showShiftValues, setShowShiftValues] = useState(false);
 
   const ppmToX = (ppm: number) => (PLOT_WIDTH * (maxPpm - ppm)) / (maxPpm - minPpm);
   const xToPpm = (x: number) => maxPpm - (x / PLOT_WIDTH) * (maxPpm - minPpm);
@@ -128,10 +203,24 @@ function SpectrumPlot({
   };
 
   const ticks = useMemo(() => {
+    if (tickStep !== null) {
+      // Anchored to absolute multiples of the step (not to minPpm), so
+      // the same step always produces the same gridlines regardless of
+      // which window is currently showing — the whole point of a
+      // manual interval is for two different plots to line up.
+      const first = Math.ceil(minPpm / tickStep) * tickStep;
+      const MAX_TICKS = 60; // guards against a tiny step over a wide range
+      const result: number[] = [];
+      for (let i = 0, v = first; v <= maxPpm + 1e-9 && i < MAX_TICKS; i++, v = first + tickStep * i) {
+        // Snap away float drift (e.g. 0.1 + 0.1 + 0.1 !== 0.3 exactly).
+        result.push(Math.round(v / tickStep) * tickStep);
+      }
+      return result;
+    }
     const count = 6;
     const step = (maxPpm - minPpm) / count;
     return Array.from({ length: count + 1 }, (_, i) => minPpm + step * i);
-  }, [minPpm, maxPpm]);
+  }, [minPpm, maxPpm, tickStep]);
 
   const hasIllustrative = peakGroups.some((g) => g.isIllustrative);
   const hasData = peakGroups.some((g) => g.lines.length > 0);
@@ -150,7 +239,7 @@ function SpectrumPlot({
       .map((group) => {
         const line = tallestLine(group);
         if (!line) return null;
-        const text = group.label + (group.isIllustrative ? "*" : "");
+        const text = group.label + (showShiftValues ? ` (${group.centerPpm.toFixed(nucleus === "h1" ? 2 : 1)})` : "") + (group.isIllustrative ? "*" : "");
         const x = ppmToX(group.centerPpm);
         const width = text.length * LABEL_CHAR_WIDTH_PX;
         const baseY = Math.min(intensityToY(line.intensity) - 6, AXIS_Y - 8);
@@ -174,7 +263,7 @@ function SpectrumPlot({
       const y = Math.max(LABEL_MIN_Y, item.baseY - lane * LABEL_LANE_HEIGHT_PX);
       return { ...item, lane, y };
     });
-  }, [peakGroups, minPpm, maxPpm, effectiveMaxIntensity]);
+  }, [peakGroups, minPpm, maxPpm, effectiveMaxIntensity, showShiftValues]);
 
   const resetZoom = () => {
     setVerticalZoom(1);
@@ -255,6 +344,61 @@ function SpectrumPlot({
         )}
       </div>
 
+      {hasData && (
+        <div className="nmr-spectrum-plot__controls">
+          <label className="nmr-spectrum-plot__control">
+            <span>{t("nmr.spectrumRangeLabel")}</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="nmr-spectrum-plot__control-input nmr-spectrum-plot__control-input--narrow"
+              value={rangeFromText}
+              onChange={(e) => setRangeFromText(e.target.value)}
+              onBlur={applyRange}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              aria-label={t("nmr.spectrumRangeFrom")}
+            />
+            <span className="nmr-spectrum-plot__control-sep">–</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="nmr-spectrum-plot__control-input nmr-spectrum-plot__control-input--narrow"
+              value={rangeToText}
+              onChange={(e) => setRangeToText(e.target.value)}
+              onBlur={applyRange}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              aria-label={t("nmr.spectrumRangeTo")}
+            />
+            <span className="nmr-spectrum-plot__control-unit">ppm</span>
+          </label>
+
+          <label className="nmr-spectrum-plot__control">
+            <span>{t("nmr.spectrumTickIntervalLabel")}</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="nmr-spectrum-plot__control-input nmr-spectrum-plot__control-input--narrow"
+              value={tickStepText}
+              placeholder={t("nmr.spectrumTickIntervalAuto")}
+              onChange={(e) => setTickStepText(e.target.value)}
+              onBlur={applyTickStep}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              aria-label={t("nmr.spectrumTickIntervalLabel")}
+            />
+            <span className="nmr-spectrum-plot__control-unit">ppm</span>
+          </label>
+
+          <label className="nmr-spectrum-plot__control nmr-spectrum-plot__control--checkbox">
+            <input
+              type="checkbox"
+              checked={showShiftValues}
+              onChange={(e) => setShowShiftValues(e.target.checked)}
+            />
+            <span>{t("nmr.spectrumShowShiftsLabel")}</span>
+          </label>
+        </div>
+      )}
+
       {!hasData ? (
         <p className="align-menu__hint">{t("nmr.spectrumNoPeaks")}</p>
       ) : (
@@ -276,7 +420,7 @@ function SpectrumPlot({
               <g key={i}>
                 <line x1={x} y1={AXIS_Y} x2={x} y2={AXIS_Y + 4} className="nmr-spectrum-plot__tick" />
                 <text x={x} y={AXIS_Y + 15} className="nmr-spectrum-plot__tick-label">
-                  {tick.toFixed(nucleus === "h1" ? 1 : 0)}
+                  {tick.toFixed(tickStep !== null ? decimalsForStep(tickStep) : nucleus === "h1" ? 1 : 0)}
                 </text>
               </g>
             );

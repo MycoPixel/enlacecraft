@@ -1312,6 +1312,56 @@
   border-color: var(--accent);
 }
 
+.nmr-spectrum-plot__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0 8px;
+  padding: 6px 8px;
+  background: var(--panel-border);
+  border-radius: 8px;
+}
+
+.nmr-spectrum-plot__control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.nmr-spectrum-plot__control--checkbox {
+  cursor: pointer;
+  gap: 6px;
+}
+
+.nmr-spectrum-plot__control-input {
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 11px;
+  padding: 3px 6px;
+}
+
+.nmr-spectrum-plot__control-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.nmr-spectrum-plot__control-input--narrow {
+  width: 52px;
+  text-align: center;
+}
+
+.nmr-spectrum-plot__control-sep,
+.nmr-spectrum-plot__control-unit {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
 .nmr-spectrum-plot__zoom-selection {
   fill: var(--accent-soft);
   opacity: 0.5;
