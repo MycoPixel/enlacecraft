@@ -1,5 +1,5 @@
 import { useCallback, useRef, type RefObject } from "react";
-import type { Annotation, Molecule, Point, RingAttachment, FunctionalGroupAttachment, FunctionalGroupTemplate } from "../types/chemistry";
+import type { Annotation, Molecule, Point, RingAttachment, RingTemplate, FunctionalGroupAttachment, FunctionalGroupTemplate } from "../types/chemistry";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
@@ -17,6 +17,7 @@ type DragState =
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
   | { mode: "atom-bond"; from: string }
+  | { mode: "ring"; template: RingTemplate }
   | { mode: "functional-group"; template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point }
   | { mode: "chain"; from: string | null; start: Point }
   | { mode: "erase"; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
@@ -279,6 +280,21 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (tool === "ring") {
       const template = RING_TEMPLATES.find((t) => t.id === store.ringTemplateId)!;
+      if (e.pointerType === "touch") {
+        // A finger can't hover before landing, so the initial touch-down
+        // spot is often a little off from what was actually meant — and
+        // the finger itself is covering exactly the atom/bond it's trying
+        // to hit. Rather than commit to that first guess, defer to
+        // pointer-up: hoverAtomId/hoverBondId/hoverPoint keep tracking the
+        // touch the whole time it's held down (onPointerMove updates them
+        // unconditionally, drag or not), so MoleculeCanvas's existing
+        // hover-driven ring preview already follows the finger live —
+        // this just waits for release to actually place it, so a mouse
+        // click still commits immediately but a touch press-drag-release
+        // gets a chance to land on the right spot first.
+        dragRef.current = { mode: "ring", template };
+        return;
+      }
       const attachment: RingAttachment = hitAtom
         ? { type: "atom", atomId: hitAtom }
         : hitBond
@@ -595,6 +611,26 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (drag.mode === "marquee") {
       store.setMarqueeRect(null);
+      return;
+    }
+
+    if (drag.mode === "ring") {
+      // Commits wherever the finger actually lifted, using the same
+      // attachment resolution as a mouse click (see onPointerDown's
+      // non-touch branch above) — recomputed fresh from the release
+      // position rather than trusting the store's hover state, same as
+      // every other drag-commit branch in this function does.
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const { molecule } = store;
+      const hitAtom = atomAt(molecule, pt);
+      const hitBond = !hitAtom ? bondAt(molecule, pt) : null;
+      const attachment: RingAttachment = hitAtom
+        ? { type: "atom", atomId: hitAtom }
+        : hitBond
+        ? { type: "bond", a1: molecule.bonds[hitBond].a1, a2: molecule.bonds[hitBond].a2 }
+        : { type: "none" };
+      store.placeRing(drag.template, pt, attachment);
+      store.setStatus("status.ready");
       return;
     }
 
