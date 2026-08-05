@@ -9,6 +9,16 @@ const nmrServer = require("./server.cjs");
 // the built dist/ files, so you get hot reload while working on the app.
 const devServerUrl = process.env.ELECTRON_START_URL;
 
+// How long to wait for a response to the "you have unsaved changes"
+// prompt before giving up and closing anyway. This app autosaves a
+// recoverable snapshot ~1.5s after every edit (see useAutosave.ts), so
+// letting a stalled close proceed after this timeout risks at most the
+// last second or two of work, not the whole session - a far smaller
+// problem than the window hanging open indefinitely with nothing able
+// to answer the dialog, which is exactly what made a Windows installer
+// unable to close the app to install an update.
+const UNLOAD_PROMPT_TIMEOUT_MS = 15000;
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1360,
@@ -40,18 +50,45 @@ function createWindow() {
   // nothing. `will-prevent-unload` is the event Electron fires instead, and
   // it's on us to show a dialog and decide whether to let the close through.
   win.webContents.on("will-prevent-unload", (event) => {
-    const choice = dialog.showMessageBoxSync(win, {
-      type: "warning",
-      buttons: ["Discard changes", "Cancel"],
-      defaultId: 1,
-      cancelId: 1,
-      title: "Unsaved changes",
-      message: "You have unsaved changes.",
-      detail: "If you close now, your changes will be lost. Save your project first if you want to keep them.",
-    });
-    // event.preventDefault() here means "override the beforeunload's
-    // attempt to prevent the unload", i.e. it lets the close proceed.
-    if (choice === 0) event.preventDefault();
+    // Deliberately does NOT call event.preventDefault() synchronously
+    // here - that's what actually lets the close through, and we don't
+    // know the user's answer yet. showMessageBox below is the async
+    // version specifically so a dialog nobody can click (e.g. because
+    // this close was triggered by an update installer trying to shut
+    // the app down before overwriting its files, not by someone sitting
+    // at the keyboard) doesn't block forever - the previous version
+    // used the blocking showMessageBoxSync, which is exactly what could
+    // leave the app stuck open with an installer reporting it "can't be
+    // closed". If nothing answers within UNLOAD_PROMPT_TIMEOUT_MS, this
+    // falls back to closing anyway (win.destroy() bypasses beforeunload
+    // entirely rather than re-triggering this same event), trusting
+    // autosave to have already captured the recent work.
+    let settled = false;
+    const forceClose = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      win.destroy();
+    };
+    const timeout = setTimeout(forceClose, UNLOAD_PROMPT_TIMEOUT_MS);
+
+    dialog
+      .showMessageBox(win, {
+        type: "warning",
+        buttons: ["Discard changes", "Cancel"],
+        defaultId: 1,
+        cancelId: 1,
+        title: "Unsaved changes",
+        message: "You have unsaved changes.",
+        detail: "If you close now, your changes will be lost. Save your project first if you want to keep them.",
+      })
+      .then(({ response }) => {
+        if (settled) return; // already force-closed by the timeout
+        clearTimeout(timeout);
+        settled = true;
+        if (response === 0) win.destroy();
+        // response === 1 (Cancel): leave the window open, nothing to do.
+      });
   });
 
   if (devServerUrl) {
@@ -82,8 +119,20 @@ app.whenReady().then(() => {
 // window.electron.getNmrServerStatus().
 ipcMain.handle("nmr-server:get-status", () => nmrServer.getStatus());
 
-app.on("before-quit", () => {
-  nmrServer.stopServer();
+let quitConfirmed = false;
+app.on("before-quit", (event) => {
+  if (quitConfirmed) return; // already waited once - let this one through
+  event.preventDefault();
+  // Don't let the app (and, in a packaged build, the whole process tree
+  // an update installer is watching) report itself quit until the
+  // bundled NMR server child process has actually exited - see
+  // server.cjs's stopServer() doc comment for why the previous
+  // fire-and-forget version of this could leave a file lock behind
+  // right as an installer tried to overwrite the install directory.
+  nmrServer.stopServer().finally(() => {
+    quitConfirmed = true;
+    app.quit();
+  });
 });
 
 app.on("window-all-closed", () => {

@@ -119,20 +119,45 @@ async function startServer() {
 }
 
 function stopServer() {
-  if (!serverProcess) return;
+  if (!serverProcess) return Promise.resolve();
 
-  const pid = serverProcess.pid;
+  const proc = serverProcess;
+  const pid = proc.pid;
   console.log(`[nmr-server] Stopping (pid=${pid})`);
 
-  if (process.platform === "win32") {
-    // child.kill() is unreliable for console executables on Windows -
-    // taskkill is the standard, actually-works fix.
-    exec(`taskkill /pid ${pid} /f /t`);
-  } else {
-    serverProcess.kill("SIGTERM");
-  }
+  // Waits for the process to actually be gone rather than firing the
+  // kill and immediately reporting done — the previous version did the
+  // latter, which meant app quit could proceed (and, packaged, an
+  // update installer could try to overwrite this .exe and its DLLs)
+  // while nmrgraph_server.exe was still alive for a moment, still
+  // holding its own files locked. That's the same class of bug as an
+  // installer failing with "can't be closed": something outlives the
+  // point the app claimed to have shut down.
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(safetyTimeout);
+      resolve();
+    };
+    // Safety net: taskkill or the exit event failing to fire shouldn't
+    // hang app quit forever - a process that lingers a couple seconds
+    // past its kill signal is a much smaller problem than an update
+    // that can never install because we're waiting on it indefinitely.
+    const safetyTimeout = setTimeout(finish, 4000);
+    proc.once("exit", finish);
 
-  serverProcess = null;
+    if (process.platform === "win32") {
+      // child.kill() is unreliable for console executables on Windows -
+      // taskkill is the standard, actually-works fix.
+      exec(`taskkill /pid ${pid} /f /t`);
+    } else {
+      proc.kill("SIGTERM");
+    }
+  });
+  // serverProcess is nulled by the 'exit' listener already registered
+  // in startServer(), once the process actually exits - not here.
 }
 
 module.exports = { startServer, stopServer, getStatus };
