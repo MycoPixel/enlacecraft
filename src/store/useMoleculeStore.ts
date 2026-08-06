@@ -12,6 +12,7 @@ import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS, REACTIVE_SITE_PRESETS } from "../model/constants";
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
 import { parseAtomLabel } from "../model/atomLabelParser";
+import type { Embed3DMethod } from "../io/embed3d";
 
 const HISTORY_LIMIT = 100;
 
@@ -240,6 +241,18 @@ interface MoleculeStore {
    * in it too. */
   showExpandedFormula: boolean;
   monochromeAtoms: boolean;
+  /** Whether the 3D structure panel is docked next to the 2D canvas. Off
+   * by default (a secondary view most edits don't need open) and never
+   * persisted — always starts closed, same as any other transient panel
+   * state. See components/Molecule3D/Molecule3DView.tsx. */
+  show3DView: boolean;
+  /** Which 3D generation method the panel uses — see io/embed3d.ts.
+   * "quick" is a fast, collision-free conformer with no energy
+   * minimisation; "mmff94" additionally relaxes it against a real force
+   * field for geometry closer to a true energy minimum. Sticky across
+   * panel toggles/molecule edits within a session, same as any other view
+   * preference here. */
+  embed3DMethod: Embed3DMethod;
   /** Current on-screen pixel size of the canvas <svg>, kept in sync by MoleculeCanvas via ResizeObserver. */
   canvasSize: { width: number; height: number };
 
@@ -274,6 +287,8 @@ interface MoleculeStore {
   toggleShowHydrogens: () => void;
   toggleShowExpandedFormula: () => void;
   toggleMonochromeAtoms: () => void;
+  toggle3DView: () => void;
+  setEmbed3DMethod: (method: Embed3DMethod) => void;
   setCanvasSize: (size: { width: number; height: number }) => void;
   selectAll: () => void;
   clearSelection: () => void;
@@ -576,6 +591,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     showHydrogens: false,
     showExpandedFormula: false,
     monochromeAtoms: true,
+    show3DView: false,
+    embed3DMethod: "quick",
     canvasSize: { width: 800, height: 600 },
 
     setTool: (t) => set({ tool: t }),
@@ -625,6 +642,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
     toggleShowExpandedFormula: () => set((s) => ({ showExpandedFormula: !s.showExpandedFormula })),
     toggleMonochromeAtoms: () => set((s) => ({ monochromeAtoms: !s.monochromeAtoms })),
+    toggle3DView: () => set((s) => ({ show3DView: !s.show3DView })),
+    setEmbed3DMethod: (method) => set({ embed3DMethod: method }),
     setCanvasSize: (size) => set({ canvasSize: size }),
     selectAll: () => set((s) => ({ selected: new Set(Object.keys(s.molecule.atoms)) })),
     clearSelection: () => set({ selected: new Set() }),

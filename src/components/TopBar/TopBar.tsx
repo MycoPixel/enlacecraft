@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Languages, AlertTriangle, HelpCircle } from "lucide-react";
+import { Undo2, Redo2, Upload, Sun, Moon, Languages, AlertTriangle, HelpCircle, Box } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
@@ -48,6 +48,8 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const toggleShowExpandedFormula = useMoleculeStore((s) => s.toggleShowExpandedFormula);
   const monochromeAtoms = useMoleculeStore((s) => s.monochromeAtoms);
   const toggleMonochromeAtoms = useMoleculeStore((s) => s.toggleMonochromeAtoms);
+  const show3DView = useMoleculeStore((s) => s.show3DView);
+  const toggle3DView = useMoleculeStore((s) => s.toggle3DView);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = useT();
@@ -183,6 +185,9 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
         </ToolButton>
         <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
         <MoleculeInfoButton />
+        <ToolButton title={t("tool.view3d")} active={show3DView} onClick={toggle3DView}>
+          <Box size={18} />
+        </ToolButton>
         <Divider />
         <ViewOptionsMenu
           showHydrogens={showHydrogens}

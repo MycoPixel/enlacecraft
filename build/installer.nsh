@@ -26,4 +26,45 @@
 !macro customInit
   nsExec::Exec 'taskkill /F /IM "${APP_EXECUTABLE_FILENAME}" /T'
   nsExec::Exec 'taskkill /F /IM "nmrgraph_server.exe" /T'
+
+  ; Works around a known electron-builder bug (see
+  ; electron-userland/electron-builder#9593): when a new installer
+  ; finds a previous version installed, electron-builder's own NSIS
+  ; template silently runs the OLD uninstaller first, in the
+  ; background, before installing the new files. That background
+  ; uninstall run has its own "is the app running?" check, and in
+  ; recent electron-builder versions that check can misfire and
+  ; report "can't be closed" even with nothing running anywhere -
+  ; exactly the symptom that only goes away by uninstalling manually
+  ; first, since that's the one path that skips this broken step.
+  ;
+  ; The fix is to remove the old uninstaller's registry pointers here,
+  ; before electron-builder's template gets a chance to invoke it, so
+  ; that background auto-uninstall step never happens. customInstall
+  ; below then forces the new build's files to overwrite the old ones
+  ; directly instead of relying on the (broken) uninstall-then-install
+  ; flow.
+  SetRegView 64
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+  SetRegView 32
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+!macroend
+
+!macro customInstallMode
+  ; Skip electron-builder's "is a previous version already installed?"
+  ; prompt/branch entirely - just proceed as a direct install now that
+  ; the old uninstall pointers are gone.
+  StrCpy $isForceCurrentInstall "1"
+!macroend
+
+!macro customInstall
+  ; Overwrite the old build's files directly rather than relying on
+  ; the uninstall-then-install flow this whole macro exists to avoid.
+  SetOverwrite on
 !macroend

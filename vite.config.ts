@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import path from "node:path";
 
 // Using a relative base so the build works when hosted at any sub-path
 // (GitHub Pages project sites, Vercel, a plain static file server, etc).
@@ -43,7 +44,19 @@ export default defineConfig({
         // itself opens offline. PubChem/translation lookups still need a
         // live connection — that's a deliberate, separate runtime-caching
         // policy below, not part of the app shell.
+        //
+        // The 3D-structure feature (3Dmol.js + OpenChemLib's conformer
+        // generator/force-field tables) is deliberately excluded from
+        // this list via globIgnores below — it's a secondary, optional
+        // view most sketching sessions never open, and its dependencies
+        // are large enough that forcing every offline install to carry
+        // them would be a bad trade for that. See vite.config.ts's
+        // manualChunks, which groups all of it into one stably-named
+        // chunk so it can be targeted here. It still gets fetched (and
+        // then browser-HTTP-cached) normally the first time someone
+        // opens the 3D panel while online.
         globPatterns: ["**/*.{js,css,html,svg,png,ico,woff,woff2}"],
+        globIgnores: ["**/molecule3d-*.js"],
         runtimeCaching: [
           {
             // Compound-by-name/SMILES/autocomplete lookups: prefer a fresh
@@ -66,4 +79,27 @@ export default defineConfig({
     }),
   ],
   base: "./",
+  build: {
+    rollupOptions: {
+      output: {
+        // Groups the 3D-view feature (3Dmol.js + OpenChemLib, plus the
+        // components/io modules that use them) into one stably-named
+        // chunk, kept out of the initial load for everyone who never
+        // opens the 3D panel (see App.tsx's lazy import) and out of the
+        // PWA precache list (see globIgnores above) since it's large and
+        // optional. The name has to stay predictable — globIgnores
+        // matches on it by pattern, not by content hash.
+        manualChunks(id) {
+          if (
+            id.includes("node_modules/3dmol") ||
+            id.includes("node_modules/openchemlib") ||
+            id.includes(`${path.sep}src${path.sep}components${path.sep}Molecule3D`) ||
+            id.includes(`${path.sep}src${path.sep}io${path.sep}embed3d.ts`)
+          ) {
+            return "molecule3d";
+          }
+        },
+      },
+    },
+  },
 });

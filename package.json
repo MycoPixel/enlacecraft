@@ -22,7 +22,9 @@
     "dist": "npm run build && electron-builder --win --linux"
   },
   "dependencies": {
+    "3dmol": "^2.5.5",
     "lucide-react": "^1.28.0",
+    "openchemlib": "^9.24.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.14"

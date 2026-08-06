@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import { useMoleculeStore, effectiveCanvasBackground } from "./store/useMoleculeStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useClipboard } from "./hooks/useClipboard";
@@ -13,6 +13,16 @@ import { MobileToolbar } from "./components/MobileToolbar/MobileToolbar";
 import { ShortcutsOverlay } from "./components/common/ShortcutsOverlay";
 import { OnboardingOverlay } from "./components/common/OnboardingOverlay";
 
+// Lazy: pulls in 3Dmol.js + OpenChemLib (a few MB combined), which most
+// sketching sessions never need — see vite.config.ts's manualChunks for
+// how this stays a separate, non-precached chunk. Suspense's fallback is
+// null (rather than a spinner) since the panel itself already shows a
+// "loading" overlay state right after mount, so there's nothing useful
+// to say in the brief moment before that.
+const Molecule3DView = lazy(() =>
+  import("./components/Molecule3D/Molecule3DView").then((m) => ({ default: m.Molecule3DView }))
+);
+
 export default function App() {
   const theme = useMoleculeStore((s) => s.theme);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
@@ -22,6 +32,34 @@ export default function App() {
   const isMobile = useIsMobile();
   const svgRef = useRef<SVGSVGElement>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const show3DView = useMoleculeStore((s) => s.show3DView);
+  const toggle3DView = useMoleculeStore((s) => s.toggle3DView);
+  // Local, session-only width for the 3D panel — deliberately not in the
+  // global store (unlike sidebarWidth) since there's no cross-session
+  // persistence need for a panel that itself starts closed every launch.
+  const [panel3DWidth, setPanel3DWidth] = useState(360);
+  const panelResizeDrag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const onPanelResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    panelResizeDrag.current = { startX: e.clientX, startWidth: panel3DWidth };
+  };
+  const onPanelResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!panelResizeDrag.current) return;
+    // Dragging the handle grows/shrinks the panel from its left edge, so
+    // moving the pointer left (negative dx) should widen it — the mirror
+    // image of the sidebar's own resize handle on the opposite side of
+    // the screen.
+    const dx = e.clientX - panelResizeDrag.current.startX;
+    const next = panelResizeDrag.current.startWidth - dx;
+    setPanel3DWidth(Math.min(720, Math.max(260, Math.round(next))));
+  };
+  const onPanelResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    panelResizeDrag.current = null;
+    if ((e.currentTarget as Element).hasPointerCapture?.(e.pointerId)) {
+      (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+    }
+  };
   // Seeded once from the persisted flag (see hasSeenOnboarding in the
   // store) so a first-time visitor sees it automatically; afterward this
   // is just local UI state, reopened on demand from the shortcuts overlay
@@ -86,6 +124,20 @@ export default function App() {
           <MoleculeCanvas ref={svgRef} />
           <StatusBar />
         </main>
+        {show3DView && !isMobile && (
+          <div className="molecule-3d-dock" style={{ width: panel3DWidth }}>
+            <div
+              className="molecule-3d-dock-resize-handle"
+              onPointerDown={onPanelResizePointerDown}
+              onPointerMove={onPanelResizePointerMove}
+              onPointerUp={onPanelResizePointerUp}
+              onPointerCancel={onPanelResizePointerUp}
+            />
+            <Suspense fallback={null}>
+              <Molecule3DView onClose={toggle3DView} />
+            </Suspense>
+          </div>
+        )}
       </div>
       {isMobile && <MobileToolbar />}
       <ShortcutsOverlay
