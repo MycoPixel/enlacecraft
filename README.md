@@ -1,7 +1,10 @@
 # EnlaceCraft
 
 A browser-based molecule drawing application in the spirit of ChemDraw — built with React,
-TypeScript, Zustand, and SVG rendering. Runs entirely client-side; no backend required.
+TypeScript, Zustand, and SVG rendering. The 2D editor runs entirely client-side, no backend
+required; a couple of optional features (NMR prediction, high-accuracy 3D structures — see
+below) call small local backend services that are only present in the desktop (Electron)
+build.
 
 <br/>
 
@@ -46,6 +49,10 @@ TypeScript, Zustand, and SVG rendering. Runs entirely client-side; no backend re
 - Compound search understands Spanish names too (e.g. "cafeína", "ácido acético")
   even though PubChem itself is indexed mostly in English — see below
 - Import/export MOL (V2000), export PNG and SVG
+- **3D structure view**: a toggleable panel next to the 2D canvas showing a real,
+  computed 3D structure of what you're drawing, with a choice of three generation
+  methods (see below) — fast collision-free conformer, MMFF94 force-field
+  optimization, or GFN2-xTB semi-empirical quantum refinement (desktop app only)
 - Light/dark theme
 
 <br/>
@@ -84,6 +91,8 @@ src/
   io/                       File format & export handling
     molfile.ts                 MOL (V2000) import/export
     exportImage.ts               PNG/SVG rasterization + download
+    embed3d.ts                  3D conformer generation (OpenChemLib) + MMFF94
+    xtbRefine.ts                 Client for the GFN2-xTB refinement backend
   store/
     useMoleculeStore.ts       Zustand store: structural state + undo/redo history
                               + tool/selection/view/theme UI state
@@ -95,11 +104,20 @@ src/
     Canvas/                   MoleculeCanvas, AtomView, BondView (SVG rendering)
     Sidebar/                  Desktop toolbar + pickers
     TopBar/                   Brand, formula, undo/redo, import/export, theme
+    Molecule3D/                3D structure panel (3Dmol.js viewer)
     MobileToolbar/            Touch-friendly bottom toolbar
     StatusBar/                Status text, formula (mobile), zoom readout
   styles/                    theme.css (CSS variables) + app.css (layout)
   App.tsx                    Layout assembly
   main.tsx                   React entry point
+
+electron/                   Desktop (Electron) shell — see ELECTRON.md
+  server.cjs                  NMR prediction backend process manager
+  structure3d_server.cjs       GFN2-xTB 3D-refinement backend process manager
+
+python/
+  structure3d_server/        FastAPI backend for the "High accuracy (GFN2-xTB)"
+                              3D method — see its own README.md
 ```
 
 **Why this split matters for extending the app:** the `model/` and `engine/` folders have
@@ -121,6 +139,38 @@ later only touches that one file.
 - **Reaction arrows / text labels / templates library**: these are natural additions to the
   `Molecule` model (e.g. a parallel `arrows: Record<string, Arrow>` collection) and a new
   `engine/` module, without touching the rendering or store wiring patterns already in place.
+
+<br/>
+
+## 3D structure view
+
+The 3D icon in the top bar toggles a resizable panel next to the 2D canvas showing
+a computed 3D structure of whatever's currently drawn, rendered with
+[3Dmol.js](https://3dmol.org). The 2D editor's coordinates are just a drawing
+convenience, not real geometry, so the panel generates an actual 3D structure
+rather than reprojecting anything — regenerated automatically (debounced) as you
+edit, via whichever of three methods is selected in the panel's header:
+
+- **Quick** — a collision-free 3D conformer from
+  [OpenChemLib](https://github.com/cheminfo/openchemlib-js) (real
+  torsion-preference statistics, not a random guess), no energy minimization.
+  Runs fully client-side, in both the web and desktop builds.
+- **Force field (MMFF94)** — that same conformer relaxed against a real MMFF94s
+  molecular-mechanics force field (also via OpenChemLib), for geometry closer to
+  a true local energy minimum. Also fully client-side.
+- **High accuracy (GFN2-xTB)** — desktop app only. Takes the MMFF94-optimized
+  structure and refines it further with **GFN2-xTB**, a real semi-empirical
+  quantum-mechanical method, via a small local backend
+  (`python/structure3d_server/`, spawned automatically in a packaged build —
+  see `ELECTRON.md`). Genuinely more accurate than a force field, at a
+  computational cost that's still fine for small teaching molecules. Not
+  available in the plain web build, since it needs the bundled `xtb` binary.
+
+Both local generation methods live in `io/embed3d.ts`; the GFN2-xTB client (which
+talks to the backend over `localhost:8001`) is `io/xtbRefine.ts`. Abbreviated
+group atoms (Ph, Boc, etc.) aren't yet supported by any of the three methods,
+since this app stores them as a single labeled vertex with no real substructure
+— the panel shows a clear message rather than a confusing failure in that case.
 
 <br/>
 
@@ -245,6 +295,7 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
 - Ring fusion shares only the attachment atom, not a full shared edge.
 - MOL support covers the common V2000 atom/bond/charge (inline column and `M  CHG`
   property lines) and wedge fields, not SGroups, isotopes, or 3D coordinates, and
-  there's no V3000 support.
+  there's no V3000 support. (The 3D structure view is unrelated to this — it
+  generates its own 3D geometry fresh rather than importing/exporting it; see above.)
 - No multi-select marquee, copy/paste, or reaction-arrow tooling yet — see "Extending it"
   above for where these would plug in.

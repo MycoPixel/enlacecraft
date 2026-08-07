@@ -4,6 +4,7 @@
 const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require("electron");
 const path = require("node:path");
 const nmrServer = require("./server.cjs");
+const structure3dServer = require("./structure3d_server.cjs");
 
 // Set by `npm run electron:dev` to point at the Vite dev server instead of
 // the built dist/ files, so you get hot reload while working on the app.
@@ -103,6 +104,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   createWindow();
   nmrServer.startServer(); // no-op in dev/preview - see server.cjs
+  structure3dServer.startServer(); // no-op in dev/preview - see structure3d_server.cjs
 
   app.on("activate", () => {
     // macOS convention: re-create a window when the dock icon is clicked
@@ -118,20 +120,30 @@ app.whenReady().then(() => {
 // whenever NmrPredictionButton.tsx wants it via
 // window.electron.getNmrServerStatus().
 ipcMain.handle("nmr-server:get-status", () => nmrServer.getStatus());
+// Same idea as the NMR server's status IPC above, for the GFN2-xTB 3D
+// refinement backend - see structure3d_server.cjs and, on the renderer
+// side, preload.cjs's getStructure3DServerStatus().
+ipcMain.handle("structure3d-server:get-status", () => structure3dServer.getStatus());
 
 let quitConfirmed = false;
 app.on("before-quit", (event) => {
   if (quitConfirmed) return; // already waited once - let this one through
   event.preventDefault();
   // Don't let the app (and, in a packaged build, the whole process tree
-  // an update installer is watching) report itself quit until the
-  // bundled NMR server child process has actually exited - see
+  // an update installer is watching) report itself quit until both
+  // bundled backend child processes have actually exited - see
   // server.cjs's stopServer() doc comment for why the previous
   // fire-and-forget version of this could leave a file lock behind
   // right as an installer tried to overwrite the install directory.
   nmrServer.stopServer().finally(() => {
-    quitConfirmed = true;
-    app.quit();
+    // Stopped in sequence rather than in parallel with Promise.all -
+    // there's no shared resource contention between the two that would
+    // make that unsafe, but sequencing keeps the shutdown log readable
+    // and this isn't a path where the extra second or two matters.
+    structure3dServer.stopServer().finally(() => {
+      quitConfirmed = true;
+      app.quit();
+    });
   });
 });
 

@@ -24,14 +24,14 @@ function ensureResourcesLoaded(): Promise<void> {
 }
 
 /**
- * The two 3D generation methods offered in the 3D panel — see
- * Molecule3DView.tsx for the UI. Both start from the same conformer (see
- * embedMolecule3D below); "mmff94" additionally relaxes it against a real
- * molecular-mechanics force field, so it's slower but geometrically more
- * accurate (proper bond lengths/angles/torsions for a local energy
- * minimum, not just a collision-free guess).
+ * The three 3D generation methods offered in the 3D panel — see
+ * Molecule3DView.tsx for the UI. All three start from the same
+ * embedMolecule3D conformer/optimization below; "xtb" is handled one
+ * level up, in Molecule3DView, since it's a network refinement step
+ * chained onto this module's "mmff94" result rather than something
+ * embedMolecule3D itself produces — see io/xtbRefine.ts.
  */
-export type Embed3DMethod = "quick" | "mmff94";
+export type Embed3DMethod = "quick" | "mmff94" | "xtb";
 
 export class Embed3DError extends Error {
   code: "EMPTY" | "ABBREVIATED_GROUP" | "DISCONNECTED_OR_UNSUPPORTED" | "EMBED_FAILED";
@@ -72,7 +72,11 @@ export interface Embed3DResult {
  * larger molecules and lean on debouncing rather than expecting it to
  * yield mid-computation — see Molecule3DView's debounce.
  */
-export async function embedMolecule3D(mol: Molecule, method: Embed3DMethod, seed = 1): Promise<Embed3DResult> {
+export async function embedMolecule3D(
+  mol: Molecule,
+  method: Exclude<Embed3DMethod, "xtb">,
+  seed = 1,
+): Promise<Embed3DResult> {
   if (Object.keys(mol.atoms).length === 0) {
     throw new Embed3DError("EMPTY", "Nothing drawn yet");
   }

@@ -54,6 +54,10 @@
       {
         "from": "resources/nmrgraph_server",
         "to": "nmrgraph_server"
+      },
+      {
+        "from": "resources/structure3d_server",
+        "to": "structure3d_server"
       }
     ],
     "directories": {

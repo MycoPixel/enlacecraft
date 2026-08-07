@@ -91,6 +91,35 @@ output for lines prefixed `[nmr-server]` - `electron/server.cjs` logs the
 server's own stdout/stderr through with that prefix, plus its own
 start/stop/health-check status.
 
+## Bundling the 3D structure server (GFN2-xTB)
+
+The 3D panel's "Force field (MMFF94)" method needs nothing extra - it runs
+entirely in the renderer (OpenChemLib, see `src/io/embed3d.ts`). Its "High
+accuracy (GFN2-xTB)" method is the one that needs a backend, and follows the
+exact same pattern as the NMR server above, with one difference: unlike
+NMRGraph, its source lives **in this repo**, at `python/structure3d_server/`
+- there's no separate project to go build first.
+
+1. Follow `python/structure3d_server/README.md`'s "Bundling for a packaged
+   Electron build" section - freeze it with PyInstaller, add the `xtb`
+   binary/libs alongside it, then copy the result here:
+   ```
+   cp -r python/structure3d_server/dist/structure3d_server ./resources/structure3d_server
+   ```
+   `resources/structure3d_server/` is gitignored, same reasoning as
+   `resources/nmrgraph_server/`.
+
+2. `npm run dist:win` / `dist:linux` picks it up the same way - see
+   `package.json`'s `build.extraResources` and
+   `electron/structure3d_server.cjs` (spawns it as `structure3d_server` /
+   `structure3d_server.exe` on port 8001, alongside the NMR server on 8000).
+
+Same platform-specific caveat as NMRGraph: freeze it ON the target platform,
+no cross-compiling. Same dev-mode behavior too - `electron:dev` /
+`electron:preview` don't auto-start it; run
+`uvicorn main:app --port 8001 --reload` yourself while developing (see that
+folder's README). Console output is prefixed `[structure3d-server]`.
+
 ## Adding features later
 
 There's only one app — you keep editing the same `src/` files as always.

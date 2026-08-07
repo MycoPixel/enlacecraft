@@ -3,6 +3,7 @@ import { X, RotateCcw, Loader2, AlertTriangle } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { embedMolecule3D, Embed3DError } from "../../io/embed3d";
+import { refineWithXtb, XtbRefineError } from "../../io/xtbRefine";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
 
@@ -10,14 +11,17 @@ import { useT } from "../../i18n/useT";
 // 3D structure. Conformer generation + MMFF94 minimisation is real work
 // (tens of ms to a few hundred, depending on molecule size) — debouncing
 // means a burst of edits (dragging an atom, typing a label) doesn't queue
-// up dozens of redundant embeds while the user is still mid-edit.
+// up dozens of redundant embeds while the user is still mid-edit. The
+// "xtb" method additionally waits on a network round-trip to a real
+// quantum-chemistry calculation (seconds, not ms) on top of this same
+// debounce — see runEmbed below.
 const REGEN_DEBOUNCE_MS = 450;
 
 type ViewState =
   | { phase: "empty" }
   | { phase: "loading" }
   | { phase: "error"; message: string }
-  | { phase: "ready"; energyKcalMol?: number };
+  | { phase: "ready"; method: "quick" | "mmff94" | "xtb"; energyKcalMol?: number; converged?: boolean };
 
 /**
  * Docked panel showing a computed 3D structure alongside the 2D canvas —
@@ -44,6 +48,8 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // Generation counter guards against a slow embed for an earlier
   // molecule/method resolving after a newer one already started — only
   // the most recently *started* run is allowed to touch state/viewer.
+  // Matters more than usual for "xtb", where a run can take seconds -
+  // easily long enough for several more edits to happen first.
   const runIdRef = useRef(0);
 
   const [state, setState] = useState<ViewState>({ phase: "empty" });
@@ -92,7 +98,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     const thisRun = ++runIdRef.current;
 
     debounceRef.current = setTimeout(() => {
-      embedMolecule3D(molecule, method)
+      runEmbed(molecule, method)
         .then((result) => {
           if (runIdRef.current !== thisRun) return; // superseded by a newer edit
 
@@ -104,19 +110,18 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
             viewer.zoomTo();
             viewer.render();
           }
-          setState({ phase: "ready", energyKcalMol: result.energyKcalMol });
+          setState({
+            phase: "ready",
+            method,
+            energyKcalMol: result.energyKcalMol,
+            converged: result.converged,
+          });
         })
         .catch((err) => {
           if (runIdRef.current !== thisRun) return;
           viewerRef.current?.removeAllModels();
           viewerRef.current?.render();
-          setState({
-            phase: "error",
-            message:
-              err instanceof Embed3DError
-                ? embed3DErrorMessage(err.code, t)
-                : t("view3d.errorGeneric"),
-          });
+          setState({ phase: "error", message: embedErrorMessage(err, t) });
         });
     }, REGEN_DEBOUNCE_MS);
 
@@ -133,6 +138,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         <div className="molecule-3d-panel__method">
           <MethodButton active={method === "quick"} onClick={() => setMethod("quick")} label={t("view3d.methodQuick")} />
           <MethodButton active={method === "mmff94"} onClick={() => setMethod("mmff94")} label={t("view3d.methodMmff94")} />
+          <MethodButton active={method === "xtb"} onClick={() => setMethod("xtb")} label={t("view3d.methodXtb")} />
         </div>
         <div className="molecule-3d-panel__actions">
           <ToolButton title={t("view3d.recenter")} onClick={recenter}>
@@ -151,7 +157,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         {state.phase === "loading" && (
           <div className="molecule-3d-panel__overlay">
             <Loader2 size={16} className="compound-search__spinner" />
-            {t("view3d.loading")}
+            {method === "xtb" ? t("view3d.loadingXtb") : t("view3d.loading")}
           </div>
         )}
         {state.phase === "error" && (
@@ -163,24 +169,63 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="molecule-3d-panel__footer">
-        {state.phase === "ready" && method === "mmff94" && state.energyKcalMol !== undefined && (
+        {state.phase === "ready" && state.method === "quick" && <span>{t("view3d.quickHint")}</span>}
+        {state.phase === "ready" && state.method === "mmff94" && state.energyKcalMol !== undefined && (
           <span title={t("view3d.energyHint")}>
             {t("view3d.energy", { value: state.energyKcalMol.toFixed(1) })}
           </span>
         )}
-        {state.phase === "ready" && method === "quick" && <span>{t("view3d.quickHint")}</span>}
+        {state.phase === "ready" && state.method === "xtb" && state.energyKcalMol !== undefined && (
+          <span title={t("view3d.energyXtbHint")}>
+            {t("view3d.energyXtb", { value: state.energyKcalMol.toFixed(1) })}
+            {state.converged === false && <> — {t("view3d.notConverged")}</>}
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
-function embed3DErrorMessage(code: Embed3DError["code"], t: ReturnType<typeof useT>): string {
-  switch (code) {
-    case "EMPTY": return t("view3d.empty");
-    case "ABBREVIATED_GROUP": return t("view3d.errorAbbreviatedGroup");
-    case "DISCONNECTED_OR_UNSUPPORTED": return t("view3d.errorUnsupported");
-    case "EMBED_FAILED": return t("view3d.errorEmbedFailed");
+/**
+ * The "xtb" method is a two-step chain rather than something
+ * embedMolecule3D itself does: first get a real MMFF94-optimized
+ * starting geometry entirely client-side (fast, no network dependency),
+ * then send *that* to structure3d_server for GFN2-xTB refinement (see
+ * io/xtbRefine.ts). Starting xtb from an already-sane geometry converges
+ * faster and more reliably than handing it a bare distance-geometry
+ * guess would.
+ */
+async function runEmbed(
+  molecule: Parameters<typeof embedMolecule3D>[0],
+  method: "quick" | "mmff94" | "xtb",
+): Promise<{ molfile: string; energyKcalMol?: number; converged?: boolean }> {
+  if (method !== "xtb") {
+    return embedMolecule3D(molecule, method);
   }
+
+  const starting = await embedMolecule3D(molecule, "mmff94");
+  const totalCharge = Object.values(molecule.atoms).reduce((sum, a) => sum + a.charge, 0);
+  const refined = await refineWithXtb(starting.molfile, totalCharge);
+  return { molfile: refined.molfile, energyKcalMol: refined.energyKcalMol, converged: refined.converged };
+}
+
+function embedErrorMessage(err: unknown, t: ReturnType<typeof useT>): string {
+  if (err instanceof Embed3DError) {
+    switch (err.code) {
+      case "EMPTY": return t("view3d.empty");
+      case "ABBREVIATED_GROUP": return t("view3d.errorAbbreviatedGroup");
+      case "DISCONNECTED_OR_UNSUPPORTED": return t("view3d.errorUnsupported");
+      case "EMBED_FAILED": return t("view3d.errorEmbedFailed");
+    }
+  }
+  if (err instanceof XtbRefineError) {
+    switch (err.code) {
+      case "NETWORK": return t("view3d.errorXtbNetwork");
+      case "TIMEOUT": return t("view3d.errorXtbTimeout");
+      case "HTTP": return t("view3d.errorXtbHttp", { status: String(err.params.status) });
+    }
+  }
+  return t("view3d.errorGeneric");
 }
 
 function MethodButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
