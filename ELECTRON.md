@@ -37,7 +37,12 @@ that same `dist/` output with Electron via electron-builder. Output lands in
 Linux (and vice versa) in many setups, but it's most reliable to build each
 target on its own OS, or use their CI action if you want both from one
 machine. If `dist:win` fails on Linux, run it on an actual Windows machine
-(or a Windows CI runner) instead.
+(or a Windows CI runner) instead. This is separate from, and stricter than,
+the two bundled Python backends below (NMR prediction, 3D structure) - those
+use PyInstaller, which genuinely cannot cross-compile at all (not just
+"unreliable") - so a Windows build always needs those two frozen on an
+actual Windows machine or VM, no way around it, regardless of whether
+`dist:win` itself happens to work via Wine from Linux.
 
 ## Bundling the NMR prediction server
 
@@ -101,8 +106,10 @@ NMRGraph, its source lives **in this repo**, at `python/structure3d_server/`
 - there's no separate project to go build first.
 
 1. Follow `python/structure3d_server/README.md`'s "Bundling for a packaged
-   Electron build" section - freeze it with PyInstaller, add the `xtb`
-   binary/libs alongside it, then copy the result here:
+   Electron build" section - it has separate Linux and Windows walkthroughs
+   (they differ more than you'd expect - conda-forge's Windows `xtb` build
+   needs its DLLs bundled alongside it, unlike Linux's statically-linked
+   binary). Freeze with PyInstaller, add `xtb`, then copy the result here:
    ```
    cp -r python/structure3d_server/dist/structure3d_server ./resources/structure3d_server
    ```
