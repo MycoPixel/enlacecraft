@@ -1807,6 +1807,33 @@
   color: var(--danger);
 }
 
+.molecule-3d-panel__rotate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.molecule-3d-panel__rotate-error {
+  color: var(--danger);
+}
+
+.molecule-3d-panel__rotate-angle {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  min-width: 84px;
+}
+
+.molecule-3d-panel__rotate-row input[type="range"] {
+  flex: 1;
+  min-width: 60px;
+  accent-color: var(--accent);
+}
+
 .molecule-3d-panel__viewport {
   position: relative;
   flex: 1;

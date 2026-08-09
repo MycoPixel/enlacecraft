@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser } from "lucide-react";
+import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser, Rotate3d } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import type { GLShape } from "3dmol/build/types/GLShape";
 import type { Label } from "3dmol/build/types/Label";
@@ -7,6 +7,7 @@ import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { embedMolecule3D, Embed3DError } from "../../io/embed3d";
 import { refineWithXtb, XtbRefineError } from "../../io/xtbRefine";
 import { distanceAngstrom, angleDegrees, type Point3 } from "./measure";
+import { parseV2000, serializeV2000, findRotatableHalf, rotateHalf, type XyzAtom, type XyzBond } from "./rotateBond";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
 
@@ -27,6 +28,10 @@ const REGEN_DEBOUNCE_MS = 450;
 // already disambiguates distance from angle, so there's no need for two
 // different colors on top of that.
 const MEASURE_COLOR = "#f5a623";
+// Separate accent for the rotate-bond tool's axis markers, distinct from
+// the measurement color so the two tools' overlays never look
+// ambiguous if a person switches between them within one session.
+const ROTATE_COLOR = "#4fb3ff";
 
 type ViewState =
   | { phase: "empty" }
@@ -34,7 +39,7 @@ type ViewState =
   | { phase: "error"; message: string }
   | { phase: "ready"; method: "quick" | "mmff94" | "xtb"; energyKcalMol?: number; converged?: boolean };
 
-type MeasureMode = "off" | "distance" | "angle";
+type ToolMode = "off" | "distance" | "angle" | "rotate";
 
 interface PendingAtom extends Point3 {
   serial: number;
@@ -45,6 +50,14 @@ interface Measurement {
   text: string;
   shapes: GLShape[];
   label: Label;
+}
+
+type RotateState =
+  | { phase: "picking" }
+  | { phase: "active"; axisA: number; axisB: number; half: number[]; baseAtoms: XyzAtom[]; bonds: XyzBond[]; angle: number };
+
+function applyDefaultStyle(viewer: ReturnType<typeof $3Dmol.createViewer>) {
+  viewer.setStyle({}, { stick: { radius: 0.14 }, sphere: { scale: 0.28 } });
 }
 
 /**
@@ -75,8 +88,14 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // Matters more than usual for "xtb", where a run can take seconds -
   // easily long enough for several more edits to happen first.
   const runIdRef = useRef(0);
+  // The base (unrotated) molfile the currently-shown structure came
+  // from — the rotate-bond tool parses this to get real connectivity
+  // and coordinates for whichever bond gets picked as an axis. Not
+  // React state: nothing needs to re-render when it changes on its own.
+  const lastMolfileRef = useRef<string | null>(null);
 
   const [state, setState] = useState<ViewState>({ phase: "empty" });
+  const [toolMode, setToolMode] = useState<ToolMode>("off");
 
   // --- Measurement tool state -------------------------------------
   // pendingRef holds atoms clicked so far for the *in-progress*
@@ -85,12 +104,22 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // inside 3Dmol's imperative click callback, outside React's render
   // cycle — pendingCount mirrors its length purely so the hint text
   // below the buttons can re-render.
-  const [measureMode, setMeasureMode] = useState<MeasureMode>("off");
   const pendingRef = useRef<PendingAtom[]>([]);
   const pendingShapesRef = useRef<GLShape[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const nextMeasurementId = useRef(1);
+
+  // --- Rotate-bond tool state --------------------------------------
+  const [rotateState, setRotateState] = useState<RotateState>({ phase: "picking" });
+  const rotatePendingRef = useRef<PendingAtom[]>([]);
+  const [rotatePendingCount, setRotatePendingCount] = useState(0);
+  const [rotateError, setRotateError] = useState<string | null>(null);
+  // Axis-marker highlight spheres — created as soon as each atom is
+  // clicked during picking, and (unlike the measurement tool's pending
+  // markers) kept on screen for the whole "active" phase afterward, as
+  // a constant reminder of which bond is being spun.
+  const axisShapesRef = useRef<GLShape[]>([]);
 
   // Create the viewer once. 3Dmol reads its container's size at creation
   // and on resize(), so this only needs the div to exist and be sized —
@@ -130,6 +159,26 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     pendingShapesRef.current = [];
     pendingRef.current = [];
     setPendingCount(0);
+  }
+
+  function clearAxisMarkers() {
+    const viewer = viewerRef.current;
+    if (viewer) {
+      for (const shape of axisShapesRef.current) viewer.removeShape(shape);
+    }
+    axisShapesRef.current = [];
+    rotatePendingRef.current = [];
+    setRotatePendingCount(0);
+    setRotateError(null);
+  }
+
+  function restoreBaseStructure(atoms: XyzAtom[], bonds: XyzBond[]) {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    viewer.removeAllModels();
+    viewer.addModel(serializeV2000(atoms, bonds), "mol");
+    applyDefaultStyle(viewer);
+    viewer.render();
   }
 
   function clearAllMeasurements() {
@@ -200,92 +249,168 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   }
 
   // Re-registers (or clears) 3Dmol's atom click handler whenever the
-  // measurement mode changes, and again every time a freshly-generated
-  // model finishes loading (state.phase flips to "ready") — a new
-  // addModel call needs its own clickable atoms re-bound, since they're
-  // a fresh set of atom objects. onAtomClick is defined inline so its
-  // closure always sees the measureMode this effect just ran with,
-  // rather than a stale one from an earlier registration.
+  // tool mode changes, and again every time a freshly-generated model
+  // finishes loading (state.phase flips to "ready") — a new addModel
+  // call needs its own clickable atoms re-bound, since they're a fresh
+  // set of atom objects. Deliberately keyed on rotateState.phase rather
+  // than the whole rotateState object — the angle field changes on
+  // every slider tick while phase stays "active" the whole time, and
+  // re-registering the click handler on every tick would be pure waste
+  // (see the separate angle-driven effect further down for that path).
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
 
-    if (measureMode === "off") {
+    if (toolMode === "off" || (toolMode === "rotate" && rotateState.phase === "active")) {
       viewer.setClickable({}, false, () => {});
       viewer.render();
       return;
     }
 
-    const needed = measureMode === "distance" ? 2 : 3;
+    if (toolMode === "distance" || toolMode === "angle") {
+      const needed = toolMode === "distance" ? 2 : 3;
+      viewer.setClickable({}, true, (atom: PendingAtom) => {
+        if (pendingRef.current.some((a) => a.serial === atom.serial)) return; // ignore re-clicking the same atom
 
-    viewer.setClickable({}, true, (atom: PendingAtom) => {
-      if (pendingRef.current.some((a) => a.serial === atom.serial)) return; // ignore re-clicking the same atom
+        const sphere = viewer.addSphere({ center: atom, radius: 0.7, color: MEASURE_COLOR, wireframe: true });
+        pendingShapesRef.current.push(sphere);
+        pendingRef.current.push({ serial: atom.serial, x: atom.x, y: atom.y, z: atom.z });
+        setPendingCount(pendingRef.current.length);
+        viewer.render();
 
-      // Fixed radius rather than scaled to the clicked atom's own
-      // element — but has to comfortably clear the *largest* rendered
-      // atom sphere in the model to be visible at all, not just an
-      // "average" one. The molecule's own atom spheres are each
-      // element's van der Waals radius × 0.28 (see the stick/sphere
-      // style below); even a big organic atom like sulfur or iodine
-      // tops out well under 0.6 Å at that scale, so a 0.7 Å halo clears
-      // every element actually likely to appear here — a fixed 0.35 Å
-      // used to work fine for small hydrogen spheres but was fully
-      // swallowed inside carbon/oxygen's larger ones, invisible.
-      // Wireframe (rather than solid) keeps the underlying atom's own
-      // color/shape visible through the halo instead of just painting
-      // over it.
-      const sphere = viewer.addSphere({
-        center: atom,
-        radius: 0.7,
-        color: MEASURE_COLOR,
-        wireframe: true,
+        if (pendingRef.current.length === needed) {
+          const finished = pendingRef.current;
+          pendingRef.current = [];
+          setPendingCount(0);
+          finalizeMeasurement(toolMode, finished);
+        }
       });
-      pendingShapesRef.current.push(sphere);
-      pendingRef.current.push({ serial: atom.serial, x: atom.x, y: atom.y, z: atom.z });
-      setPendingCount(pendingRef.current.length);
+      viewer.render();
+      return;
+    }
+
+    // toolMode === "rotate" && rotateState.phase === "picking"
+    viewer.setClickable({}, true, (atom: PendingAtom) => {
+      if (rotatePendingRef.current.some((a) => a.serial === atom.serial)) return;
+
+      setRotateError(null);
+      const sphere = viewer.addSphere({ center: atom, radius: 0.7, color: ROTATE_COLOR, wireframe: true });
+      axisShapesRef.current.push(sphere);
+      rotatePendingRef.current.push({ serial: atom.serial, x: atom.x, y: atom.y, z: atom.z });
+      setRotatePendingCount(rotatePendingRef.current.length);
       viewer.render();
 
-      if (pendingRef.current.length === needed) {
-        const finished = pendingRef.current;
-        pendingRef.current = [];
-        setPendingCount(0);
-        finalizeMeasurement(measureMode, finished);
+      if (rotatePendingRef.current.length !== 2) return;
+
+      const [pickA, pickB] = rotatePendingRef.current;
+      rotatePendingRef.current = [];
+      setRotatePendingCount(0);
+
+      const molfile = lastMolfileRef.current;
+      const parsed = molfile ? parseV2000(molfile) : null;
+      const result = parsed ? findRotatableHalf(parsed.bonds, parsed.atoms.length, pickA.serial, pickB.serial) : null;
+
+      if (!parsed || !result || !result.ok) {
+        const reason = !result || result.ok ? "UNKNOWN" : result.reason;
+        setRotateError(
+          reason === "RING_BOND"
+            ? t("view3d.rotateErrorRingBond")
+            : reason === "MULTIPLE_BOND"
+              ? t("view3d.rotateErrorMultipleBond")
+              : t("view3d.rotateErrorNotBonded"),
+        );
+        for (const shape of axisShapesRef.current) viewer.removeShape(shape);
+        axisShapesRef.current = [];
+        viewer.render();
+        return;
       }
+
+      setRotateState({
+        phase: "active",
+        axisA: pickA.serial,
+        axisB: pickB.serial,
+        half: result.half,
+        baseAtoms: parsed.atoms,
+        bonds: parsed.bonds,
+        angle: 0,
+      });
     });
-    // setClickable only marks the model for a rebuild internally
-    // (GLModel.setClickable sets molObj = null) — the actual
-    // intersection-shape geometry raycasting needs to detect clicks is
-    // only regenerated on the next render(). Without this, clicks
-    // silently hit nothing at all: the callback above is correctly
-    // registered, but there's no clickable geometry yet for a raycast
-    // to ever intersect.
     viewer.render();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [measureMode, state.phase]);
+  }, [toolMode, rotateState.phase, state.phase]);
 
-  // Switching mode (including back to "off") abandons any in-progress
-  // selection rather than carrying it into the new mode — a pending
-  // atom for "distance" doesn't mean anything as the start of an
-  // "angle" measurement.
-  function selectMeasureMode(next: MeasureMode) {
+  // Recomputes the rigidly-rotated structure and pushes it to the
+  // viewer whenever the rotate tool's angle (or the axis/half it's
+  // rotating around) changes. Kept as its own effect, separate from the
+  // click-registration one above, so a slider drag doesn't also
+  // re-touch the click handler on every tick.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || rotateState.phase !== "active") return;
+
+    const rotated = rotateHalf(
+      rotateState.baseAtoms,
+      rotateState.half,
+      rotateState.baseAtoms[rotateState.axisA],
+      rotateState.baseAtoms[rotateState.axisB],
+      rotateState.angle,
+    );
+    viewer.removeAllModels();
+    viewer.addModel(serializeV2000(rotated, rotateState.bonds), "mol");
+    applyDefaultStyle(viewer);
+    // No zoomTo() here, deliberately - this redraws the same structure
+    // at a new angle, not a new structure; keeping the camera exactly
+    // where it was is what makes the rotation actually readable as
+    // motion instead of a jump-cut on every tick.
+    viewer.render();
+  }, [rotateState]);
+
+  // Switching tool (including back to "off") abandons whatever the
+  // previous tool had in progress: a pending measurement atom doesn't
+  // carry over into a different mode, and an actively-applied bond
+  // rotation gets reverted back to the real, unrotated structure rather
+  // than silently left on screen with no obvious way back to it.
+  function selectToolMode(next: ToolMode) {
+    if (toolMode === "rotate" && rotateState.phase === "active") {
+      restoreBaseStructure(rotateState.baseAtoms, rotateState.bonds);
+    }
     clearPendingMarkers();
-    viewerRef.current?.render();
-    setMeasureMode((prev) => (prev === next ? "off" : next));
+    clearAxisMarkers();
+    setRotateState({ phase: "picking" });
+    setToolMode((prev) => (prev === next ? "off" : next));
+  }
+
+  function pickDifferentBond() {
+    if (rotateState.phase === "active") {
+      restoreBaseStructure(rotateState.baseAtoms, rotateState.bonds);
+    }
+    clearAxisMarkers();
+    setRotateState({ phase: "picking" });
   }
 
   useEffect(() => {
     clearTimeout(debounceRef.current);
 
-    if (!hasAtoms) {
-      setState({ phase: "empty" });
-      viewerRef.current?.removeAllModels();
-      viewerRef.current?.removeAllShapes();
-      viewerRef.current?.removeAllLabels();
-      viewerRef.current?.render();
+    function resetToolState() {
       pendingRef.current = [];
       pendingShapesRef.current = [];
       setPendingCount(0);
       setMeasurements([]);
+      rotatePendingRef.current = [];
+      axisShapesRef.current = [];
+      setRotatePendingCount(0);
+      setRotateError(null);
+      setRotateState({ phase: "picking" });
+    }
+
+    if (!hasAtoms) {
+      setState({ phase: "empty" });
+      lastMolfileRef.current = null;
+      viewerRef.current?.removeAllModels();
+      viewerRef.current?.removeAllShapes();
+      viewerRef.current?.removeAllLabels();
+      viewerRef.current?.render();
+      resetToolState();
       return;
     }
 
@@ -300,21 +425,19 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
           const viewer = viewerRef.current;
           if (viewer) {
             viewer.removeAllModels();
-            // Old measurements/pending selections reference coordinates
-            // from the *previous* geometry — regenerating invalidates
-            // them, so they're cleared here rather than left stale and
-            // silently wrong.
+            // Old measurements/pending selections/rotation axis picks
+            // all reference coordinates from the *previous* geometry —
+            // regenerating invalidates them, so they're cleared here
+            // rather than left stale and silently wrong.
             viewer.removeAllShapes();
             viewer.removeAllLabels();
             viewer.addModel(result.molfile, "mol");
-            viewer.setStyle({}, { stick: { radius: 0.14 }, sphere: { scale: 0.28 } });
+            applyDefaultStyle(viewer);
             viewer.zoomTo();
             viewer.render();
           }
-          pendingRef.current = [];
-          pendingShapesRef.current = [];
-          setPendingCount(0);
-          setMeasurements([]);
+          lastMolfileRef.current = result.molfile;
+          resetToolState();
           setState({
             phase: "ready",
             method,
@@ -324,10 +447,12 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         })
         .catch((err) => {
           if (runIdRef.current !== thisRun) return;
+          lastMolfileRef.current = null;
           viewerRef.current?.removeAllModels();
           viewerRef.current?.removeAllShapes();
           viewerRef.current?.removeAllLabels();
           viewerRef.current?.render();
+          resetToolState();
           setState({ phase: "error", message: embedErrorMessage(err, t) });
         });
     }, REGEN_DEBOUNCE_MS);
@@ -339,9 +464,9 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   const recenter = () => viewerRef.current?.zoomTo();
 
   const measureHint =
-    measureMode === "distance"
+    toolMode === "distance"
       ? t("view3d.measureHintDistance", { n: pendingCount })
-      : measureMode === "angle"
+      : toolMode === "angle"
         ? t("view3d.measureHintAngle", { n: pendingCount })
         : null;
 
@@ -368,19 +493,27 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         <div className="molecule-3d-panel__method">
           <ToolButton
             title={t("view3d.measureDistance")}
-            active={measureMode === "distance"}
+            active={toolMode === "distance"}
             disabled={state.phase !== "ready"}
-            onClick={() => selectMeasureMode("distance")}
+            onClick={() => selectToolMode("distance")}
           >
             <Ruler size={15} />
           </ToolButton>
           <ToolButton
             title={t("view3d.measureAngle")}
-            active={measureMode === "angle"}
+            active={toolMode === "angle"}
             disabled={state.phase !== "ready"}
-            onClick={() => selectMeasureMode("angle")}
+            onClick={() => selectToolMode("angle")}
           >
             <Triangle size={15} />
+          </ToolButton>
+          <ToolButton
+            title={t("view3d.rotateBond")}
+            active={toolMode === "rotate"}
+            disabled={state.phase !== "ready"}
+            onClick={() => selectToolMode("rotate")}
+          >
+            <Rotate3d size={15} />
           </ToolButton>
         </div>
         {measureHint && <span className="molecule-3d-panel__measure-hint">{measureHint}</span>}
@@ -403,6 +536,41 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {toolMode === "rotate" && (
+        <div className="molecule-3d-panel__rotate-row">
+          {rotateState.phase === "picking" && (
+            <span className={rotateError ? "molecule-3d-panel__rotate-error" : undefined}>
+              {rotateError ?? t("view3d.rotateHintPicking", { n: rotatePendingCount })}
+            </span>
+          )}
+          {rotateState.phase === "active" && (
+            <>
+              <span className="molecule-3d-panel__rotate-angle">
+                {t("view3d.rotateAngleLabel", { value: rotateState.angle })}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={360}
+                step={1}
+                value={rotateState.angle}
+                onChange={(e) => setRotateState((prev) => (prev.phase === "active" ? { ...prev, angle: Number(e.target.value) } : prev))}
+              />
+              <button
+                type="button"
+                className="molecule-3d-panel__measure-clear"
+                onClick={() => setRotateState((prev) => (prev.phase === "active" ? { ...prev, angle: 0 } : prev))}
+              >
+                {t("view3d.rotateReset")}
+              </button>
+              <button type="button" className="molecule-3d-panel__measure-clear" onClick={pickDifferentBond}>
+                {t("view3d.rotatePickDifferent")}
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       <div className="molecule-3d-panel__viewport" ref={containerRef}>
