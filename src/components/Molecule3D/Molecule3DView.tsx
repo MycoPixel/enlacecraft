@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser, Rotate3d } from "lucide-react";
+import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser, Rotate3d, Activity, Play, Pause, Repeat } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import type { GLShape } from "3dmol/build/types/GLShape";
 import type { Label } from "3dmol/build/types/Label";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { embedMolecule3DWithMethod, Embed3DError } from "../../io/embed3d";
+import { embedMolecule3DWithMethod, mmff94SinglePointEnergy, Embed3DError } from "../../io/embed3d";
 import { XtbRefineError } from "../../io/xtbRefine";
 import { distanceAngstrom, angleDegrees, type Point3 } from "./measure";
 import { parseV2000, serializeV2000, findRotatableHalf, rotateHalf, type XyzAtom, type XyzBond } from "./rotateBond";
+import { scanTorsion, summarizeTorsionScan, type TorsionPoint, type TorsionSummary } from "./torsionScan";
+import { TorsionEnergyChart } from "./TorsionEnergyChart";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
 
@@ -33,6 +35,34 @@ const MEASURE_COLOR = "#f5a623";
 // ambiguous if a person switches between them within one session.
 const ROTATE_COLOR = "#4fb3ff";
 
+// The rotate-bond tool's 4 selectable auto-rotate speeds, in degrees per
+// second — chosen so the slowest is easy to follow frame by frame (a
+// full 360° pass takes 24s) and the fastest still reads as continuous
+// rotation rather than a blur (3s per pass). Labeled as plain
+// multipliers (×1/×2/×4/×8) rather than words like "slow"/"fast" so
+// there's nothing to translate and the relationship between the options
+// is obvious at a glance.
+const ROTATE_SPEEDS = [
+  { label: "\u00d71", degPerSec: 15 },
+  { label: "\u00d72", degPerSec: 30 },
+  { label: "\u00d74", degPerSec: 60 },
+  { label: "\u00d78", degPerSec: 120 },
+] as const;
+
+// How often the auto-rotate loop advances the angle. Reuses the exact
+// same state (rotateState.angle) and effect that a manual slider drag
+// does, rather than a separate fast imperative redraw path — at 20
+// updates/sec a full MMFF94 single-point re-score (see the angle effect
+// below) is cheap enough per tick not to matter for the small
+// substituents this tool is meant for, and re-using the normal pipeline
+// means the live energy readout and torsion chart's angle marker need
+// no animation-specific handling at all.
+const ANIMATE_TICK_MS = 50;
+
+// The rotate-bond slider's tick marks/snap points — every 30°, 0
+// through 360 inclusive (13 stops), matching the input's step={30}.
+const ROTATE_TICK_ANGLES = Array.from({ length: 13 }, (_, i) => i * 30);
+
 type ViewState =
   | { phase: "empty" }
   | { phase: "loading" }
@@ -55,6 +85,21 @@ interface Measurement {
 type RotateState =
   | { phase: "picking" }
   | { phase: "active"; axisA: number; axisB: number; half: number[]; baseAtoms: XyzAtom[]; bonds: XyzBond[]; angle: number };
+
+// State for the rotate-bond tool's "Scan rotation" action, which sweeps
+// the picked bond through a full turn and scores each rigid rotamer with
+// MMFF94 (see torsionScan.ts) to find how much less stable the worst
+// rotation is than the best one.
+type ScanState =
+  | { phase: "idle" }
+  | { phase: "scanning" }
+  | { phase: "done"; points: TorsionPoint[]; summary: TorsionSummary }
+  | { phase: "no-data" };
+
+/** "+2.9" / "-1.3" / "0.0" — a signed one-decimal kcal/mol delta. */
+function formatSignedDelta(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+}
 
 function applyDefaultStyle(viewer: ReturnType<typeof $3Dmol.createViewer>) {
   viewer.setStyle({}, { stick: { radius: 0.14 }, sphere: { scale: 0.28 } });
@@ -121,6 +166,43 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // a constant reminder of which bond is being spun.
   const axisShapesRef = useRef<GLShape[]>([]);
 
+  // --- Rotate-bond tool: live per-angle energy + full-scan state ----
+  // rotateEnergy is the single-point MMFF94 energy of whatever angle the
+  // slider is *currently* at (recomputed async on every tick — see the
+  // angle-driven effect below); rotateBaseEnergy is that same quantity
+  // captured once at angle 0° the moment a bond is picked, so the live
+  // readout can also show a delta against that fixed reference point.
+  // rotateEnergyRunId guards both against out-of-order async resolution
+  // during a fast slider drag.
+  const [rotateEnergy, setRotateEnergy] = useState<{ angle: number; kcalMol: number } | null>(null);
+  const [rotateBaseEnergy, setRotateBaseEnergy] = useState<number | null>(null);
+  const rotateEnergyRunId = useRef(0);
+  const [scan, setScan] = useState<ScanState>({ phase: "idle" });
+  const scanRunIdRef = useRef(0);
+
+  // --- Rotate-bond tool: auto-rotate animation state ----------------
+  // animating drives the setInterval effect further down; loopMode and
+  // speedIndex are kept as their own state (rather than folded into one
+  // "animating" variant type) so they can be changed live, mid-animation,
+  // without needing to stop and restart — the effect just picks up the
+  // new value on its next tick.
+  const [animating, setAnimating] = useState(false);
+  const [loopMode, setLoopMode] = useState(false);
+  const [speedIndex, setSpeedIndex] = useState(1);
+
+  /** Clears everything to do with the rotate tool's energy readout and
+   * any in-flight or finished scan — called whenever the picked bond
+   * changes (or is abandoned), since both are only meaningful for the
+   * specific bond they were computed against. */
+  function resetRotateEnergyState() {
+    rotateEnergyRunId.current++;
+    scanRunIdRef.current++;
+    setRotateEnergy(null);
+    setRotateBaseEnergy(null);
+    setScan({ phase: "idle" });
+    setAnimating(false);
+  }
+
   // Create the viewer once. 3Dmol reads its container's size at creation
   // and on resize(), so this only needs the div to exist and be sized —
   // CSS gives the panel a fixed layout height, so there's no race with
@@ -170,6 +252,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     rotatePendingRef.current = [];
     setRotatePendingCount(0);
     setRotateError(null);
+    resetRotateEnergyState();
   }
 
   function restoreBaseStructure(atoms: XyzAtom[], bonds: XyzBond[]) {
@@ -355,15 +438,92 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       rotateState.baseAtoms[rotateState.axisB],
       rotateState.angle,
     );
+    const molfile = serializeV2000(rotated, rotateState.bonds);
     viewer.removeAllModels();
-    viewer.addModel(serializeV2000(rotated, rotateState.bonds), "mol");
+    viewer.addModel(molfile, "mol");
     applyDefaultStyle(viewer);
     // No zoomTo() here, deliberately - this redraws the same structure
     // at a new angle, not a new structure; keeping the camera exactly
     // where it was is what makes the rotation actually readable as
     // motion instead of a jump-cut on every tick.
     viewer.render();
+
+    // Scores this exact rigid rotamer with MMFF94 (no minimisation —
+    // see mmff94SinglePointEnergy's docstring) so the panel can show a
+    // live "how strained is *this* rotation" readout while dragging.
+    // Async and debounced only by runIdRef-style guarding rather than a
+    // timer: a single-point evaluation is cheap enough to run on every
+    // tick, but a fast drag can still fire several of these before any
+    // resolve, so only the most recently *requested* one is allowed to
+    // update state.
+    const thisRun = ++rotateEnergyRunId.current;
+    const angleAtRequest = rotateState.angle;
+    mmff94SinglePointEnergy(molfile).then((energy) => {
+      if (rotateEnergyRunId.current !== thisRun || energy === null) return;
+      setRotateEnergy({ angle: angleAtRequest, kcalMol: energy });
+      if (angleAtRequest === 0) setRotateBaseEnergy(energy);
+    });
   }, [rotateState]);
+
+  // Drives the "auto-rotate" play/loop controls: on a fixed tick,
+  // advances rotateState.angle by this speed's degrees-per-tick, wrapping
+  // past 360° back to 0° in loop mode or stopping exactly at 360° in
+  // "once" mode. Deliberately goes through the same setRotateState the
+  // slider's onChange uses (see the angle effect above) rather than a
+  // separate fast/imperative redraw path — see ANIMATE_TICK_MS's comment
+  // for why that's fine performance-wise, and it means this effect needs
+  // no awareness of energy scoring, the torsion chart, or anything else
+  // that already reacts to rotateState.angle changing.
+  //
+  // `angle` and `mode` are captured once, from the render that starts
+  // this effect, into plain local variables rather than read from
+  // rotateState/loopMode on every tick — so a mid-flight speed or loop
+  // toggle (both in the dependency array) cleanly restarts the loop from
+  // wherever the animation currently is, instead of fighting the
+  // previous instance.
+  useEffect(() => {
+    if (!animating || rotateState.phase !== "active") return;
+
+    let angle = rotateState.angle;
+    const mode = loopMode ? "loop" : "once";
+    const degPerTick = (ROTATE_SPEEDS[speedIndex].degPerSec * ANIMATE_TICK_MS) / 1000;
+
+    const interval = setInterval(() => {
+      angle += degPerTick;
+      let finished = false;
+      if (angle >= 360) {
+        if (mode === "once") {
+          angle = 360;
+          finished = true;
+        } else {
+          angle -= 360;
+        }
+      }
+      setRotateState((prev) => (prev.phase === "active" ? { ...prev, angle } : prev));
+      if (finished) setAnimating(false);
+    }, ANIMATE_TICK_MS);
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animating, loopMode, speedIndex, rotateState.phase]);
+
+  /** Sweeps the currently-picked bond through a full turn, scoring each
+   * rigid rotamer with MMFF94, so the panel can report how much less
+   * stable the worst rotation it finds is than the best one (e.g.
+   * eclipsed vs. staggered ethane) rather than requiring the person to
+   * drag the slider and read off two values by hand. */
+  async function runTorsionScan() {
+    if (rotateState.phase !== "active") return;
+    const { baseAtoms, half, axisA, axisB, bonds } = rotateState;
+    const thisRun = ++scanRunIdRef.current;
+    setScan({ phase: "scanning" });
+
+    const points = await scanTorsion(baseAtoms, half, baseAtoms[axisA], baseAtoms[axisB], bonds, 10);
+    if (scanRunIdRef.current !== thisRun) return; // bond changed (or reset) mid-scan
+
+    const summary = summarizeTorsionScan(points);
+    setScan(summary ? { phase: "done", points, summary } : { phase: "no-data" });
+  }
 
   // Switching tool (including back to "off") abandons whatever the
   // previous tool had in progress: a pending measurement atom doesn't
@@ -401,6 +561,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       setRotatePendingCount(0);
       setRotateError(null);
       setRotateState({ phase: "picking" });
+      resetRotateEnergyState();
     }
 
     if (!hasAtoms) {
@@ -546,30 +707,132 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
             </span>
           )}
           {rotateState.phase === "active" && (
-            <>
-              <span className="molecule-3d-panel__rotate-angle">
-                {t("view3d.rotateAngleLabel", { value: rotateState.angle })}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={360}
-                step={1}
-                value={rotateState.angle}
-                onChange={(e) => setRotateState((prev) => (prev.phase === "active" ? { ...prev, angle: Number(e.target.value) } : prev))}
-              />
-              <button
-                type="button"
-                className="molecule-3d-panel__measure-clear"
-                onClick={() => setRotateState((prev) => (prev.phase === "active" ? { ...prev, angle: 0 } : prev))}
-              >
-                {t("view3d.rotateReset")}
-              </button>
-              <button type="button" className="molecule-3d-panel__measure-clear" onClick={pickDifferentBond}>
-                {t("view3d.rotatePickDifferent")}
-              </button>
-            </>
+            <div className="molecule-3d-panel__rotate-active">
+              <div className="molecule-3d-panel__rotate-slider-line">
+                <span className="molecule-3d-panel__rotate-angle">
+                  {t("view3d.rotateAngleLabel", { value: Math.round(rotateState.angle) })}
+                </span>
+                <div className="molecule-3d-panel__rotate-slider-wrap">
+                  <input
+                    type="range"
+                    min={0}
+                    max={360}
+                    step={30}
+                    list="rotate-tick-marks"
+                    value={rotateState.angle}
+                    disabled={animating}
+                    onChange={(e) =>
+                      setRotateState((prev) => (prev.phase === "active" ? { ...prev, angle: Number(e.target.value) } : prev))
+                    }
+                  />
+                  <datalist id="rotate-tick-marks">
+                    {ROTATE_TICK_ANGLES.map((angle) => (
+                      <option key={angle} value={angle} />
+                    ))}
+                  </datalist>
+                  <div className="molecule-3d-panel__rotate-ticks">
+                    {ROTATE_TICK_ANGLES.map((angle) => (
+                      <span key={angle}>{`${angle}\u00b0`}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="molecule-3d-panel__rotate-buttons-line">
+                <button
+                  type="button"
+                  className="molecule-3d-panel__measure-clear"
+                  disabled={animating}
+                  onClick={() => setRotateState((prev) => (prev.phase === "active" ? { ...prev, angle: 0 } : prev))}
+                >
+                  {t("view3d.rotateReset")}
+                </button>
+                <button
+                  type="button"
+                  className="molecule-3d-panel__measure-clear"
+                  onClick={runTorsionScan}
+                  disabled={scan.phase === "scanning" || animating}
+                  title={t("view3d.rotateScanHint")}
+                >
+                  {scan.phase === "scanning" ? (
+                    <Loader2 size={12} className="compound-search__spinner" />
+                  ) : (
+                    <Activity size={12} />
+                  )}
+                  {t("view3d.rotateScan")}
+                </button>
+                <button type="button" className="molecule-3d-panel__measure-clear" onClick={pickDifferentBond}>
+                  {t("view3d.rotatePickDifferent")}
+                </button>
+              </div>
+
+              <div className="molecule-3d-panel__rotate-buttons-line">
+                <button
+                  type="button"
+                  className="molecule-3d-panel__measure-clear"
+                  onClick={() => setAnimating((prev) => !prev)}
+                  title={animating ? t("view3d.rotatePause") : t("view3d.rotatePlay")}
+                >
+                  {animating ? <Pause size={12} /> : <Play size={12} />}
+                  {animating ? t("view3d.rotatePause") : t("view3d.rotatePlay")}
+                </button>
+                <ToolButton title={t("view3d.rotateLoop")} active={loopMode} onClick={() => setLoopMode((prev) => !prev)}>
+                  <Repeat size={13} />
+                </ToolButton>
+                <div className="molecule-3d-panel__method">
+                  {ROTATE_SPEEDS.map((speed, i) => (
+                    <button
+                      key={speed.label}
+                      type="button"
+                      className={`molecule-3d-panel__method-btn ${speedIndex === i ? "molecule-3d-panel__method-btn--active" : ""}`}
+                      aria-pressed={speedIndex === i}
+                      title={t("view3d.rotateSpeedHint")}
+                      onClick={() => setSpeedIndex(i)}
+                    >
+                      {speed.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
+        </div>
+      )}
+
+      {rotateState.phase === "active" && rotateEnergy && rotateEnergy.angle === rotateState.angle && (
+        <div className="molecule-3d-panel__rotate-energy" title={t("view3d.rotateEnergyHint")}>
+          {t("view3d.rotateEnergyLive", { value: rotateEnergy.kcalMol.toFixed(1) })}
+          {rotateBaseEnergy !== null && rotateState.angle !== 0 && (
+            <span
+              className={
+                rotateEnergy.kcalMol - rotateBaseEnergy > 0
+                  ? "molecule-3d-panel__rotate-energy-delta--worse"
+                  : "molecule-3d-panel__rotate-energy-delta--better"
+              }
+            >
+              {" "}
+              · {t("view3d.rotateEnergyDelta", { value: formatSignedDelta(rotateEnergy.kcalMol - rotateBaseEnergy) })}
+            </span>
+          )}
+        </div>
+      )}
+
+      {rotateState.phase === "active" && scan.phase === "no-data" && (
+        <div className="molecule-3d-panel__scan-row">
+          <span className="molecule-3d-panel__scan-error">{t("view3d.rotateScanNoData")}</span>
+        </div>
+      )}
+
+      {rotateState.phase === "active" && scan.phase === "done" && (
+        <div className="molecule-3d-panel__scan-row">
+          <TorsionEnergyChart points={scan.points} summary={scan.summary} currentAngle={rotateState.angle} />
+          <span className="molecule-3d-panel__scan-summary">
+            {t("view3d.rotateScanSummary", {
+              worseAngle: scan.summary.leastStable.angle,
+              betterAngle: scan.summary.mostStable.angle,
+              value: scan.summary.barrierKcalMol.toFixed(1),
+            })}
+          </span>
         </div>
       )}
 

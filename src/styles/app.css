@@ -1822,16 +1822,98 @@
   color: var(--danger);
 }
 
+.molecule-3d-panel__rotate-active {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.molecule-3d-panel__rotate-slider-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.molecule-3d-panel__rotate-buttons-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .molecule-3d-panel__rotate-angle {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   min-width: 84px;
 }
 
-.molecule-3d-panel__rotate-row input[type="range"] {
+.molecule-3d-panel__rotate-slider-wrap {
   flex: 1;
   min-width: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.molecule-3d-panel__rotate-slider-wrap input[type="range"] {
+  width: 100%;
   accent-color: var(--accent);
+}
+
+.molecule-3d-panel__rotate-slider-wrap input[type="range"]:disabled {
+  opacity: 0.5;
+}
+
+.molecule-3d-panel__rotate-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--ink-soft);
+  padding: 0 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.molecule-3d-panel__rotate-energy {
+  padding: 0 10px 6px;
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.molecule-3d-panel__rotate-energy-delta--worse {
+  color: var(--danger);
+}
+
+.molecule-3d-panel__rotate-energy-delta--better {
+  color: #3ecf8e;
+}
+
+.molecule-3d-panel__scan-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.molecule-3d-panel__torsion-chart {
+  color: var(--ink-soft);
+  max-width: 100%;
+}
+
+.molecule-3d-panel__scan-summary {
+  font-size: 11px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.molecule-3d-panel__scan-error {
+  font-size: 11px;
+  color: var(--danger);
 }
 
 .molecule-3d-panel__viewport {

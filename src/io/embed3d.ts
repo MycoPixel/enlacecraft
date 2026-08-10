@@ -163,3 +163,35 @@ export async function embedMolecule3D(
 
   return { molfile: conformer.toMolfile(), energyKcalMol };
 }
+
+/**
+ * Scores a *fixed* geometry against MMFF94s without minimising it —
+ * `ForceFieldMMFF94.getTotalEnergy()` is called right after construction,
+ * before `minimise()` would get a chance to relax anything. That's the
+ * point: a rigid conformer produced by the 3D panel's "Rotate bond" tool
+ * (see Molecule3D/rotateBond.ts and torsionScan.ts) — e.g. eclipsed
+ * ethane — is a torsional *maximum*, and minimising it would just slide
+ * it straight back to a staggered minimum, defeating the purpose of
+ * asking "how strained is *this exact* rotamer".
+ *
+ * Takes a ready-made V2000 molfile (explicit H, real 3D coordinates —
+ * exactly what rotateBond.ts's serializeV2000 produces) rather than the
+ * app's 2D Molecule model, for the same reason xtbRefine.ts does: this
+ * needs the actual displayed 3D structure, not a fresh 2D-derived one.
+ *
+ * Resolves to `null` (rather than throwing) if MMFF94 can't score this
+ * structure at all — e.g. an atom type or valence state outside MMFF94's
+ * parameter set — since callers use this for a live, best-effort energy
+ * readout while dragging a slider, not as something that should surface
+ * a hard error mid-drag.
+ */
+export async function mmff94SinglePointEnergy(molfile: string): Promise<number | null> {
+  await ensureResourcesLoaded();
+  try {
+    const oclMol = OCLMolecule.fromMolfile(molfile);
+    const ff = new ForceFieldMMFF94(oclMol, ForceFieldMMFF94.MMFF94S);
+    return ff.getTotalEnergy();
+  } catch {
+    return null;
+  }
+}
