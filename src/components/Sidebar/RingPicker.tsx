@@ -62,7 +62,10 @@ function MiniRing({ sides, aromatic, heteroatoms }: { sides: number; aromatic: b
 /**
  * Two small fused hexagons sharing a vertical edge — a distinct glyph from
  * the generic single-hexagon MiniRing above, so naphthalene reads as its
- * own (fused, two-ring) structure at a glance in the picker.
+ * own (fused, two-ring) structure at a glance in the picker. Each hexagon
+ * gets its own small aromatic circle, same convention MiniRing uses for
+ * every other aromatic template, so naphthalene's aromaticity reads at a
+ * glance instead of looking like a plain (non-aromatic) fused ring pair.
  */
 function MiniNaphthalene() {
   return (
@@ -75,6 +78,8 @@ function MiniNaphthalene() {
         points="12,15 12,9 17.2,6 22.4,9 22.4,15 17.2,18"
         fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"
       />
+      <circle cx="6.8" cy="12" r="3.1" fill="none" stroke="currentColor" strokeWidth="1" />
+      <circle cx="17.2" cy="12" r="3.1" fill="none" stroke="currentColor" strokeWidth="1" />
     </svg>
   );
 }

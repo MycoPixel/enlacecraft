@@ -359,6 +359,8 @@ export const RING_TEMPLATES: RingTemplate[] = [
   { id: "cyclopentane", label: "Cyclopentane", sides: 5, aromatic: false },
   { id: "cyclobutane", label: "Cyclobutane", sides: 4, aromatic: false },
   { id: "cyclopropane", label: "Cyclopropane", sides: 3, aromatic: false },
+  { id: "cycloheptane", label: "Cycloheptane", sides: 7, aromatic: false },
+  { id: "cyclooctane", label: "Cyclooctane", sides: 8, aromatic: false },
   {
     id: "pyridine", label: "Pyridine", sides: 6, aromatic: true,
     heteroatoms: [{ position: 0, element: "N" }],
