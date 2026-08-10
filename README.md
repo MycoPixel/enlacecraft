@@ -19,10 +19,23 @@ build.
   no manual work, and it re-evaluates live as you edit the structure. Click the
   double-bond tool again on an existing double bond to override it, cycling
   auto → left → right → center → auto
-- Ring templates: benzene, cyclohexane, cyclopentane, cyclobutane, cyclopropane —
-  place fresh or fuse onto an existing atom
-- Full element palette with charges, implicit-hydrogen labeling, and a live molecular
-  formula readout
+- Ring templates: carbocycles (benzene, cyclopropane through cyclooctane) plus
+  common heterocycles — pyridine, furan, thiophene, pyrrole, imidazole, pyrimidine,
+  piperidine, pyrrolidine, tetrahydrofuran, tetrahydropyran, morpholine, piperazine
+  — and fused naphthalene; place fresh or fuse onto an existing atom
+- Functional-group templates (hydroxyl, amine, thiol, ether, carboxylic acid, ester,
+  amide, ketone, aldehyde, nitrile, nitro) and a small abbreviated-group/superatom
+  registry (Me, Et, tBu, Ph, Bn, Ac, OMe, Boc, Ts), plus free-text atom labels that
+  parse as elements, isotopes, condensed formulas (e.g. "COOH", "CF3"), or
+  placeholder substituents (R, R1, R', Ar, X, Nu, E, ...)
+- Reaction/mechanism-arrow tool: straight, equilibrium, resonance, and curved arrows,
+  in both full (electron-pair) and fishhook (single-electron) barb styles, with
+  adjustable arrowhead size
+- Brackets (for polymers, ions, and other grouped structures), text annotations,
+  and the "+" annotation for reaction schemes
+- Full element palette with charges, radicals, lone pairs, isotope labeling
+  (D/T shorthands and mass-number notation), implicit-hydrogen labeling, R/S
+  stereo-descriptor labels, and a live molecular formula readout
 - Visual valence-violation warnings based on a simplified charge-adjusted valence model
 - Move single atoms or multi-atom selections; pan (dedicated Pan tool, or
   middle-mouse-drag from any tool) and zoom the canvas
@@ -38,6 +51,10 @@ build.
 - Rotate the current selection (or the whole molecule, if nothing's selected) in
   30° steps — sidebar/mobile-toolbar buttons, or `[` / `]` on desktop
 - A universal "Clear everything" action (top bar, works on mobile and desktop)
+- Copy/paste of the current selection (`hooks/useClipboard.ts`) — via a private
+  round-trippable format, with an OS-clipboard path (Ctrl/Cmd+C/V) where the browser
+  supports it and an in-memory fallback otherwise (notably Firefox, which doesn't
+  support arbitrary clipboard MIME types)
 - Undo/redo, keyboard shortcuts (desktop), touch-friendly bottom toolbar (mobile)
 - **Compound search**: type a name (e.g. "aspirin", "caffeine") into the search box
   in the top bar and it's looked up against PubChem's public database and dropped
@@ -48,7 +65,9 @@ build.
   and defaults to your browser's language on first visit
 - Compound search understands Spanish names too (e.g. "cafeína", "ácido acético")
   even though PubChem itself is indexed mostly in English — see below
-- Import/export MOL (V2000), export PNG and SVG
+- Import/export MOL (V2000), import/export CDXML (ChemDraw's documented XML
+  interchange format — see `io/cdxml.ts` for what does and doesn't round-trip),
+  export SMILES, and export PNG/SVG
 - **3D structure view**: a toggleable panel next to the 2D canvas showing a real,
   computed 3D structure of what you're drawing, with a choice of three generation
   methods (see below) — fast collision-free conformer, MMFF94 force-field
@@ -90,9 +109,11 @@ src/
     ringPlacement.ts             ring template placement / fusion
   io/                       File format & export handling
     molfile.ts                 MOL (V2000) import/export
+    cdxml.ts                     CDXML (ChemDraw XML) import/export
     exportImage.ts               PNG/SVG rasterization + download
     embed3d.ts                  3D conformer generation (OpenChemLib) + MMFF94
     xtbRefine.ts                 Client for the GFN2-xTB refinement backend
+    pubchem.ts                    PubChem PUG REST client (compound search)
   store/
     useMoleculeStore.ts       Zustand store: structural state + undo/redo history
                               + tool/selection/view/theme UI state
@@ -297,5 +318,18 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
   property lines) and wedge fields, not SGroups, isotopes, or 3D coordinates, and
   there's no V3000 support. (The 3D structure view is unrelated to this — it
   generates its own 3D geometry fresh rather than importing/exporting it; see above.)
-- No multi-select marquee, copy/paste, or reaction-arrow tooling yet — see "Extending it"
-  above for where these would plug in.
+- Selection is rectangle ("marquee") only — no freeform/lasso selection.
+- The abbreviated-group (superatom) registry is a small fixed list (`ABBREVIATED_GROUPS`
+  in `model/constants.ts`: Me, Et, tBu, Ph, Bn, Ac, OMe, Boc, Ts) rather than the large
+  nickname libraries ChemDraw ships. User-saved fragments (`model/userTemplates.ts`) cover
+  reusable custom structures, but they paste back in as a full expanded fragment rather
+  than collapsing to a single labeled vertex the way a true superatom/nickname does.
+- Built-in `StructureTemplate`s (`model/structureTemplates.ts`) are limited to D-/L-glucose
+  Fischer projections — no amino acid, peptide, nucleotide, or other biomolecule template
+  library yet. See "Extending it" above for where more would plug in.
+- No reaction atom-mapping (numbering corresponding atoms across reactants/products).
+- No per-atom/per-bond highlight coloring for emphasis — only the global black-and-white
+  display toggle.
+- Single infinite canvas — no multi-scheme/multi-page documents.
+- CDXML import/export only; no native `.cdx` (ChemDraw's binary format is undocumented —
+  see the comment at the top of `io/cdxml.ts`).
