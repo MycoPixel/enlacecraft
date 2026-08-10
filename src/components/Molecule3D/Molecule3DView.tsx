@@ -4,8 +4,8 @@ import * as $3Dmol from "3dmol";
 import type { GLShape } from "3dmol/build/types/GLShape";
 import type { Label } from "3dmol/build/types/Label";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { embedMolecule3D, Embed3DError } from "../../io/embed3d";
-import { refineWithXtb, XtbRefineError } from "../../io/xtbRefine";
+import { embedMolecule3DWithMethod, Embed3DError } from "../../io/embed3d";
+import { XtbRefineError } from "../../io/xtbRefine";
 import { distanceAngstrom, angleDegrees, type Point3 } from "./measure";
 import { parseV2000, serializeV2000, findRotatableHalf, rotateHalf, type XyzAtom, type XyzBond } from "./rotateBond";
 import { ToolButton } from "../Sidebar/ToolButton";
@@ -418,7 +418,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     const thisRun = ++runIdRef.current;
 
     debounceRef.current = setTimeout(() => {
-      runEmbed(molecule, method)
+      embedMolecule3DWithMethod(molecule, method)
         .then((result) => {
           if (runIdRef.current !== thisRun) return; // superseded by a newer edit
 
@@ -607,29 +607,6 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
-}
-
-/**
- * The "xtb" method is a two-step chain rather than something
- * embedMolecule3D itself does: first get a real MMFF94-optimized
- * starting geometry entirely client-side (fast, no network dependency),
- * then send *that* to structure3d_server for GFN2-xTB refinement (see
- * io/xtbRefine.ts). Starting xtb from an already-sane geometry converges
- * faster and more reliably than handing it a bare distance-geometry
- * guess would.
- */
-async function runEmbed(
-  molecule: Parameters<typeof embedMolecule3D>[0],
-  method: "quick" | "mmff94" | "xtb",
-): Promise<{ molfile: string; energyKcalMol?: number; converged?: boolean }> {
-  if (method !== "xtb") {
-    return embedMolecule3D(molecule, method);
-  }
-
-  const starting = await embedMolecule3D(molecule, "mmff94");
-  const totalCharge = Object.values(molecule.atoms).reduce((sum, a) => sum + a.charge, 0);
-  const refined = await refineWithXtb(starting.molfile, totalCharge);
-  return { molfile: refined.molfile, energyKcalMol: refined.energyKcalMol, converged: refined.converged };
 }
 
 function embedErrorMessage(err: unknown, t: ReturnType<typeof useT>): string {

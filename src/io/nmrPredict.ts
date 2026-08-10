@@ -31,11 +31,25 @@ export class NmrPredictError extends Error {
 }
 
 export interface ShiftPrediction {
-  /** Index into the RDKit atom ordering of the SMILES that was sent -
-   * NOT the same as this app's own atom ids. Resolve back to a real
-   * atom id via atomOrder from exportSmilesWithAtomOrder (io/smiles.ts)
-   * - see buildAtomLabels below, or NmrReportView.tsx for the diagram
-   * that does this. */
+  /** Index into an atom ordering that depends on which request path
+   * produced this result:
+   *
+   * - Plain SMILES request (no molfile) - RDKit's atom ordering of
+   *   the SMILES that was sent, NOT this app's own atom ids. Resolve
+   *   back to a real atom id via atomOrder from
+   *   exportSmilesWithAtomOrder (io/smiles.ts).
+   * - Molfile request (real 3D geometry supplied - see
+   *   predictNmrSpectrum's molfile parameter) - the SAME order
+   *   Object.keys(fragment.atoms) already gives you for that exact
+   *   fragment, since the molfile sent to the API was built from
+   *   that same key order (see embed3d.ts's exportMol) and the API
+   *   parses connectivity+geometry from the molfile directly rather
+   *   than a separately-parsed SMILES string.
+   *
+   * Either way, buildAtomLabels/equivalenceGroupLabel below just need
+   * *an* atomOrder array consistent with whichever path was used -
+   * they don't care which one it is. See NmrPredictionButton.tsx for
+   * where that choice is made. */
   atomIndex: number;
   predictedShiftPpm: number;
   /** Atoms sharing this value are constitutionally symmetry-equivalent
@@ -168,7 +182,22 @@ export function equivalenceGroupLabel(
     .join(", ");
 }
 
-export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResult> {
+/**
+ * molfile : optional
+ *   A V2000 molfile with explicit Hs and real 3D coordinates (e.g.
+ *   from embed3d.ts's embedMolecule3DWithMethod - see
+ *   NmrPredictionButton.tsx for the "use a real 3D structure" option)
+ *   - when present, the API uses this as the source of BOTH
+ *   connectivity and geometry for shift prediction (real quantum-
+ *   refined or force-field-optimized geometry rather than NMRGraph
+ *   re-embedding its own cruder MMFF conformer blind), and `smiles`
+ *   is only used for the unusual-elements/carbon-count warnings and
+ *   tier 2 multiplicity's separate conformer generation. Since real
+ *   3D coordinates already fully determine stereochemistry, the
+ *   response always has exactly one `results` entry for this path -
+ *   no stereoisomer enumeration, nothing ambiguous left to resolve.
+ */
+export async function predictNmrSpectrum(smiles: string, molfile?: string): Promise<NmrPredictResult> {
   const trimmed = smiles.trim();
   if (!trimmed) throw new NmrPredictError("EMPTY_QUERY");
 
@@ -177,7 +206,7 @@ export async function predictNmrSpectrum(smiles: string): Promise<NmrPredictResu
     res = await fetch(`${NMR_API_BASE}/predict`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ smiles: trimmed }),
+      body: JSON.stringify(molfile ? { smiles: trimmed, molfile } : { smiles: trimmed }),
     });
   } catch {
     throw new NmrPredictError("NETWORK");

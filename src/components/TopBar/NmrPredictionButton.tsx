@@ -4,6 +4,8 @@ import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { exportSmilesWithAtomOrder } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
+import { embedMolecule3DWithMethod, Embed3DError } from "../../io/embed3d";
+import { XtbRefineError } from "../../io/xtbRefine";
 import {
   predictNmrSpectrum,
   NmrPredictError,
@@ -15,6 +17,23 @@ import {
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
 import type { Molecule } from "../../types/chemistry";
+
+// Whether to send the backend a real 3D structure (see
+// embedMolecule3DWithMethod, io/embed3d.ts) instead of letting it
+// re-embed its own MMFF conformer blind from the bare SMILES. "fast"
+// is today's original behavior, unchanged; "xtb" trades real wait
+// time (a network round trip to structure3d_server, potentially many
+// seconds - see xtbRefine.ts's own generous timeout) for
+// quantum-refined geometry, which is genuinely more accurate input to
+// the shift-prediction model than the backend's own plain MMFF embed.
+// Deliberately just these two tiers rather than also exposing
+// "mmff94" as a third middle option - a locally-embedded-but-not-xtb-
+// refined structure doesn't have a clear accuracy edge over what the
+// backend already computes for itself by default, so a 3rd choice
+// there would mostly just be confusing without a clear reason to pick
+// it. (An "exactly match what's in the 3D panel right now" option
+// would be a reasonable follow-up if that specific need comes up.)
+type StructureQuality = "fast" | "xtb";
 
 type PredictState =
   | { phase: "loading" }
@@ -56,6 +75,7 @@ export function NmrPredictionButton() {
   const selected = useMoleculeStore((s) => s.selected);
   const [state, setState] = useState<PredictState | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [structureQuality, setStructureQuality] = useState<StructureQuality>("fast");
   // Which entry of state.results is currently shown - almost always
   // just [0], but can have multiple entries when the input had
   // unassigned ring stereocenters (see NmrPredictResult.results).
@@ -85,17 +105,46 @@ export function NmrPredictionButton() {
           return t("nmr.errorHttp", { status: String(err.params.status) });
       }
     }
+    if (err instanceof Embed3DError || err instanceof XtbRefineError) {
+      // Reuses the message text directly rather than a translated
+      // key - these are the same error classes Molecule3DView already
+      // surfaces, but this button doesn't have that view's
+      // per-code translation table wired up; the Error subclasses'
+      // own messages are already reasonably descriptive on their own
+      // (see embed3d.ts/xtbRefine.ts for what each code means).
+      return err.message || "Could not generate a 3D structure";
+    }
     return err instanceof Error ? err.message : "Prediction failed";
   };
 
-  const runPrediction = async () => {
+  const runPrediction = async (quality: StructureQuality = structureQuality) => {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     if (ids.length === 0) return;
+    setStructureQuality(quality);
     setState({ phase: "loading" });
     try {
       const fragment = extractFragment(molecule, ids);
-      const { smiles, atomOrder } = exportSmilesWithAtomOrder(fragment);
-      const result = await predictNmrSpectrum(smiles);
+      const { smiles, atomOrder: smilesAtomOrder } = exportSmilesWithAtomOrder(fragment);
+
+      let molfile: string | undefined;
+      // Object.keys(fragment.atoms) is the SAME order embed3d.ts's
+      // exportMol uses internally to build the molfile it sends off
+      // for embedding/refinement - so as long as OpenChemLib's H-
+      // saturation step preserves heavy-atom order and only appends
+      // new H atoms after (the standard convention this project
+      // already relies on elsewhere for RDKit), this is exactly the
+      // order the backend's molfile-parsing path uses for its
+      // response's atomIndex values too. No separate export step
+      // needed - just read the same fragment object's own key order.
+      let atomOrder = smilesAtomOrder;
+
+      if (quality === "xtb") {
+        const embedResult = await embedMolecule3DWithMethod(fragment, "xtb");
+        molfile = embedResult.molfile;
+        atomOrder = Object.keys(fragment.atoms);
+      }
+
+      const result = await predictNmrSpectrum(smiles, molfile);
       setSelectedIsomer(0);
       setState({
         phase: "result",
@@ -118,6 +167,36 @@ export function NmrPredictionButton() {
       renderContent={(close) => (
         <div className="nmr-menu">
           {!hasContent && <p className="align-menu__hint">{t("nmr.needStructure")}</p>}
+
+          {hasContent && (
+            <div className="nmr-result__isomer-tabs" role="tablist" aria-label={t("nmr.structureQuality")}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={structureQuality === "fast"}
+                className={
+                  "nmr-result__isomer-tab" +
+                  (structureQuality === "fast" ? " nmr-result__isomer-tab--active" : "")
+                }
+                onClick={() => runPrediction("fast")}
+              >
+                {t("nmr.qualityFast")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={structureQuality === "xtb"}
+                className={
+                  "nmr-result__isomer-tab" +
+                  (structureQuality === "xtb" ? " nmr-result__isomer-tab--active" : "")
+                }
+                onClick={() => runPrediction("xtb")}
+                title={t("nmr.qualityXtbHint")}
+              >
+                {t("nmr.qualityXtb")}
+              </button>
+            </div>
+          )}
 
           {hasContent && state?.phase === "loading" && (
             <div className="structure-search-menu__loading">

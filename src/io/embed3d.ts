@@ -1,6 +1,7 @@
 import { ConformerGenerator, ForceFieldMMFF94, Molecule as OCLMolecule, Resources } from "openchemlib";
 import type { Molecule } from "../types/chemistry";
 import { exportMol } from "./molfile";
+import { refineWithXtb } from "./xtbRefine";
 
 // OpenChemLib's force-field/conformer-generation code (but not basic
 // molfile parsing — see the PARSED_OK check during development) needs its
@@ -52,6 +53,41 @@ export interface Embed3DResult {
    * mainly useful for comparing conformers of the *same* molecule against
    * each other, not as an absolute quality number on its own. */
   energyKcalMol?: number;
+}
+
+export interface Embed3DWithMethodResult {
+  molfile: string;
+  energyKcalMol?: number;
+  converged?: boolean;
+}
+
+/**
+ * Runs the full embedding pipeline for a given method, including the
+ * "xtb" two-step chain: first a real MMFF94-optimized starting
+ * geometry entirely client-side (fast, no network dependency), then
+ * that starting molfile sent to structure3d_server for GFN2-xTB
+ * refinement (see io/xtbRefine.ts). Starting xtb from an already-sane
+ * geometry converges faster and more reliably than handing it a bare
+ * distance-geometry guess would.
+ *
+ * Shared between Molecule3DView (the 3D panel) and
+ * NmrPredictionButton (the "use a real 3D structure" NMR prediction
+ * option) - originally lived only in the former as a private
+ * function, moved here once a second caller needed the exact same
+ * chaining logic rather than reimplementing it.
+ */
+export async function embedMolecule3DWithMethod(
+  molecule: Molecule,
+  method: Embed3DMethod,
+): Promise<Embed3DWithMethodResult> {
+  if (method !== "xtb") {
+    return embedMolecule3D(molecule, method);
+  }
+
+  const starting = await embedMolecule3D(molecule, "mmff94");
+  const totalCharge = Object.values(molecule.atoms).reduce((sum, a) => sum + a.charge, 0);
+  const refined = await refineWithXtb(starting.molfile, totalCharge);
+  return { molfile: refined.molfile, energyKcalMol: refined.energyKcalMol, converged: refined.converged };
 }
 
 /**
