@@ -1878,6 +1878,8 @@
   border-bottom: 1px solid var(--panel-border);
   flex-shrink: 0;
   font-size: 11px;
+  line-height: 16px;
+  min-height: 16px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-soft);
 }

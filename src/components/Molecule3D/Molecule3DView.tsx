@@ -799,20 +799,31 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {rotateState.phase === "active" && rotateEnergy && rotateEnergy.angle === rotateState.angle && (
+      {rotateState.phase === "active" && (
         <div className="molecule-3d-panel__rotate-energy" title={t("view3d.rotateEnergyHint")}>
-          {t("view3d.rotateEnergyLive", { value: rotateEnergy.kcalMol.toFixed(1) })}
-          {rotateBaseEnergy !== null && rotateState.angle !== 0 && (
-            <span
-              className={
-                rotateEnergy.kcalMol - rotateBaseEnergy > 0
-                  ? "molecule-3d-panel__rotate-energy-delta--worse"
-                  : "molecule-3d-panel__rotate-energy-delta--better"
-              }
-            >
-              {" "}
-              · {t("view3d.rotateEnergyDelta", { value: formatSignedDelta(rotateEnergy.kcalMol - rotateBaseEnergy) })}
-            </span>
+          {rotateEnergy ? (
+            <>
+              {t("view3d.rotateEnergyLive", { value: rotateEnergy.kcalMol.toFixed(1) })}
+              {rotateBaseEnergy !== null && rotateEnergy.angle !== 0 && (
+                <span
+                  className={
+                    rotateEnergy.kcalMol - rotateBaseEnergy > 0
+                      ? "molecule-3d-panel__rotate-energy-delta--worse"
+                      : "molecule-3d-panel__rotate-energy-delta--better"
+                  }
+                >
+                  {" "}
+                  ·{" "}
+                  {t("view3d.rotateEnergyDelta", { value: formatSignedDelta(rotateEnergy.kcalMol - rotateBaseEnergy) })}
+                </span>
+              )}
+            </>
+          ) : (
+            // Reserves the same line height as the live readout so the
+            // viewport below doesn't grow/shrink while the first
+            // MMFF94 point is still in flight - see the box's CSS
+            // min-height for the other half of this.
+            "\u00A0"
           )}
         </div>
       )}
