@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus, Highlighter,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
@@ -21,6 +21,7 @@ import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariant
 import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
+import { HighlightColorPicker } from "./HighlightColorPicker";
 import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon } from "./MarkIcons";
 import { useT } from "../../i18n/useT";
 import type { ArrowHeadSize, ArrowVariant, BracketVariant } from "../../types/chemistry";
@@ -50,6 +51,7 @@ export function Sidebar() {
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
+  const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
   // "Align"/"Distribute" operate on whole connected fragments (a fully
   // selected ring, a lone atom, etc.), not individual atoms — see
   // alignAtoms's doc comment for why — so whether they're usable depends
@@ -470,6 +472,22 @@ export function Sidebar() {
           )}
         >
           <AlignCenterVertical size={18} />
+        </ToolDropdown>
+        <ToolDropdown
+          title={t("tool.highlight")}
+          active={false}
+          renderContent={(close) => (
+            <div className="highlight-menu">
+              <SectionLabel>{t("section.highlight")}</SectionLabel>
+              <HighlightColorPicker
+                disabled={selected.size === 0}
+                onChoose={(color) => { highlightSelection(color); close(); }}
+              />
+              {selected.size === 0 && <p className="align-menu__hint">{t("highlight.needSelection")}</p>}
+            </div>
+          )}
+        >
+          <Highlighter size={18} />
         </ToolDropdown>
       </div>
       <ToolButton title={t("tool.cleanUp")} onClick={cleanUpSelection}>

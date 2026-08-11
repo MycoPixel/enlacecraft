@@ -14,6 +14,22 @@ interface BondViewProps {
 
 export function BondView({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: BondViewProps) {
   if (!a1 || !a2) return null;
+  const strokes = <BondStrokes bond={bond} a1={a1} a2={a2} resolvedSide={resolvedSide} r1={r1} r2={r2} />;
+  if (!bond.highlightColor) return strokes;
+  // A thick, translucent underlay along the same segment as the real
+  // bond line(s) — drawn first (so it sits behind), same idea as
+  // AtomView's highlight halo. Only need the endpoints, not to touch any
+  // of the order/stereo-specific line math below.
+  const { p1, p2 } = insetSegment(a1, a2, r1, r2);
+  return (
+    <g>
+      <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={bond.highlightColor} strokeWidth="7" strokeLinecap="round" opacity={0.4} className="bond-highlight" />
+      {strokes}
+    </g>
+  );
+}
+
+function BondStrokes({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: Required<Pick<BondViewProps, "bond" | "a1" | "a2">> & Pick<BondViewProps, "resolvedSide" | "r1" | "r2">) {
 
   // Defensively normalize order: anything other than a real 1/2/3 (e.g. an
   // aromatic "4" or a query bond type from an imported MOL/SDF file) falls

@@ -202,6 +202,48 @@ export function toggleAtomRadical(mol: Molecule, id: string): Molecule {
   return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, radical: !a.radical } } };
 }
 
+/** Sets (or, passed null, clears) an atom's emphasis color — see
+ * Atom.highlightColor's doc comment. */
+export function setAtomHighlight(mol: Molecule, id: string, color: string | null): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, highlightColor: color ?? undefined } } };
+}
+
+/** Sets (or, passed null, clears) a bond's emphasis color — see
+ * Bond.highlightColor's doc comment. */
+export function setBondHighlight(mol: Molecule, id: string, color: string | null): Molecule {
+  const b = mol.bonds[id];
+  if (!b) return mol;
+  return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, highlightColor: color ?? undefined } } };
+}
+
+/**
+ * Applies (or, passed null, clears) an emphasis color across a whole
+ * selection in one step: every selected atom, plus every bond whose
+ * *both* endpoints are selected — so selecting a run of atoms along a
+ * chain highlights that whole stretch, bonds included, not just the
+ * vertices. A bond with only one endpoint selected is left untouched
+ * (matches how the rest of the app already treats "this bond is
+ * selected" as exactly its two atoms being selected — see
+ * useCanvasInteractions' bond-click handling).
+ */
+export function setHighlightForSelection(mol: Molecule, selected: Set<string>, color: string | null): Molecule {
+  if (selected.size === 0) return mol;
+  const atoms = { ...mol.atoms };
+  for (const id of selected) {
+    const a = atoms[id];
+    if (a) atoms[id] = { ...a, highlightColor: color ?? undefined };
+  }
+  const bonds = { ...mol.bonds };
+  for (const b of Object.values(bonds)) {
+    if (selected.has(b.a1) && selected.has(b.a2)) {
+      bonds[b.id] = { ...b, highlightColor: color ?? undefined };
+    }
+  }
+  return { ...mol, atoms, bonds };
+}
+
 export function setBondOrder(mol: Molecule, id: string, order: BondOrder): Molecule {
   const b = mol.bonds[id];
   if (!b) return mol;

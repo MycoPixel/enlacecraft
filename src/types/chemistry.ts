@@ -105,6 +105,16 @@ export interface Atom {
   stereoLabel?: "R" | "S";
   stereoLabelOffsetX?: number;
   stereoLabelOffsetY?: number;
+  /**
+   * Emphasis color for this atom (e.g. to call out which atom a mechanism
+   * step acts on), set via the highlight tool — a hex string like
+   * "#ffcc00", or absent for no highlight. Purely visual, same status as
+   * lonePairs/radical: never touches formula/MW/valence math, and (unlike
+   * those) never renders into any export format (molfile/SMILES/CDXML),
+   * since none of them have a portable way to carry a free-form
+   * highlight color — it's for on-screen emphasis in this app only.
+   */
+  highlightColor?: string;
 }
 
 /**
@@ -127,6 +137,9 @@ export interface Bond {
   order: BondOrder;
   stereo: BondStereo;
   doubleSide: DoubleBondSide;
+  /** Same emphasis-color mechanism as Atom.highlightColor — see its doc
+   * comment (purely visual, not exported). */
+  highlightColor?: string;
 }
 
 /** Live, uncommitted preview of a bond being dragged out from an atom. */

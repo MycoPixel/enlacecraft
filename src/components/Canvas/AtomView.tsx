@@ -317,6 +317,9 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
       onPointerUp={onAtomPointerUp}
       onPointerLeave={clearLongPress}
     >
+      {atom.highlightColor && (
+        <circle r="11" fill={atom.highlightColor} opacity={0.4} className="atom-highlight" />
+      )}
       {selected && <circle r="15" fill="var(--selection)" data-export-exclude="true" />}
       {overValent && (
         <circle r="13" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeDasharray="3 2" data-export-exclude="true" />

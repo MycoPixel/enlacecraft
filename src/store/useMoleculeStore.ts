@@ -361,6 +361,10 @@ interface MoleculeStore {
   toggleAtomRadical: (id: string) => void;
   setBondOrder: (id: string, order: BondOrder) => void;
   setBondStereo: (id: string, stereo: BondStereo) => void;
+  /** Applies (color) or clears (null) an emphasis color across the
+   * current selection — every selected atom, plus every bond whose both
+   * endpoints are selected. No-op with nothing selected. */
+  highlightSelection: (color: string | null) => void;
   /** Swaps a wedge/dash bond's narrow and wide ends in place. */
   flipBondDirection: (id: string) => void;
   cycleDoubleBondSide: (id: string) => void;
@@ -758,6 +762,10 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     toggleAtomRadical: (id) => commit((mol) => M.toggleAtomRadical(mol, id)),
     setBondOrder: (id, order) => commit((mol) => M.setBondOrder(mol, id, order)),
     setBondStereo: (id, stereo) => commit((mol) => M.setBondStereo(mol, id, stereo)),
+    highlightSelection: (color) => {
+      const { selected } = get();
+      commit((mol) => M.setHighlightForSelection(mol, selected, color));
+    },
     flipBondDirection: (id) => commit((mol) => M.flipBondDirection(mol, id)),
     cycleDoubleBondSide: (id) => commit((mol) => M.cycleDoubleBondSide(mol, id)),
     deleteAtom: (id) => commit((mol) => M.deleteAtom(mol, id)),

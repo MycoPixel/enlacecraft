@@ -21,6 +21,7 @@ import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "../Sidebar/ArrowVariantPicker";
 import { BracketVariantPicker } from "../Sidebar/BracketVariantPicker";
 import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon } from "../Sidebar/MarkIcons";
+import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import { useT } from "../../i18n/useT";
 import type { ArrowHeadSize, ArrowVariant, ToolId } from "../../types/chemistry";
 
@@ -71,6 +72,7 @@ export function MobileToolbar() {
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
+  const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
   // Same reasoning as the sidebar's identical computation: align/distribute
   // operate on whole connected fragments, not raw atom count.
   const selectedFragmentCount = useMemo(
@@ -276,6 +278,13 @@ export function MobileToolbar() {
                   <Wand2 size={18} />
                 </ToolButton>
               </div>
+
+              <SectionLabel>{t("section.highlight")}</SectionLabel>
+              <HighlightColorPicker
+                disabled={selected.size === 0}
+                onChoose={(color) => { highlightSelection(color); setPanel(null); }}
+              />
+              {selected.size === 0 && <p className="align-menu__hint">{t("highlight.needSelection")}</p>}
 
               <SectionLabel>{t("section.annotations")}</SectionLabel>
               <div className="row">

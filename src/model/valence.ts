@@ -1,4 +1,4 @@
-import type { Atom, Molecule } from "../types/chemistry";
+import type { Atom, Element, Molecule } from "../types/chemistry";
 import { VALENCE, ATOMIC_WEIGHT, ABBREVIATED_GROUPS, ISOTOPE_PRESETS } from "./constants";
 import { angleOf, largestGapAngle } from "./geometry";
 
@@ -89,12 +89,46 @@ export function hSuffixPlacement(mol: Molecule, atomId: string): HSuffixPlacemen
  *  - carbon-like atoms (C, Si, B) lose one bonding site per unit of charge
  *    in either direction (e.g. carbocation / carbanion -> 3)
  */
-export function effectiveValence(el: keyof typeof VALENCE, charge: number): number {
-  const base = VALENCE[el] ?? 0;
+function applyChargeToBase(base: number, el: keyof typeof VALENCE, charge: number): number {
   if (el === "C" || el === "Si" || el === "B") {
     return Math.max(0, base - Math.abs(charge));
   }
   return Math.max(0, base + charge);
+}
+
+export function effectiveValence(el: keyof typeof VALENCE, charge: number): number {
+  return applyChargeToBase(VALENCE[el] ?? 0, el, charge);
+}
+
+/**
+ * A few elements routinely appear at more than one standard valence
+ * depending on oxidation state, not just VALENCE's single (lowest, most
+ * common) number: sulfur as a plain thioether/thiol (2), a sulfoxide (4),
+ * or a sulfone/sulfonyl/sulfonate (6); phosphorus as a phosphine (3) or a
+ * phosphate/phosphonium-like pentavalent center (5). Order matters here —
+ * resolvedValence below picks the *smallest* candidate that still covers
+ * however many bonds are actually drawn, so a plain -S- still reads as
+ * divalent (matching VALENCE.S) while the same element with two S=O
+ * bonds on it reads as hexavalent instead of being flagged as an invalid
+ * structure.
+ */
+const EXPANDED_VALENCES: Partial<Record<Element, number[]>> = {
+  S: [2, 4, 6],
+  P: [3, 5],
+};
+
+/** Like effectiveValence, but for EXPANDED_VALENCES elements picks
+ * whichever charge-adjusted candidate valence actually fits `used` (the
+ * bond-order sum already drawn) instead of always the lowest one. Every
+ * other element falls straight through to the ordinary single-valence
+ * effectiveValence. If `used` exceeds even the largest candidate, returns
+ * that largest one anyway — a genuinely over-valent atom (e.g. a 7-bonded
+ * sulfur) still gets flagged, just against the right ceiling. */
+function resolvedValence(el: Element, charge: number, used: number): number {
+  const candidates = EXPANDED_VALENCES[el];
+  if (!candidates) return effectiveValence(el, charge);
+  const adjusted = candidates.map((base) => applyChargeToBase(base, el, charge));
+  return adjusted.find((v) => v >= used) ?? adjusted[adjusted.length - 1];
 }
 
 export function usedValence(mol: Molecule, atomId: string): number {
@@ -112,7 +146,7 @@ export function implicitH(mol: Molecule, atomId: string): number {
   // bonding, so there's no sensible fixed number of implicit H to add.
   if (VALENCE[a.element] === undefined) return 0;
   const used = usedValence(mol, atomId);
-  const eff = effectiveValence(a.element, a.charge);
+  const eff = resolvedValence(a.element, a.charge, used);
   return Math.max(0, eff - used);
 }
 
@@ -120,7 +154,8 @@ export function isOverValent(mol: Molecule, atomId: string): boolean {
   const a = mol.atoms[atomId];
   if (a.group) return false;
   if (VALENCE[a.element] === undefined) return false;
-  return usedValence(mol, atomId) > effectiveValence(a.element, a.charge);
+  const used = usedValence(mol, atomId);
+  return used > resolvedValence(a.element, a.charge, used);
 }
 
 export interface AtomLabelInfo {
