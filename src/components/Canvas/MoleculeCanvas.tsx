@@ -52,7 +52,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const functionalGroupDesiredAngle = useMoleculeStore((s) => s.functionalGroupDesiredAngle);
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
-  const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown } = useCanvasInteractions(svgRef);
+  const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu } = useCanvasInteractions(svgRef);
 
   const explicitHydrogens = useMemo(
     () => (showExpandedFormula ? computeExplicitHydrogens(molecule) : []),
@@ -146,7 +146,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
       onPointerLeave={onPointerLeave}
       onDoubleClick={onDoubleClick}
       onWheel={onWheel}
-      onContextMenu={(e) => e.preventDefault()}
+      onContextMenu={onContextMenu}
     >      <defs>
         <pattern id="grid" width={24} height={24} patternUnits="userSpaceOnUse">
           <circle cx={1} cy={1} r={1} fill="var(--grid-dot)" />

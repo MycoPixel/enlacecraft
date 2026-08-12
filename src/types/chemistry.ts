@@ -128,7 +128,10 @@ export interface Atom {
   mapNumberOffsetX?: number;
   mapNumberOffsetY?: number;
 }
-/** *  - "auto" (the default): automatically resolved from the surrounding
+
+/**
+ * For a double bond, which side the second line is drawn on:
+ *  - "auto" (the default): automatically resolved from the surrounding
  *    structure — the second line is drawn toward whichever side the bonded
  *    atoms' other neighbors sit on (e.g. the interior of a ring). Re-evaluated
  *    live as the molecule changes.

@@ -12,6 +12,7 @@ import { StatusBar } from "./components/StatusBar/StatusBar";
 import { MobileToolbar } from "./components/MobileToolbar/MobileToolbar";
 import { ShortcutsOverlay } from "./components/common/ShortcutsOverlay";
 import { OnboardingOverlay } from "./components/common/OnboardingOverlay";
+import { ContextMenu } from "./components/ContextMenu/ContextMenu";
 
 // Lazy: pulls in 3Dmol.js + OpenChemLib (a few MB combined), which most
 // sketching sessions never need — see vite.config.ts's manualChunks for
@@ -67,7 +68,7 @@ export default function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(() => !hasSeenOnboarding);
 
   useKeyboardShortcuts();
-  useClipboard(svgRef);
+  const { copySelection, pasteFromClipboard } = useClipboard(svgRef);
   useAutosave();
 
   useEffect(() => {
@@ -149,6 +150,7 @@ export default function App() {
         open={onboardingOpen}
         onClose={() => { setOnboardingOpen(false); markOnboardingSeen(); }}
       />
+      <ContextMenu copySelection={copySelection} pasteFromClipboard={pasteFromClipboard} />
     </div>
   );
 }

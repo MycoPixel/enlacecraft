@@ -79,10 +79,11 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
 
     if (e.button === 2) {
-      // Right-click is a quick way back to Select/Move, matching the common
-      // "right-click to stop whatever you were doing" convention — it
-      // doesn't also act on whatever's under the cursor, just switches tools.
-      useMoleculeStore.getState().setTool("select");
+      // Right-click no longer does anything on pointerdown itself — it's
+      // handled by the real context menu, wired to the browser's own
+      // contextmenu event (see onContextMenu below) so it fires exactly
+      // once per right-click regardless of platform, rather than trying
+      // to reconstruct that from raw pointer events here.
       return;
     }
     const store = useMoleculeStore.getState();
@@ -875,5 +876,27 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     store.setHoverPoint(null);
   }, []);
 
-  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown };
+  /** Right-click (or, on a touchpad/touchscreen, whatever gesture the OS
+   * maps to a "contextmenu" event) — opens the ContextMenu component at
+   * the click point, hit-testing what's underneath so it can offer
+   * atom/bond-specific actions on top of the always-available
+   * selection/canvas ones. Doesn't itself change tool or selection; it's
+   * purely "figure out what's here and let the menu component decide
+   * what to show for it". */
+  const onContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    // Guard on button === 2 specifically — some mobile browsers also
+    // dispatch a contextmenu event on a long-press (reported as button
+    // 0), which would otherwise collide with AtomView's own long-press
+    // handling (opens the label editor). Right mouse button is the only
+    // thing meant to open this menu.
+    if (e.button !== 2) return;
+    const store = useMoleculeStore.getState();
+    const pt = clientToWorld(e.clientX, e.clientY);
+    const atomId = atomAt(store.molecule, pt);
+    const bondId = atomId ? null : bondAt(store.molecule, pt);
+    store.setContextMenu({ x: e.clientX, y: e.clientY, atomId, bondId });
+  }, [clientToWorld]);
+
+  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu };
 }

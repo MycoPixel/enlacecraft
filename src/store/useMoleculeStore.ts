@@ -241,6 +241,10 @@ interface MoleculeStore {
    * own doc comment. Read by the rotate handle's grab/drag handling for
    * shift-snap's baseline, and by resetRotation. */
   rotationSession: RotationSession | null;
+  /** The open right-click context menu, if any — screen coordinates
+   * (matches ToolDropdown's own portal-positioning convention) plus
+   * whichever atom/bond, if either, was under the cursor when it opened. */
+  contextMenu: { x: number; y: number; atomId: string | null; bondId: string | null } | null;
   showHydrogens: boolean;
   /** Draws every carbon's implicit hydrogens as real bonds + "H" labels
    * fanned out around it — a full "expanded structural formula" view, as
@@ -309,6 +313,14 @@ interface MoleculeStore {
    * nothing in this exact selection has an active session, e.g. after a
    * selection change. */
   resetRotation: () => void;
+  setContextMenu: (m: { x: number; y: number; atomId: string | null; bondId: string | null } | null) => void;
+  setAtomHighlightColor: (id: string, color: string | null) => void;
+  setBondHighlightColor: (id: string, color: string | null) => void;
+  /** Copies the current selection and immediately re-pastes it offset a
+   * little down-and-right of the original, selecting the new copy — the
+   * one-step "Duplicate" a right-click menu needs, as opposed to
+   * copy-then-separately-paste. */
+  duplicateSelection: () => void;
   toggleShowHydrogens: () => void;
   toggleShowExpandedFormula: () => void;
   toggleMonochromeAtoms: () => void;
@@ -621,6 +633,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     lassoPath: null,
     pendingMapAtom: null,
     rotationSession: null,
+    contextMenu: null,
     showHydrogens: false,
     showExpandedFormula: false,
     monochromeAtoms: true,
@@ -715,6 +728,23 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
           if (orig && atoms[id]) atoms[id] = { ...atoms[id], x: orig.x, y: orig.y };
         }
         return { ...mol, atoms };
+      });
+    },
+    setContextMenu: (m) => set({ contextMenu: m }),
+    setAtomHighlightColor: (id, color) => commit((mol) => M.setAtomHighlight(mol, id, color)),
+    setBondHighlightColor: (id, color) => commit((mol) => M.setBondHighlight(mol, id, color)),
+    duplicateSelection: () => {
+      const { molecule, selected, annotations } = get();
+      if (selected.size === 0) return;
+      const fragment = M.subMolecule(molecule, selected);
+      if (Object.keys(fragment.atoms).length === 0) return;
+      const before: Snapshot = { molecule, annotations };
+      const { mol: merged, newAtomIds } = M.insertMolecule(molecule, fragment, 24, 24);
+      set({
+        molecule: merged,
+        past: [...get().past, before].slice(-HISTORY_LIMIT),
+        future: [],
+        selected: new Set(newAtomIds),
       });
     },
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),

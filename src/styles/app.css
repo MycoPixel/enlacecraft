@@ -2099,6 +2099,106 @@
   overflow-y: auto;
 }
 
+.context-menu {
+  /* Same portal/fixed-positioning approach as .tool-dropdown, just
+     triggered by a right-click point instead of a toolbar button's own
+     rect — see ContextMenu.tsx. */
+  position: fixed;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  z-index: 1100;
+  min-width: 190px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+
+.context-menu__label {
+  padding: 6px 8px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+}
+
+.context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu__item:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.context-menu__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.context-menu__item svg {
+  flex-shrink: 0;
+  color: var(--ink-soft);
+}
+
+.context-menu__item--danger {
+  color: var(--danger);
+}
+
+.context-menu__item--danger svg {
+  color: var(--danger);
+}
+
+.context-menu__row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 8px 6px;
+}
+
+.context-menu__chip {
+  flex: 1;
+  height: 28px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.context-menu__chip:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.context-menu__chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.context-menu__divider {
+  height: 1px;
+  background: var(--panel-border);
+  margin: 5px 4px;
+}
+
 .export-dropdown__item {
   padding: 9px 12px;
   text-align: left;
