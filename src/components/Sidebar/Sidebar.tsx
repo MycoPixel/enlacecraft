@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  MousePointer2, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
+  MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus, Highlighter,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus, Highlighter, Hash, Trash2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
@@ -47,6 +47,8 @@ export function Sidebar() {
   const resetView = useMoleculeStore((s) => s.resetView);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
   const molecule = useMoleculeStore((s) => s.molecule);
+  const clearAllMapNumbers = useMoleculeStore((s) => s.clearAllMapNumbers);
+  const hasMapNumbers = useMemo(() => Object.values(molecule.atoms).some((a) => a.mapNumber != null), [molecule.atoms]);
   const selected = useMoleculeStore((s) => s.selected);
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
@@ -151,6 +153,9 @@ export function Sidebar() {
       <SectionLabel>{t("section.select")}</SectionLabel>
       <ToolButton title={t("tool.selectHint")} active={tool === "select"} onClick={() => setTool("select")}>
         <MousePointer2 size={18} />
+      </ToolButton>
+      <ToolButton title={t("tool.lasso")} active={tool === "lasso"} onClick={() => setTool("lasso")}>
+        <Lasso size={18} />
       </ToolButton>
       <ToolButton title={t("tool.pan")} active={tool === "pan"} onClick={() => setTool("pan")}>
         <Hand size={18} />
@@ -356,6 +361,14 @@ export function Sidebar() {
         <ToolButton title={t("tool.stereoLabel")} active={tool === "stereo-label"} onClick={() => setTool("stereo-label")}>
           <StereoLabelIcon />
         </ToolButton>
+        <ToolButton title={t("tool.mapNumber")} active={tool === "map-number"} onClick={() => setTool("map-number")}>
+          <Hash size={16} />
+        </ToolButton>
+        {hasMapNumbers && (
+          <ToolButton title={t("tool.clearMapNumbers")} onClick={clearAllMapNumbers}>
+            <Trash2 size={16} />
+          </ToolButton>
+        )}
       </div>
 
       <div className="sidebar-divider" />

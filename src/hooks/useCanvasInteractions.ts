@@ -1,7 +1,7 @@
 import { useCallback, useRef, type RefObject } from "react";
 import type { Annotation, Molecule, Point, RingAttachment, RingTemplate, FunctionalGroupAttachment, FunctionalGroupTemplate } from "../types/chemistry";
 import { useMoleculeStore } from "../store/useMoleculeStore";
-import { atomAt, atomsInRect, bondAt, annotationsInRect } from "../engine/hitTest";
+import { atomAt, atomsInRect, bondAt, annotationsInRect, atomsInPolygon, annotationsInPolygon } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
 import { neighborIds } from "../model/valence";
 import { computeChainPoints } from "../engine/chainPlacement";
@@ -22,6 +22,7 @@ type DragState =
   | { mode: "chain"; from: string | null; start: Point }
   | { mode: "erase"; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "marquee"; base: Set<string>; annotationBase: Set<string>; start: Point }
+  | { mode: "lasso"; base: Set<string>; annotationBase: Set<string>; points: Point[] }
   | { mode: "arrow-draw"; start: Point }
   | { mode: "bracket-draw"; start: Point };
 
@@ -134,7 +135,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
-    if (tool === "select") {
+    if (tool === "select" || tool === "lasso") {
       if (hitAtom) {
         // Clicking an atom is a different selection target entirely — any
         // active annotation selection is unrelated and gets cleared.
@@ -193,13 +194,18 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         }
       } else {
         store.setAtomEditTarget(null);
-        // Empty canvas: start a rectangle ("marquee") selection instead of panning.
+        // Empty canvas: start a rectangle ("marquee") selection, or with
+        // the lasso tool active, a freeform path — instead of panning.
         // Use the dedicated Pan tool, or a middle-mouse drag, to pan.
         const base = e.shiftKey ? new Set(store.selected) : new Set<string>();
         const annotationBase = e.shiftKey ? new Set(store.selectedAnnotationIds) : new Set<string>();
         store.setSelected(base);
         store.setSelectedAnnotationIds(annotationBase);
-        dragRef.current = { mode: "marquee", base, annotationBase, start: pt };
+        if (tool === "lasso") {
+          dragRef.current = { mode: "lasso", base, annotationBase, points: [pt] };
+        } else {
+          dragRef.current = { mode: "marquee", base, annotationBase, start: pt };
+        }
       }
       return;
     }
@@ -275,6 +281,11 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (tool === "radical") {
       if (hitAtom) store.toggleAtomRadical(hitAtom);
+      return;
+    }
+
+    if (tool === "map-number") {
+      if (hitAtom) store.handleMapNumberClick(hitAtom);
       return;
     }
 
@@ -477,6 +488,29 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
+    if (drag.mode === "lasso") {
+      // Only append once the finger/mouse has actually moved a few world
+      // units since the last recorded point — otherwise a slow drag piles
+      // up a point virtually every pointermove event, which both bloats
+      // the path for no visual benefit and makes atomsInPolygon/render
+      // work harder than it needs to every frame.
+      const last = drag.points[drag.points.length - 1];
+      if (dist(last, pt) > 4) drag.points.push(pt);
+
+      const enclosed = atomsInPolygon(store.molecule, drag.points);
+      const union = new Set(drag.base);
+      enclosed.forEach((id) => union.add(id));
+      store.setSelected(union);
+
+      const enclosedAnnotations = annotationsInPolygon(store.annotations, drag.points);
+      const annotationUnion = new Set(drag.annotationBase);
+      enclosedAnnotations.forEach((id) => annotationUnion.add(id));
+      store.setSelectedAnnotationIds(annotationUnion);
+
+      store.setLassoPath([...drag.points]);
+      return;
+    }
+
     if (drag.mode === "bond" || drag.mode === "atom-bond") {
       const fromAtom = store.molecule.atoms[drag.from];
       if (fromAtom) {
@@ -614,6 +648,11 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
+    if (drag.mode === "lasso") {
+      store.setLassoPath(null);
+      return;
+    }
+
     if (drag.mode === "ring") {
       // Commits wherever the finger actually lifted, using the same
       // attachment resolution as a mouse click (see onPointerDown's
@@ -735,7 +774,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
   const onDoubleClick = useCallback((e: React.MouseEvent) => {
     const store = useMoleculeStore.getState();
-    if (store.tool !== "select") return;
+    if (store.tool !== "select" && store.tool !== "lasso") return;
     const { molecule } = store;
     const pt = clientToWorld(e.clientX, e.clientY);
     const hitAtom = atomAt(molecule, pt);

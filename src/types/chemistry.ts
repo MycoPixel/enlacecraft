@@ -115,10 +115,17 @@ export interface Atom {
    * highlight color — it's for on-screen emphasis in this app only.
    */
   highlightColor?: string;
+  /**
+   * Reaction atom-mapping number (the same integer on a reactant atom and
+   * the product atom it becomes, e.g. tracking which carbon ends up
+   * where across an arrow) — set via the "map-number" tool. Purely a
+   * label for the person reading the scheme: like highlightColor, this
+   * never affects formula/MW/valence math and never round-trips through
+   * any export format, since none of molfile/SMILES/CDXML's own
+   * atom-mapping conventions are wired up on the read or write side here.
+   */
+  mapNumber?: number;
 }
-
-/**
- * For a double bond, which side the second line is drawn on:
  *  - "auto" (the default): automatically resolved from the surrounding
  *    structure — the second line is drawn toward whichever side the bonded
  *    atoms' other neighbors sit on (e.g. the interior of a ring). Re-evaluated
@@ -210,6 +217,7 @@ export interface ViewTransform {
 
 export type ToolId =
   | "select"
+  | "lasso"
   | "pan"
   | "erase"
   | "bond-1"
@@ -228,6 +236,7 @@ export type ToolId =
   | "radical"
   | "isotope"
   | "stereo-label"
+  | "map-number"
   | "text"
   | "arrow"
   | "bracket"

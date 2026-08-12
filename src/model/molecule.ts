@@ -244,6 +244,34 @@ export function setHighlightForSelection(mol: Molecule, selected: Set<string>, c
   return { ...mol, atoms, bonds };
 }
 
+/** Sets (or, passed null, clears) an atom's reaction map number — see
+ * Atom.mapNumber's doc comment. */
+export function setAtomMapNumber(mol: Molecule, id: string, n: number | null): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, mapNumber: n ?? undefined } } };
+}
+
+/** The next never-yet-used map number for this molecule (one past
+ * whatever's currently the highest), or 1 if nothing's mapped yet. */
+export function nextMapNumber(mol: Molecule): number {
+  let max = 0;
+  for (const a of Object.values(mol.atoms)) {
+    if (typeof a.mapNumber === "number" && a.mapNumber > max) max = a.mapNumber;
+  }
+  return max + 1;
+}
+
+/** Clears every atom's map number in one step (a "start over" escape
+ * hatch for the map-number tool). */
+export function clearAllMapNumbers(mol: Molecule): Molecule {
+  const atoms = { ...mol.atoms };
+  for (const id in atoms) {
+    if (atoms[id].mapNumber != null) atoms[id] = { ...atoms[id], mapNumber: undefined };
+  }
+  return { ...mol, atoms };
+}
+
 export function setBondOrder(mol: Molecule, id: string, order: BondOrder): Molecule {
   const b = mol.bonds[id];
   if (!b) return mol;

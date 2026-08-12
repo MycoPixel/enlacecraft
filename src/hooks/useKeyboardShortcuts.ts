@@ -157,6 +157,7 @@ export function useKeyboardShortcuts() {
       if (!(e.ctrlKey || e.metaKey)) {
         switch (e.key.toLowerCase()) {
           case "v": setTool("select"); break;
+          case "l": setTool("lasso"); break;
           case "h": toggleShowHydrogens(); break;
           case "b": setTool("bond-1"); break;
           case "c": setTool("chain"); break;

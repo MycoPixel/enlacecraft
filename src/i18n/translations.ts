@@ -189,6 +189,7 @@ export const translations: Record<Lang, Dict> = {
 
     "tool.select": "Select / Move (V)",
     "tool.selectHint": "Select / Move (V) — drag empty space to marquee-select, double-click a molecule to select it all",
+    "tool.lasso": "Lasso select (L) — drag a freeform outline around atoms/bonds to select them",
     "tool.pan": "Pan (drag canvas, or middle-click drag from any tool)",
     "tool.erase": "Erase (E)",
     "tool.bondSingle": "Single bond (B / 1)",
@@ -203,6 +204,8 @@ export const translations: Record<Lang, Dict> = {
     "tool.lonePair": "Lone pair (click atom to cycle 0-4)",
     "tool.radical": "Radical electron (click atom to toggle)",
     "tool.stereoLabel": "R/S label (click atom to cycle; manually asserted, not computed)",
+    "tool.mapNumber": "Atom map number — click an atom, then click its matching atom on the other side of the reaction to number both the same; click a numbered atom to clear it",
+    "tool.clearMapNumbers": "Clear all atom map numbers",
     "tool.zoomIn": "Zoom in",
     "tool.zoomOut": "Zoom out",
     "tool.resetView": "Reset view (center and fit what's drawn)",
@@ -660,6 +663,7 @@ export const translations: Record<Lang, Dict> = {
 
     "tool.select": "Seleccionar / mover (V)",
     "tool.selectHint": "Seleccionar / mover (V) — arrastra en un espacio vacío para seleccionar con un rectángulo, doble clic en una molécula para seleccionarla completa",
+    "tool.lasso": "Selección de lazo (L) — arrastra un contorno libre alrededor de átomos/enlaces para seleccionarlos",
     "tool.pan": "Desplazar vista (arrastra el lienzo, o clic central desde cualquier herramienta)",
     "tool.erase": "Borrar (E)",
     "tool.bondSingle": "Enlace simple (B / 1)",
@@ -674,6 +678,8 @@ export const translations: Record<Lang, Dict> = {
     "tool.lonePair": "Par libre (clic en átomo para ciclar 0-4)",
     "tool.radical": "Electrón radical (clic en átomo para alternar)",
     "tool.stereoLabel": "Etiqueta R/S (clic en átomo para ciclar; asignada manualmente, no calculada)",
+    "tool.mapNumber": "Número de mapeo de átomo — haz clic en un átomo y luego en su átomo correspondiente al otro lado de la reacción para numerar ambos igual; haz clic en un átomo numerado para quitar el número",
+    "tool.clearMapNumbers": "Quitar todos los números de mapeo",
     "tool.zoomIn": "Acercar",
     "tool.zoomOut": "Alejar",
     "tool.resetView": "Restablecer vista (centrar y ajustar el dibujo)",

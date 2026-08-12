@@ -26,6 +26,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const atomMoveAnchor = useMoleculeStore((s) => s.atomMoveAnchor);
   const chainPreview = useMoleculeStore((s) => s.chainPreview);
   const marqueeRect = useMoleculeStore((s) => s.marqueeRect);
+  const lassoPath = useMoleculeStore((s) => s.lassoPath);
   const tool = useMoleculeStore((s) => s.tool);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const showExpandedFormula = useMoleculeStore((s) => s.showExpandedFormula);
@@ -103,7 +104,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   // it (see onRotateHandleDown) rotates by any angle, not just the
   // sidebar's fixed ±30° nudges.
   const rotateHandle = (() => {
-    if (tool !== "select" || selected.size < 2) return null;
+    if ((tool !== "select" && tool !== "lasso") || selected.size < 2) return null;
     const positions = [...selected].map((id) => molecule.atoms[id]).filter(Boolean);
     if (positions.length < 2) return null;
     const minX = Math.min(...positions.map((p) => p.x));
@@ -130,7 +131,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
     return () => observer.disconnect();
   }, [svgRef, setCanvasSize]);
 
-  const cursor = tool === "pan" ? "grab" : tool === "select" ? "default" : "crosshair";
+  const cursor = tool === "pan" ? "grab" : tool === "select" || tool === "lasso" ? "default" : "crosshair";
 
   return (
     <>
@@ -557,6 +558,20 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             stroke="var(--accent)"
             strokeWidth={1.2}
             strokeDasharray="4 3"
+            vectorEffect="non-scaling-stroke"
+            pointerEvents="none"
+            data-export-exclude="true"
+          />
+        )}
+        {lassoPath && lassoPath.length > 1 && (
+          <polygon
+            points={lassoPath.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="var(--accent)"
+            fillOpacity={0.12}
+            stroke="var(--accent)"
+            strokeWidth={1.2}
+            strokeDasharray="4 3"
+            strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
             pointerEvents="none"
             data-export-exclude="true"

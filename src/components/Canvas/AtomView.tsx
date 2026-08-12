@@ -51,6 +51,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const labelEditTarget = useMoleculeStore((s) => s.labelEditTarget);
   const setLabelEditTarget = useMoleculeStore((s) => s.setLabelEditTarget);
   const setAtomLabelOf = useMoleculeStore((s) => s.setAtomLabelOf);
+  const isPendingMapAtom = useMoleculeStore((s) => s.pendingMapAtom === atom.id);
   const editing = labelEditTarget === atom.id;
   const { visible: showLabel, text, hSuffix, isotopePrefix } = atomLabelInfo(mol, atom.id, showHydrogens, atomLabelRevealTargets.has(atom.id));
   const color = overValent ? "var(--danger)" : monochrome ? "var(--ink)" : ELEMENT_COLOR[atom.element] || "var(--ink)";
@@ -323,6 +324,23 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
       {selected && <circle r="15" fill="var(--selection)" data-export-exclude="true" />}
       {overValent && (
         <circle r="13" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeDasharray="3 2" data-export-exclude="true" />
+      )}
+      {isPendingMapAtom && (
+        <circle r="13" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="2 2" data-export-exclude="true" className="atom-map-pending" />
+      )}
+      {atom.mapNumber != null && (
+        <text
+          x={-11}
+          y={-8}
+          fontSize="9"
+          fontWeight="700"
+          textAnchor="end"
+          fill="var(--accent)"
+          className="atom-map-number"
+          style={{ pointerEvents: "none", userSelect: "none" }}
+        >
+          {atom.mapNumber}
+        </text>
       )}
       {showLabel && !editing ? (
         <>

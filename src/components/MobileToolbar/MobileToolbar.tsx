@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import {
-  MousePointer2, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
+  MousePointer2, Lasso, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
   MoreHorizontal, Group, Bookmark, BookmarkPlus, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "../Sidebar/ToolButton";
@@ -68,6 +68,8 @@ export function MobileToolbar() {
   const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
   const setFunctionalGroupTemplateId = useMoleculeStore((s) => s.setFunctionalGroupTemplateId);
   const molecule = useMoleculeStore((s) => s.molecule);
+  const clearAllMapNumbers = useMoleculeStore((s) => s.clearAllMapNumbers);
+  const hasMapNumbers = useMemo(() => Object.values(molecule.atoms).some((a) => a.mapNumber != null), [molecule.atoms]);
   const selected = useMoleculeStore((s) => s.selected);
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
@@ -191,6 +193,14 @@ export function MobileToolbar() {
                 <ToolButton big title={t("tool.stereoLabel")} active={tool === "stereo-label"} onClick={() => choose("stereo-label")}>
                   <StereoLabelIcon />
                 </ToolButton>
+                <ToolButton big title={t("tool.mapNumber")} active={tool === "map-number"} onClick={() => choose("map-number")}>
+                  <Hash size={18} />
+                </ToolButton>
+                {hasMapNumbers && (
+                  <ToolButton big title={t("tool.clearMapNumbers")} onClick={() => { clearAllMapNumbers(); setPanel(null); }}>
+                    <Trash2 size={18} />
+                  </ToolButton>
+                )}
               </div>
 
               <SubsectionLabel>{t("section.groupsAbbreviated")}</SubsectionLabel>
@@ -250,6 +260,16 @@ export function MobileToolbar() {
                   </button>
                 </div>
               )}
+
+              <SectionLabel>{t("section.select")}</SectionLabel>
+              <div className="row">
+                <ToolButton big title={t("tool.selectHint")} active={tool === "select"} onClick={() => { choose("select"); setPanel(null); }}>
+                  <MousePointer2 size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.lasso")} active={tool === "lasso"} onClick={() => { choose("lasso"); setPanel(null); }}>
+                  <Lasso size={18} />
+                </ToolButton>
+              </div>
 
               <SectionLabel>{t("section.transform")}</SectionLabel>
               <div className="row">

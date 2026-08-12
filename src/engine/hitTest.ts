@@ -48,6 +48,58 @@ export function atomsInRect(mol: Molecule, corner1: Point, corner2: Point): Set<
   return result;
 }
 
+/** Standard ray-casting point-in-polygon test, used by the freeform
+ * ("lasso") selection tool below — works for the arbitrary, possibly
+ * concave/self-crossing path a finger or mouse actually draws, which a
+ * simple bounding-box check (as the rectangle marquee above gets away
+ * with) can't handle. */
+export function pointInPolygon(pt: Point, polygon: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    const crosses = yi > pt.y !== yj > pt.y;
+    if (crosses && pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Lasso equivalent of atomsInRect — an atom counts as enclosed once the
+ * path drawn so far has at least 3 points (a real polygon) and the atom's
+ * position is inside it. */
+export function atomsInPolygon(mol: Molecule, polygon: Point[]): Set<string> {
+  const result = new Set<string>();
+  if (polygon.length < 3) return result;
+  for (const id in mol.atoms) {
+    if (pointInPolygon(mol.atoms[id], polygon)) result.add(id);
+  }
+  return result;
+}
+
+/** Lasso equivalent of annotationsInRect — same "fully enclosed, not just
+ * touched" spirit, approximated (since exactly clipping a rectangle
+ * against an arbitrary polygon is overkill here) by requiring every
+ * corner of the annotation's own bounding box to fall inside the lasso
+ * path. */
+export function annotationsInPolygon(annotations: Record<string, Annotation>, polygon: Point[]): Set<string> {
+  const result = new Set<string>();
+  if (polygon.length < 3) return result;
+  for (const id in annotations) {
+    const ann = annotations[id];
+    const corners: Point[] =
+      ann.kind === "arrow"
+        ? [{ x: ann.x1, y: ann.y1 }, { x: ann.x2, y: ann.y2 }]
+        : [
+            { x: ann.x, y: ann.y },
+            { x: ann.x + ann.width, y: ann.y },
+            { x: ann.x, y: ann.y + ann.height },
+            { x: ann.x + ann.width, y: ann.y + ann.height },
+          ];
+    if (corners.every((c) => pointInPolygon(c, polygon))) result.add(id);
+  }
+  return result;
+}
+
 /**
  * Annotation ids whose full bounding box (both endpoints for an arrow, the
  * x/y/width/height box for text and brackets) lies within the rectangle

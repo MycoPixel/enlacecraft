@@ -228,6 +228,14 @@ interface MoleculeStore {
   /** Live drag-to-grow preview for the chain tool; see engine/chainPlacement.ts. */
   chainPreview: ChainPreview | null;
   marqueeRect: MarqueeRect | null;
+  /** Live drag-to-grow path (world coords) for the freeform ("lasso")
+   * selection tool; null when not actively dragging one. */
+  lassoPath: Point[] | null;
+  /** The atom waiting for its pair while the map-number tool is active
+   * (set by a first click, consumed — and cleared — by a second click on
+   * a different atom, which assigns both the same new number). Null when
+   * nothing's armed. */
+  pendingMapAtom: string | null;
   showHydrogens: boolean;
   /** Draws every carbon's implicit hydrogens as real bonds + "H" labels
    * fanned out around it — a full "expanded structural formula" view, as
@@ -284,6 +292,12 @@ interface MoleculeStore {
   setAtomMoveAnchor: (a: AtomMoveAnchor | null) => void;
   setChainPreview: (p: ChainPreview | null) => void;
   setMarqueeRect: (r: MarqueeRect | null) => void;
+  setLassoPath: (p: Point[] | null) => void;
+  /** Handles one atom click while the map-number tool is active — see
+   * pendingMapAtom's doc comment for the click/click pairing behavior,
+   * and clicking an already-numbered atom clears its number instead. */
+  handleMapNumberClick: (atomId: string) => void;
+  clearAllMapNumbers: () => void;
   toggleShowHydrogens: () => void;
   toggleShowExpandedFormula: () => void;
   toggleMonochromeAtoms: () => void;
@@ -592,6 +606,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     atomMoveAnchor: null,
     chainPreview: null,
     marqueeRect: null,
+    lassoPath: null,
+    pendingMapAtom: null,
     showHydrogens: false,
     showExpandedFormula: false,
     monochromeAtoms: true,
@@ -599,7 +615,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     embed3DMethod: "quick",
     canvasSize: { width: 800, height: 600 },
 
-    setTool: (t) => set({ tool: t }),
+    setTool: (t) => set((s) => ({ tool: t, pendingMapAtom: s.tool === "map-number" && t !== "map-number" ? null : s.pendingMapAtom })),
     setAtomElement: (e) => set({ atomElement: e, atomGroup: null, atomIsotope: null, atomReactiveSite: null }),
     setAtomGroup: (g) => set({ atomGroup: g, atomIsotope: null, atomReactiveSite: null }),
     setAtomIsotope: (presetId) => set({ atomIsotope: presetId, atomGroup: null, atomReactiveSite: null }),
@@ -643,6 +659,36 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setAtomMoveAnchor: (a) => set({ atomMoveAnchor: a }),
     setChainPreview: (p) => set({ chainPreview: p }),
     setMarqueeRect: (r) => set({ marqueeRect: r }),
+    setLassoPath: (p) => set({ lassoPath: p }),
+    handleMapNumberClick: (atomId) => {
+      const { molecule, pendingMapAtom } = get();
+      const atom = molecule.atoms[atomId];
+      if (!atom) return;
+      if (atom.mapNumber != null) {
+        // Already numbered: this click clears it. If it was the armed
+        // pending atom, un-arm too rather than leaving a dangling
+        // reference to an atom that's no longer mapped.
+        commit((mol) => M.setAtomMapNumber(mol, atomId, null));
+        if (pendingMapAtom === atomId) set({ pendingMapAtom: null });
+        return;
+      }
+      if (pendingMapAtom == null) {
+        set({ pendingMapAtom: atomId });
+        return;
+      }
+      if (pendingMapAtom === atomId) {
+        // Clicked the same atom again: cancel, don't pair it with itself.
+        set({ pendingMapAtom: null });
+        return;
+      }
+      const n = M.nextMapNumber(molecule);
+      commit((mol) => M.setAtomMapNumber(M.setAtomMapNumber(mol, pendingMapAtom, n), atomId, n));
+      set({ pendingMapAtom: null });
+    },
+    clearAllMapNumbers: () => {
+      set({ pendingMapAtom: null });
+      commit((mol) => M.clearAllMapNumbers(mol));
+    },
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
     toggleShowExpandedFormula: () => set((s) => ({ showExpandedFormula: !s.showExpandedFormula })),
     toggleMonochromeAtoms: () => set((s) => ({ monochromeAtoms: !s.monochromeAtoms })),
