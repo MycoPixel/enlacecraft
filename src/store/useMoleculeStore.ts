@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, RotationSession, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
@@ -236,6 +236,11 @@ interface MoleculeStore {
    * a different atom, which assigns both the same new number). Null when
    * nothing's armed. */
   pendingMapAtom: string | null;
+  /** The in-progress (or most recently finished) rotate-handle drag
+   * "streak" for whichever selection last used it — see RotationSession's
+   * own doc comment. Read by the rotate handle's grab/drag handling for
+   * shift-snap's baseline, and by resetRotation. */
+  rotationSession: RotationSession | null;
   showHydrogens: boolean;
   /** Draws every carbon's implicit hydrogens as real bonds + "H" labels
    * fanned out around it — a full "expanded structural formula" view, as
@@ -298,6 +303,12 @@ interface MoleculeStore {
    * and clicking an already-numbered atom clears its number instead. */
   handleMapNumberClick: (atomId: string) => void;
   clearAllMapNumbers: () => void;
+  setRotationSession: (s: RotationSession | null) => void;
+  /** Rotates the current selection back to its position from the start
+   * of the current rotation "streak" (see RotationSession) — a no-op if
+   * nothing in this exact selection has an active session, e.g. after a
+   * selection change. */
+  resetRotation: () => void;
   toggleShowHydrogens: () => void;
   toggleShowExpandedFormula: () => void;
   toggleMonochromeAtoms: () => void;
@@ -371,6 +382,7 @@ interface MoleculeStore {
   clearLonePairOffset: (id: string, index: number) => void;
   setAtomRadicalOffset: (id: string, dx: number, dy: number) => void;
   setAtomStereoLabelOffset: (id: string, dx: number, dy: number) => void;
+  setAtomMapNumberOffset: (id: string, dx: number, dy: number) => void;
   cycleAtomLonePairs: (id: string) => void;
   toggleAtomRadical: (id: string) => void;
   setBondOrder: (id: string, order: BondOrder) => void;
@@ -608,6 +620,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     marqueeRect: null,
     lassoPath: null,
     pendingMapAtom: null,
+    rotationSession: null,
     showHydrogens: false,
     showExpandedFormula: false,
     monochromeAtoms: true,
@@ -688,6 +701,21 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     clearAllMapNumbers: () => {
       set({ pendingMapAtom: null });
       commit((mol) => M.clearAllMapNumbers(mol));
+    },
+    setRotationSession: (s) => set({ rotationSession: s }),
+    resetRotation: () => {
+      const { selected, rotationSession } = get();
+      if (!rotationSession) return;
+      const key = [...selected].sort().join(",");
+      if (rotationSession.key !== key) return;
+      commit((mol) => {
+        const atoms = { ...mol.atoms };
+        for (const id of selected) {
+          const orig = rotationSession.original[id];
+          if (orig && atoms[id]) atoms[id] = { ...atoms[id], x: orig.x, y: orig.y };
+        }
+        return { ...mol, atoms };
+      });
     },
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
     toggleShowExpandedFormula: () => set((s) => ({ showExpandedFormula: !s.showExpandedFormula })),
@@ -804,6 +832,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     clearLonePairOffset: (id, index) => commit((mol) => M.clearLonePairOffset(mol, id, index)),
     setAtomRadicalOffset: (id, dx, dy) => commit((mol) => M.setAtomRadicalOffset(mol, id, dx, dy)),
     setAtomStereoLabelOffset: (id, dx, dy) => commit((mol) => M.setAtomStereoLabelOffset(mol, id, dx, dy)),
+    setAtomMapNumberOffset: (id, dx, dy) => commit((mol) => M.setAtomMapNumberOffset(mol, id, dx, dy)),
     cycleAtomLonePairs: (id) => commit((mol) => M.cycleAtomLonePairs(mol, id)),
     toggleAtomRadical: (id) => commit((mol) => M.toggleAtomRadical(mol, id)),
     setBondOrder: (id, order) => commit((mol) => M.setBondOrder(mol, id, order)),

@@ -415,6 +415,7 @@ export const translations: Record<Lang, Dict> = {
 
     "tool.rotateCCW": "Rotate selection left 30° ([)",
     "tool.rotateCW": "Rotate selection right 30° (])",
+    "tool.resetRotation": "Reset rotation — rotate this selection back to where it was before its current streak of rotate-handle drags (nothing to reset if it's only ever been nudged with the ±30° buttons, or after a selection change)",
     "tool.align": "Align or distribute selected atoms",
     "section.align": "Align",
     "section.distribute": "Distribute spacing",
@@ -889,6 +890,7 @@ export const translations: Record<Lang, Dict> = {
 
     "tool.rotateCCW": "Girar selección 30° a la izquierda ([)",
     "tool.rotateCW": "Girar selección 30° a la derecha (])",
+    "tool.resetRotation": "Restablecer rotación — vuelve a colocar esta selección como estaba antes de la racha actual de arrastres con el asa de rotación (no hay nada que restablecer si solo se ha ajustado con los botones ±30°, o tras cambiar la selección)",
     "tool.align": "Alinear o distribuir átomos seleccionados",
     "section.align": "Alinear",
     "section.distribute": "Distribuir espaciado",

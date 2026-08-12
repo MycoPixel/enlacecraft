@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
+  MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, Undo2, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus, Highlighter, Hash, Trash2,
 } from "lucide-react";
@@ -46,10 +46,16 @@ export function Sidebar() {
   const setView = useMoleculeStore((s) => s.setView);
   const resetView = useMoleculeStore((s) => s.resetView);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
+  const resetRotation = useMoleculeStore((s) => s.resetRotation);
+  const rotationSession = useMoleculeStore((s) => s.rotationSession);
   const molecule = useMoleculeStore((s) => s.molecule);
   const clearAllMapNumbers = useMoleculeStore((s) => s.clearAllMapNumbers);
   const hasMapNumbers = useMemo(() => Object.values(molecule.atoms).some((a) => a.mapNumber != null), [molecule.atoms]);
   const selected = useMoleculeStore((s) => s.selected);
+  const canResetRotation = useMemo(
+    () => rotationSession != null && rotationSession.key === [...selected].sort().join(","),
+    [rotationSession, selected]
+  );
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
@@ -441,6 +447,9 @@ export function Sidebar() {
         </ToolButton>
         <ToolButton title={t("tool.rotateCW")} onClick={() => rotateSelection(30)}>
           <RotateCw size={17} />
+        </ToolButton>
+        <ToolButton title={t("tool.resetRotation")} disabled={!canResetRotation} onClick={resetRotation}>
+          <Undo2 size={17} />
         </ToolButton>
         <ToolDropdown
           title={t("tool.align")}

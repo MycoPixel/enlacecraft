@@ -40,6 +40,8 @@ export function MobileToolbar() {
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
+  const resetRotation = useMoleculeStore((s) => s.resetRotation);
+  const rotationSession = useMoleculeStore((s) => s.rotationSession);
   const arrowVariant = useMoleculeStore((s) => s.arrowVariant);
   const setArrowVariant = useMoleculeStore((s) => s.setArrowVariant);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
@@ -71,6 +73,10 @@ export function MobileToolbar() {
   const clearAllMapNumbers = useMoleculeStore((s) => s.clearAllMapNumbers);
   const hasMapNumbers = useMemo(() => Object.values(molecule.atoms).some((a) => a.mapNumber != null), [molecule.atoms]);
   const selected = useMoleculeStore((s) => s.selected);
+  const canResetRotation = useMemo(
+    () => rotationSession != null && rotationSession.key === [...selected].sort().join(","),
+    [rotationSession, selected]
+  );
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
@@ -293,6 +299,9 @@ export function MobileToolbar() {
                 </ToolButton>
                 <ToolButton big title={t("tool.distributeVertical")} disabled={selectedFragmentCount < 3} onClick={() => { distributeSelection("vertical"); setPanel(null); }}>
                   <AlignVerticalDistributeCenter size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.resetRotation")} disabled={!canResetRotation} onClick={() => { resetRotation(); setPanel(null); }}>
+                  <Undo2 size={18} />
                 </ToolButton>
                 <ToolButton big title={t("tool.cleanUpLabel")} onClick={() => { cleanUpSelection(); setPanel(null); }}>
                   <Wand2 size={18} />

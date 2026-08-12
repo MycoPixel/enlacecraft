@@ -48,6 +48,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const clearLonePairOffset = useMoleculeStore((s) => s.clearLonePairOffset);
   const setAtomRadicalOffset = useMoleculeStore((s) => s.setAtomRadicalOffset);
   const setAtomStereoLabelOffset = useMoleculeStore((s) => s.setAtomStereoLabelOffset);
+  const setAtomMapNumberOffset = useMoleculeStore((s) => s.setAtomMapNumberOffset);
   const labelEditTarget = useMoleculeStore((s) => s.labelEditTarget);
   const setLabelEditTarget = useMoleculeStore((s) => s.setLabelEditTarget);
   const setAtomLabelOf = useMoleculeStore((s) => s.setAtomLabelOf);
@@ -136,6 +137,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const lonePairDragRef = useRef<{ index: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
   const radicalDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const stereoLabelDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const mapNumberDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
 
   const clientToWorld = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
@@ -242,12 +244,34 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
     setAtomStereoLabelOffset(atom.id, stereoLabelDragRef.current.originX + dx, stereoLabelDragRef.current.originY + dy);
   }, [atom.id, atom.stereoLabel, setAtomStereoLabelOffset, clientToWorld]);
 
+  const handleMapNumberPointerDown = useCallback((e: React.PointerEvent<SVGGElement>) => {
+    if (atom.mapNumber == null) return;
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    const worldPos = clientToWorld(e.clientX, e.clientY);
+    mapNumberDragRef.current = {
+      startX: worldPos.x,
+      startY: worldPos.y,
+      originX: atom.mapNumberOffsetX ?? 0,
+      originY: atom.mapNumberOffsetY ?? 0,
+    };
+  }, [atom.mapNumber, atom.mapNumberOffsetX, atom.mapNumberOffsetY, clientToWorld]);
+
+  const handleMapNumberPointerMove = useCallback((e: React.PointerEvent<SVGGElement>) => {
+    if (!mapNumberDragRef.current || atom.mapNumber == null) return;
+    const worldPos = clientToWorld(e.clientX, e.clientY);
+    const dx = worldPos.x - mapNumberDragRef.current.startX;
+    const dy = worldPos.y - mapNumberDragRef.current.startY;
+    setAtomMapNumberOffset(atom.id, mapNumberDragRef.current.originX + dx, mapNumberDragRef.current.originY + dy);
+  }, [atom.id, atom.mapNumber, setAtomMapNumberOffset, clientToWorld]);
+
   useEffect(() => {
     const onPointerUp = () => {
       dragRef.current = null;
       lonePairDragRef.current = null;
       radicalDragRef.current = null;
       stereoLabelDragRef.current = null;
+      mapNumberDragRef.current = null;
     };
     window.addEventListener("pointerup", onPointerUp);
     return () => window.removeEventListener("pointerup", onPointerUp);
@@ -329,18 +353,31 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
         <circle r="13" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="2 2" data-export-exclude="true" className="atom-map-pending" />
       )}
       {atom.mapNumber != null && (
-        <text
-          x={-11}
-          y={-8}
-          fontSize="9"
-          fontWeight="700"
-          textAnchor="end"
-          fill="var(--accent)"
-          className="atom-map-number"
-          style={{ pointerEvents: "none", userSelect: "none" }}
+        <g
+          onPointerDown={handleMapNumberPointerDown}
+          onPointerMove={handleMapNumberPointerMove}
+          style={{ cursor: "grab" }}
         >
-          {atom.mapNumber}
-        </text>
+          <circle
+            cx={-11 + (atom.mapNumberOffsetX ?? 0)}
+            cy={-8 + (atom.mapNumberOffsetY ?? 0)}
+            r="9"
+            fill="transparent"
+            data-export-exclude="true"
+          />
+          <text
+            x={-11 + (atom.mapNumberOffsetX ?? 0)}
+            y={-8 + (atom.mapNumberOffsetY ?? 0)}
+            fontSize="9"
+            fontWeight="700"
+            textAnchor="end"
+            fill="var(--accent)"
+            className="atom-map-number"
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            {atom.mapNumber}
+          </text>
+        </g>
       )}
       {showLabel && !editing ? (
         <>

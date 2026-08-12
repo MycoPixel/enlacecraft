@@ -14,7 +14,7 @@ import type { BondOrder, BondStereo } from "../types/chemistry";
 type DragState =
   | { mode: "pan"; startClient: Point; startView: { scale: number; tx: number; ty: number } }
   | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> }; anchor: { atomId: string; neighborPos: Point; originalLength: number } | null }
-  | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
+  | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; baselineDeg: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
   | { mode: "atom-bond"; from: string }
   | { mode: "ring"; template: RingTemplate }
@@ -448,14 +448,18 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
 
     if (drag.mode === "rotate") {
-      let deltaAngle = Math.atan2(pt.y - drag.center.y, pt.x - drag.center.x) - drag.startAngle;
+      let deltaDeg = ((Math.atan2(pt.y - drag.center.y, pt.x - drag.center.x) - drag.startAngle) * 180) / Math.PI;
       if (e.shiftKey) {
-        // Hold Shift for the classic 15°-increment snap; free (any-angle)
-        // rotation is the default, so a 4-membered ring can land exactly
-        // square instead of only ever landing on 30° steps.
-        const step = Math.PI / 12;
-        deltaAngle = Math.round(deltaAngle / step) * step;
+        // Snap the TOTAL angle-from-session-start (baseline + this drag's
+        // own motion) onto the nearest 15° — not just this drag's own
+        // motion — so it's always pulling toward the same absolute grid
+        // this selection started at, however many separate drags it's
+        // taken to get here. See onRotateHandleDown's doc comment.
+        const step = 15;
+        const targetTotal = Math.round((drag.baselineDeg + deltaDeg) / step) * step;
+        deltaDeg = targetTotal - drag.baselineDeg;
       }
+      const deltaAngle = (deltaDeg * Math.PI) / 180;
       const cos = Math.cos(deltaAngle);
       const sin = Math.sin(deltaAngle);
       const moves: Record<string, Point> = {};
@@ -808,18 +812,54 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
    * selection. Unlike the sidebar's fixed ±30° nudge buttons, this tracks
    * the cursor continuously so a selection can land on any angle (e.g. a
    * 4-membered ring rotated exactly onto a square orientation), snapping
-   * to 15° steps only while Shift is held. */
+   * to 15° steps only while Shift is held.
+   *
+   * Shift's snap targets absolute 15°-of-arc positions measured from this
+   * exact selection's own rotation "session" (see RotationSession) — not
+   * just this one drag's own motion — so re-grabbing the handle after an
+   * earlier free (non-snapped) rotation still pulls cleanly onto
+   * 15/30/45/60° etc. instead of only ever snapping in fixed steps
+   * relative to wherever it already happened to stop. A fresh session
+   * starts (current positions become its "0°" baseline) the first time
+   * this exact set of atoms is grabbed; grabbing the same selection again
+   * later reuses it, which is also what makes resetRotation possible.
+   */
   const onRotateHandleDown = useCallback((e: React.PointerEvent, ids: string[], center: Point) => {
     e.stopPropagation();
     const store = useMoleculeStore.getState();
     const svg = svgRef.current;
     svg?.setPointerCapture?.(e.pointerId);
     const pt = clientToWorld(e.clientX, e.clientY);
+
+    const key = [...ids].sort().join(",");
+    let session = store.rotationSession;
+    if (!session || session.key !== key) {
+      session = {
+        key,
+        center,
+        original: Object.fromEntries(ids.map((id) => [id, { x: store.molecule.atoms[id].x, y: store.molecule.atoms[id].y }])),
+      };
+      store.setRotationSession(session);
+    }
+
+    // How far this selection has already been rotated since the session
+    // started, measured fresh from geometry (current position of one
+    // reference atom vs. its position in session.original, both read
+    // around the session's own fixed pivot) rather than an accumulated
+    // running total — sidesteps any float drift across many small drags.
+    const refId = ids[0];
+    const origRef = session.original[refId];
+    const curRef = store.molecule.atoms[refId];
+    const angleOrig = Math.atan2(origRef.y - session.center.y, origRef.x - session.center.x);
+    const angleCur = Math.atan2(curRef.y - session.center.y, curRef.x - session.center.x);
+    const baselineDeg = ((angleCur - angleOrig) * 180) / Math.PI;
+
     dragRef.current = {
       mode: "rotate",
       ids,
-      center,
-      startAngle: Math.atan2(pt.y - center.y, pt.x - center.x),
+      center: session.center,
+      startAngle: Math.atan2(pt.y - session.center.y, pt.x - session.center.x),
+      baselineDeg,
       origPositions: ids.map((id) => ({ id, x: store.molecule.atoms[id].x, y: store.molecule.atoms[id].y })),
       before: { molecule: store.molecule, annotations: store.annotations },
     };

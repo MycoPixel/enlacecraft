@@ -187,6 +187,12 @@ export function setAtomStereoLabelOffset(mol: Molecule, id: string, dx: number, 
   return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, stereoLabelOffsetX: dx, stereoLabelOffsetY: dy } } };
 }
 
+export function setAtomMapNumberOffset(mol: Molecule, id: string, dx: number, dy: number): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, mapNumberOffsetX: dx, mapNumberOffsetY: dy } } };
+}
+
 /** Cycles an atom's shown lone-pair count 0 -> 1 -> 2 -> 3 -> 4 -> 0. */
 export function cycleAtomLonePairs(mol: Molecule, id: string): Molecule {
   const a = mol.atoms[id];

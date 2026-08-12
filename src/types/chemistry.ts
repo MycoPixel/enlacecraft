@@ -125,9 +125,10 @@ export interface Atom {
    * atom-mapping conventions are wired up on the read or write side here.
    */
   mapNumber?: number;
+  mapNumberOffsetX?: number;
+  mapNumberOffsetY?: number;
 }
-/**
- *  - "auto" (the default): automatically resolved from the surrounding
+/** *  - "auto" (the default): automatically resolved from the surrounding
  *    structure — the second line is drawn toward whichever side the bonded
  *    atoms' other neighbors sit on (e.g. the interior of a ring). Re-evaluated
  *    live as the molecule changes.
@@ -249,6 +250,24 @@ export interface MarqueeRect {
   y: number;
   w: number;
   h: number;
+}
+
+export interface RotationSession {
+  /** Identifies which exact set of atoms this session belongs to (sorted
+   * ids joined) — a session only ever applies to the precise selection it
+   * was captured for; grabbing the rotate handle on a different
+   * selection starts a fresh one. */
+  key: string;
+  /** The fixed pivot point for every drag in this session, captured once
+   * at the very first grab and reused by every subsequent drag on the
+   * same selection — needed so "degrees rotated so far" stays a clean,
+   * unambiguous number to snap against (recomputing a fresh
+   * bounding-box center each grab would let that drift). */
+  center: Point;
+  /** Each atom's position the moment this session started — i.e. before
+   * any rotation in this streak — so "reset rotation" can restore them
+   * directly rather than trying to invert a chain of transforms. */
+  original: Record<string, Point>;
 }
 
 export interface RingTemplate {
