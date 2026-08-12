@@ -126,6 +126,7 @@ export interface Atom {
    */
   mapNumber?: number;
 }
+/**
  *  - "auto" (the default): automatically resolved from the surrounding
  *    structure — the second line is drawn toward whichever side the bonded
  *    atoms' other neighbors sit on (e.g. the interior of a ring). Re-evaluated
