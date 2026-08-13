@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Trash2, Copy, ClipboardPaste, CopyPlus, Plus, Minus, Zap, Palette,
-  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft,
+  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
@@ -45,6 +45,7 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const setAtomCharge = useMoleculeStore((s) => s.setAtomCharge);
   const toggleAtomRadical = useMoleculeStore((s) => s.toggleAtomRadical);
   const setAtomHighlightColor = useMoleculeStore((s) => s.setAtomHighlightColor);
+  const toggleAtomIgnoreValence = useMoleculeStore((s) => s.toggleAtomIgnoreValence);
   const setBondHighlightColor = useMoleculeStore((s) => s.setBondHighlightColor);
   const setBondOrder = useMoleculeStore((s) => s.setBondOrder);
   const setBondStereo = useMoleculeStore((s) => s.setBondStereo);
@@ -69,7 +70,9 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
 
   // Clamp within the viewport the same way ToolDropdown does, using the
   // panel's real measured size once it's mounted (its content varies —
-  // atom vs. bond vs. empty-canvas menus are all different heights).
+  // atom vs. bond vs. empty-canvas menus are all different heights, and
+  // this has to be the *actual* rendered content being measured, not a
+  // placeholder — an empty div's height doesn't predict a ~10-item menu's).
   useEffect(() => {
     if (!contextMenu) { setCoords(null); return; }
     const el = menuRef.current;
@@ -106,18 +109,7 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextMenu]);
 
-  if (!contextMenu || !coords) {
-    // Still need one measurement pass mounted off-screen-ish before coords
-    // exist — render invisibly at the click point so offsetWidth/Height
-    // above are real, then the effect above places it properly.
-    if (contextMenu && !coords) {
-      return createPortal(
-        <div className="context-menu" ref={menuRef} style={{ top: contextMenu.y, left: contextMenu.x, visibility: "hidden" }} />,
-        document.body
-      );
-    }
-    return null;
-  }
+  if (!contextMenu) return null;
 
   const atom = contextMenu.atomId ? molecule.atoms[contextMenu.atomId] : null;
   const bond = contextMenu.bondId ? molecule.bonds[contextMenu.bondId] : null;
@@ -127,8 +119,12 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const doOrder = (order: BondOrder) => { if (bond) { setBondOrder(bond.id, order); close(); } };
   const doStereo = (stereo: BondStereo) => { if (bond) { setBondStereo(bond.id, stereo); close(); } };
 
-  return createPortal(
-    <div className="context-menu" ref={menuRef} style={{ top: coords.top, left: coords.left }}>
+  // The actual menu content — built once, then rendered twice below: an
+  // invisible first pass (so menuRef.offsetWidth/Height above are real
+  // measurements of what's about to show, not a placeholder) followed by
+  // the real, correctly-clamped one once `coords` comes out of that.
+  const content = (
+    <>
       {submenu === "atom-highlight" && atom && (
         <>
           <button className="context-menu__item" onClick={() => setSubmenu(null)}>
@@ -173,6 +169,10 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
               </button>
               <button className="context-menu__item" onClick={() => setSubmenu("atom-highlight")}>
                 <Palette size={15} /> {t("section.highlight")} &rsaquo;
+              </button>
+              <button className="context-menu__item" onClick={() => { toggleAtomIgnoreValence(atom.id); close(); }}>
+                <ShieldOff size={15} /> {t("contextMenu.ignoreValence")}
+                {atom.ignoreValence && <Check size={14} className="context-menu__check" />}
               </button>
               <button className="context-menu__item context-menu__item--danger" onClick={() => { deleteAtom(atom.id); close(); }}>
                 <Trash2 size={15} /> {t("contextMenu.deleteAtom")}
@@ -254,6 +254,25 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
           )}
         </>
       )}
+    </>
+  );
+
+  if (!coords) {
+    // First pass: the real content, mounted but invisible, purely so the
+    // effect above can measure its true offsetWidth/offsetHeight before
+    // anything is shown — see that effect's doc comment for why this has
+    // to be the actual content and not a placeholder.
+    return createPortal(
+      <div className="context-menu" ref={menuRef} style={{ top: contextMenu.y, left: contextMenu.x, visibility: "hidden" }}>
+        {content}
+      </div>,
+      document.body
+    );
+  }
+
+  return createPortal(
+    <div className="context-menu" ref={menuRef} style={{ top: coords.top, left: coords.left }}>
+      {content}
     </div>,
     document.body
   );

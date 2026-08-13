@@ -315,6 +315,8 @@ interface MoleculeStore {
   resetRotation: () => void;
   setContextMenu: (m: { x: number; y: number; atomId: string | null; bondId: string | null } | null) => void;
   setAtomHighlightColor: (id: string, color: string | null) => void;
+  /** Toggles Atom.ignoreValence for one atom — see its doc comment. */
+  toggleAtomIgnoreValence: (id: string) => void;
   setBondHighlightColor: (id: string, color: string | null) => void;
   /** Copies the current selection and immediately re-pastes it offset a
    * little down-and-right of the original, selecting the new copy — the
@@ -732,6 +734,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
     setContextMenu: (m) => set({ contextMenu: m }),
     setAtomHighlightColor: (id, color) => commit((mol) => M.setAtomHighlight(mol, id, color)),
+    toggleAtomIgnoreValence: (id) => commit((mol) => {
+      const a = mol.atoms[id];
+      if (!a) return mol;
+      return M.setAtomIgnoreValence(mol, id, !a.ignoreValence);
+    }),
     setBondHighlightColor: (id, color) => commit((mol) => M.setBondHighlight(mol, id, color)),
     duplicateSelection: () => {
       const { molecule, selected, annotations } = get();

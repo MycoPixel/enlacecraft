@@ -127,6 +127,17 @@ export interface Atom {
   mapNumber?: number;
   mapNumberOffsetX?: number;
   mapNumberOffsetY?: number;
+  /**
+   * Suppresses the over-valent warning on this one atom — set via the
+   * context menu for cases that are deliberately "wrong" by normal
+   * valence rules, like a 5-bonded transition-state carbon. Unlike
+   * highlightColor/mapNumber this ISN'T purely cosmetic: molecules
+   * containing any such atom are treated as not well-defined enough for
+   * PubChem/IUPAC naming, the NMR predictor, or the 3D viewer to trust —
+   * see hasIgnoredValenceAtoms's doc comment in model/valence.ts, which
+   * every one of those three features checks before running.
+   */
+  ignoreValence?: boolean;
 }
 
 /**

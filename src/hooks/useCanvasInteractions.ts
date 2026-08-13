@@ -12,7 +12,7 @@ import { FUNCTIONAL_GROUP_TEMPLATES } from "../model/functionalGroupTemplates";
 import type { BondOrder, BondStereo } from "../types/chemistry";
 
 type DragState =
-  | { mode: "pan"; startClient: Point; startView: { scale: number; tx: number; ty: number } }
+  | { mode: "pan"; startClient: Point; startView: { scale: number; tx: number; ty: number }; clickToSelectIfNoDrag?: boolean }
   | { mode: "move"; ids: string[]; start: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> }; anchor: { atomId: string; neighborPos: Point; originalLength: number } | null }
   | { mode: "rotate"; ids: string[]; center: Point; startAngle: number; baselineDeg: number; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
   | { mode: "bond"; from: string }
@@ -89,9 +89,25 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     const store = useMoleculeStore.getState();
     const { tool, molecule } = store;
 
-    // Middle-mouse-button always pans, regardless of the active tool.
+    // Middle-mouse-button always pans, regardless of what's under the
+    // cursor or the active tool — same as it's always done. Grabbing
+    // *empty* space specifically also still carries the old "quick stop,
+    // back to Select" convenience right-click used to have (now that
+    // right-click opens the context menu instead): if it turns out to be
+    // a plain click rather than an actual drag, onPointerUp below treats
+    // it as that shortcut instead of a (successful, if extremely short)
+    // pan.
     if (e.button === 1) {
-      dragRef.current = { mode: "pan", startClient: { x: e.clientX, y: e.clientY }, startView: store.view };
+      const svg = svgRef.current;
+      svg?.setPointerCapture?.(e.pointerId);
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const hit = atomAt(molecule, pt) || bondAt(molecule, pt);
+      dragRef.current = {
+        mode: "pan",
+        startClient: { x: e.clientX, y: e.clientY },
+        startView: store.view,
+        clickToSelectIfNoDrag: !hit,
+      };
       return;
     }
 
@@ -626,6 +642,18 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     store.setBondPreview(null);
     store.setChainPreview(null);
     store.setAtomMoveAnchor(null);
+
+    if (drag.mode === "pan") {
+      // A middle-click-drag that started on empty space and never
+      // actually moved (within a small pixel tolerance, same idea as any
+      // click-vs-drag threshold) is treated as a plain click instead of
+      // a pan — see onPointerDown's identical comment for why.
+      const moved = Math.hypot(e.clientX - drag.startClient.x, e.clientY - drag.startClient.y);
+      if (drag.clickToSelectIfNoDrag && moved < 4) {
+        store.setTool("select");
+      }
+      return;
+    }
 
     if (drag.mode === "erase") {
       // Only push an undo step if something was actually erased — a plain

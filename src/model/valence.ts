@@ -153,9 +153,27 @@ export function implicitH(mol: Molecule, atomId: string): number {
 export function isOverValent(mol: Molecule, atomId: string): boolean {
   const a = mol.atoms[atomId];
   if (a.group) return false;
+  if (a.ignoreValence) return false;
   if (VALENCE[a.element] === undefined) return false;
   const used = usedValence(mol, atomId);
   return used > resolvedValence(a.element, a.charge, used);
+}
+
+/**
+ * True if anything in the molecule has valence-checking deliberately
+ * turned off (see Atom.ignoreValence's doc comment) — e.g. a 5-bonded
+ * transition-state carbon. PubChem/IUPAC naming, the NMR predictor, and
+ * the 3D viewer all check this before running: each of them needs a
+ * structure that means something under normal valence rules (naming and
+ * NMR prediction go through PubChem/RDKit-style tooling that expects a
+ * real molecule; the 3D viewer's MMFF94 geometry optimizer has no
+ * meaningful force-field parameters for a deliberately-invalid bonding
+ * pattern), so asking them to handle an atom that was intentionally
+ * drawn "wrong" would silently produce a meaningless result rather than
+ * a useful one.
+ */
+export function hasIgnoredValenceAtoms(mol: Molecule): boolean {
+  return Object.values(mol.atoms).some((a) => a.ignoreValence);
 }
 
 export interface AtomLabelInfo {

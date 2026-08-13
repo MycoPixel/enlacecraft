@@ -3,6 +3,7 @@ import { atomLabelInfo, hasEastBond, hSuffixPlacement } from "../../model/valenc
 import { defaultLonePairPosition } from "../../model/lonePairs";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { useT } from "../../i18n/useT";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type RefObject } from "react";
 
 interface AtomViewProps {
@@ -39,6 +40,7 @@ function formatLabelWithSubscripts(text: string): Array<{ text: string; subscrip
 }
 
 export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewProps) {
+  const t = useT();
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const atomLabelRevealTargets = useMoleculeStore((s) => s.atomLabelRevealTargets);
   const monochrome = useMoleculeStore((s) => s.monochromeAtoms);
@@ -348,6 +350,11 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
       {selected && <circle r="15" fill="var(--selection)" data-export-exclude="true" />}
       {overValent && (
         <circle r="13" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeDasharray="3 2" data-export-exclude="true" />
+      )}
+      {atom.ignoreValence && (
+        <circle r="13" fill="none" stroke="var(--ink-soft)" strokeWidth="1.5" strokeDasharray="1 3" data-export-exclude="true" className="atom-ignore-valence-ring">
+          <title>{t("contextMenu.ignoreValenceHint")}</title>
+        </circle>
       )}
       {isPendingMapAtom && (
         <circle r="13" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="2 2" data-export-exclude="true" className="atom-map-pending" />

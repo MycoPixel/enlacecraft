@@ -14,6 +14,7 @@ import {
   equivalenceGroupLabel,
   type NmrIsomerResult,
 } from "../../io/nmrPredict";
+import { hasIgnoredValenceAtoms } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
 import type { Molecule } from "../../types/chemistry";
@@ -91,6 +92,17 @@ export function NmrPredictionButton() {
     state?.phase === "result" ? state.results[selectedIsomer] ?? state.results[0] : undefined;
 
   const hasContent = Object.keys(molecule.atoms).length > 0;
+  // Same reasoning as IupacNameButton's identical check: an atom with
+  // valence checking deliberately turned off doesn't correspond to a
+  // real molecule the shift-prediction model (or the MMFF94 embedding
+  // step feeding it) has any meaningful input for. Checked against
+  // exactly the same atoms runPrediction below would actually send (the
+  // selection, or — with nothing selected — the whole canvas).
+  const blockedByIgnoredValence = useMemo(() => {
+    const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+    return hasIgnoredValenceAtoms(extractFragment(molecule, ids));
+  }, [molecule, selected]);
+  const canRun = hasContent && !blockedByIgnoredValence;
 
   const messageForError = (err: unknown): string => {
     if (err instanceof NmrPredictError) {
@@ -161,14 +173,15 @@ export function NmrPredictionButton() {
 
   return (
     <ToolDropdown
-      title={hasContent ? t("nmr.button") : t("nmr.buttonDisabled")}
+      title={!hasContent ? t("nmr.buttonDisabled") : blockedByIgnoredValence ? t("nmr.blockedByIgnoredValence") : t("nmr.button")}
       active={false}
-      onOpen={hasContent ? runPrediction : undefined}
+      onOpen={canRun ? runPrediction : undefined}
       renderContent={(close) => (
         <div className="nmr-menu">
           {!hasContent && <p className="align-menu__hint">{t("nmr.needStructure")}</p>}
+          {hasContent && blockedByIgnoredValence && <p className="align-menu__hint">{t("nmr.blockedByIgnoredValence")}</p>}
 
-          {hasContent && (
+          {canRun && (
             <div className="nmr-result__isomer-tabs" role="tablist" aria-label={t("nmr.structureQuality")}>
               <button
                 type="button"
@@ -198,18 +211,18 @@ export function NmrPredictionButton() {
             </div>
           )}
 
-          {hasContent && state?.phase === "loading" && (
+          {canRun && state?.phase === "loading" && (
             <div className="structure-search-menu__loading">
               <Loader2 size={14} className="compound-search__spinner" />
               {t("nmr.loading")}
             </div>
           )}
 
-          {hasContent && state?.phase === "error" && (
+          {canRun && state?.phase === "error" && (
             <p className="align-menu__hint">{state.message}</p>
           )}
 
-          {hasContent && state?.phase === "result" && current && (
+          {canRun && state?.phase === "result" && current && (
             <div className="nmr-result">
               {state.warnings.map((warning, i) => (
                 <p key={i} className="nmr-result__warning">

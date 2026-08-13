@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Tag, Loader2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
@@ -6,6 +6,7 @@ import { exportSmiles } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
 import { fetchIupacName, PubChemError } from "../../io/pubchem";
 import { approximateSpanishIupacName } from "../../io/compoundTranslate";
+import { hasIgnoredValenceAtoms } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 
 type NameState =
@@ -35,6 +36,20 @@ export function IupacNameButton() {
   const [state, setState] = useState<NameState | null>(null);
 
   const hasContent = Object.keys(molecule.atoms).length > 0;
+  // PubChem's naming service parses a real SMILES with normal valence
+  // assumptions baked in — an atom that was deliberately drawn "wrong"
+  // (see Atom.ignoreValence's doc comment) doesn't have a well-defined
+  // name to look up, so this is disabled outright rather than risking a
+  // silently-wrong or nonsensical result. Checked against exactly the
+  // same atoms runLookup below would actually send (the selection, or —
+  // with nothing selected — the whole canvas): a flagged atom sitting in
+  // some other, unselected structure on the same canvas shouldn't block
+  // naming a normal one you've selected next to it.
+  const blockedByIgnoredValence = useMemo(() => {
+    const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+    return hasIgnoredValenceAtoms(extractFragment(molecule, ids));
+  }, [molecule, selected]);
+  const canRun = hasContent && !blockedByIgnoredValence;
 
   const messageForError = (err: unknown): string => {
     if (err instanceof PubChemError) {
@@ -98,20 +113,21 @@ export function IupacNameButton() {
 
   return (
     <ToolDropdown
-      title={hasContent ? t("iupac.button") : t("iupac.buttonDisabled")}
+      title={!hasContent ? t("iupac.buttonDisabled") : blockedByIgnoredValence ? t("iupac.blockedByIgnoredValence") : t("iupac.button")}
       active={false}
-      onOpen={hasContent ? runLookup : undefined}
+      onOpen={canRun ? runLookup : undefined}
       renderContent={() => (
         <div className="iupac-menu">
           {!hasContent && <p className="align-menu__hint">{t("iupac.needStructure")}</p>}
-          {hasContent && state?.phase === "loading" && (
+          {hasContent && blockedByIgnoredValence && <p className="align-menu__hint">{t("iupac.blockedByIgnoredValence")}</p>}
+          {canRun && state?.phase === "loading" && (
             <div className="structure-search-menu__loading">
               <Loader2 size={14} className="compound-search__spinner" />
               {t("iupac.loading")}
             </div>
           )}
-          {hasContent && state?.phase === "error" && <p className="align-menu__hint">{state.message}</p>}
-          {hasContent && state?.phase === "result" && (
+          {canRun && state?.phase === "error" && <p className="align-menu__hint">{state.message}</p>}
+          {canRun && state?.phase === "result" && (
             <div className="iupac-result">
               <button type="button" className="iupac-result__name" onClick={() => copy(state.english)} title={t("iupac.copy")}>
                 {state.english}

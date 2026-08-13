@@ -11,7 +11,7 @@ import { IupacNameButton } from "./IupacNameButton";
 import { NmrPredictionButton } from "./NmrPredictionButton";
 import { MoleculeInfoButton } from "./MoleculeInfoButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
-import { isOverValent } from "../../model/valence";
+import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
 import { exportPNG, exportSVG } from "../../io/exportImage";
 import { exportMol, importMol } from "../../io/molfile";
 import { exportCdxml, importCdxml } from "../../io/cdxml";
@@ -55,6 +55,11 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const t = useT();
 
   const hasOverValence = Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id));
+  // The 3D viewer's embedding/optimization step (MMFF94, or the xTB
+  // backend) needs real force-field parameters for every atom's bonding
+  // — same reasoning as IupacNameButton/NmrPredictionButton's identical
+  // check, see Atom.ignoreValence's doc comment.
+  const blockedByIgnoredValence = hasIgnoredValenceAtoms(molecule);
 
   const resolveBackground = (bg: ExportBackground): string | null => {
     if (bg === "transparent") return null;
@@ -185,7 +190,12 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
         </ToolButton>
         <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
         <MoleculeInfoButton />
-        <ToolButton title={t("tool.view3d")} active={show3DView} onClick={toggle3DView}>
+        <ToolButton
+          title={blockedByIgnoredValence ? t("tool.view3dBlocked") : t("tool.view3d")}
+          active={show3DView}
+          disabled={blockedByIgnoredValence}
+          onClick={toggle3DView}
+        >
           <Box size={18} />
         </ToolButton>
         <Divider />

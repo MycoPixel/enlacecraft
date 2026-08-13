@@ -216,6 +216,13 @@ export function setAtomHighlight(mol: Molecule, id: string, color: string | null
   return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, highlightColor: color ?? undefined } } };
 }
 
+/** Sets (or clears) an atom's Atom.ignoreValence flag — see its own doc comment. */
+export function setAtomIgnoreValence(mol: Molecule, id: string, value: boolean): Molecule {
+  const a = mol.atoms[id];
+  if (!a) return mol;
+  return { ...mol, atoms: { ...mol.atoms, [id]: { ...a, ignoreValence: value || undefined } } };
+}
+
 /** Sets (or, passed null, clears) a bond's emphasis color — see
  * Bond.highlightColor's doc comment. */
 export function setBondHighlight(mol: Molecule, id: string, color: string | null): Molecule {

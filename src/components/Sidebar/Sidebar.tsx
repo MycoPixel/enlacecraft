@@ -157,18 +157,20 @@ export function Sidebar() {
       {/* Tools: how you interact with the canvas itself (as opposed to what
           you draw with it) — select/move, pan, erase. */}
       <SectionLabel>{t("section.select")}</SectionLabel>
-      <ToolButton title={t("tool.selectHint")} active={tool === "select"} onClick={() => setTool("select")}>
-        <MousePointer2 size={18} />
-      </ToolButton>
-      <ToolButton title={t("tool.lasso")} active={tool === "lasso"} onClick={() => setTool("lasso")}>
-        <Lasso size={18} />
-      </ToolButton>
-      <ToolButton title={t("tool.pan")} active={tool === "pan"} onClick={() => setTool("pan")}>
-        <Hand size={18} />
-      </ToolButton>
-      <ToolButton title={t("tool.erase")} active={tool === "erase"} onClick={() => setTool("erase")}>
-        <Eraser size={18} />
-      </ToolButton>
+      <div className="row">
+        <ToolButton title={t("tool.selectHint")} active={tool === "select"} onClick={() => setTool("select")}>
+          <MousePointer2 size={18} />
+        </ToolButton>
+        <ToolButton title={t("tool.lasso")} active={tool === "lasso"} onClick={() => setTool("lasso")}>
+          <Lasso size={18} />
+        </ToolButton>
+        <ToolButton title={t("tool.pan")} active={tool === "pan"} onClick={() => setTool("pan")}>
+          <Hand size={18} />
+        </ToolButton>
+        <ToolButton title={t("tool.erase")} active={tool === "erase"} onClick={() => setTool("erase")}>
+          <Eraser size={18} />
+        </ToolButton>
+      </div>
 
       <div className="sidebar-divider" />
 
