@@ -8,6 +8,7 @@ import { TopBar } from "./components/TopBar/TopBar";
 import { TabBar } from "./components/TabBar/TabBar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { MoleculeCanvas } from "./components/Canvas/MoleculeCanvas";
+import { LiveIupacPanel } from "./components/Canvas/LiveIupacPanel";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { MobileToolbar } from "./components/MobileToolbar/MobileToolbar";
 import { ShortcutsOverlay } from "./components/common/ShortcutsOverlay";
@@ -123,6 +124,7 @@ export default function App() {
         {!isMobile && <Sidebar />}
         <main className="canvas-wrap">
           <MoleculeCanvas ref={svgRef} />
+          <LiveIupacPanel />
           <StatusBar />
         </main>
         {show3DView && !isMobile && (

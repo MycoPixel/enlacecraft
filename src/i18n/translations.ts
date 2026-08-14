@@ -46,6 +46,10 @@ export const translations: Record<Lang, Dict> = {
     "iupac.copied": "Name copied to clipboard",
     "iupac.spanishLabel": "Spanish (approximate)",
     "iupac.spanishCaveat": "Automatic transliteration \u2014 not an official translation. Verify before citing formally.",
+    "iupac.liveToggleOn": "Auto-naming is on \u2014 the name below updates as you draw. Click to turn off.",
+    "iupac.liveToggleOff": "Auto-naming is off. Click to have the name update automatically as you draw (sends a request to PubChem after each edit).",
+    "iupac.livePending": "Waiting for you to stop editing\u2026",
+    "iupac.liveEmpty": "Turn on auto-naming, then draw or select a structure to see its name here.",
 
     "nmr.button": "Predict NMR shifts for this structure",
     "nmr.buttonDisabled": "Draw a structure first to predict its NMR shifts",
@@ -545,6 +549,10 @@ export const translations: Record<Lang, Dict> = {
     "iupac.copied": "Nombre copiado al portapapeles",
     "iupac.spanishLabel": "Español (aproximado)",
     "iupac.spanishCaveat": "Transliteración automática \u2014 no es una traducción oficial. Verifícala antes de citarla formalmente.",
+    "iupac.liveToggleOn": "El nombre automático está activado \u2014 el nombre de abajo se actualiza mientras dibujas. Haz clic para desactivarlo.",
+    "iupac.liveToggleOff": "El nombre automático está desactivado. Haz clic para que el nombre se actualice automáticamente mientras dibujas (envía una solicitud a PubChem después de cada edición).",
+    "iupac.livePending": "Esperando a que dejes de editar\u2026",
+    "iupac.liveEmpty": "Activa el nombre automático y luego dibuja o selecciona una estructura para ver su nombre aquí.",
 
     "nmr.button": "Predecir los desplazamientos de RMN de esta estructura",
     "nmr.buttonDisabled": "Dibuja primero una estructura para predecir sus desplazamientos de RMN",

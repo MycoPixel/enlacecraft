@@ -2,10 +2,9 @@ import { useMemo, useState } from "react";
 import { Tag, Loader2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
-import { exportSmiles } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
-import { fetchIupacName, PubChemError } from "../../io/pubchem";
-import { approximateSpanishIupacName } from "../../io/compoundTranslate";
+import { PubChemError } from "../../io/pubchem";
+import { lookupIupacName } from "../../io/iupacLookup";
 import { hasIgnoredValenceAtoms } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 
@@ -68,34 +67,10 @@ export function IupacNameButton() {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     if (ids.length === 0) return;
     setState({ phase: "loading" });
-    const fragment = extractFragment(molecule, ids);
-    const smiles = exportSmiles(fragment);
     try {
-      const english = await fetchIupacName(smiles);
-      const spanish = language === "es" ? approximateSpanishIupacName(english) : undefined;
-      setState({ phase: "result", english, spanish });
+      const result = await lookupIupacName(molecule, ids, language);
+      setState({ phase: "result", ...result });
     } catch (err) {
-      // PubChem's naming service can fail on a *specific* stereoisomer
-      // that isn't itself indexed, even when the flat skeleton (and even
-      // other stereoisomers of the same skeleton) resolve fine. Rather
-      // than surface that as a dead end, retry once with stereochemistry
-      // stripped and show that name with a caveat — a less precise result
-      // beats none. Only worth trying when the SMILES actually had stereo
-      // markers to strip, and only on the "couldn't resolve this" errors
-      // (not network/HTTP failures, which stripping stereo won't fix).
-      const isUnresolved = err instanceof PubChemError && (err.code === "NOT_FOUND" || err.code === "NO_STRUCTURE");
-      const hadStereo = /[@/\\]/.test(smiles);
-      if (isUnresolved && hadStereo) {
-        try {
-          const flatSmiles = exportSmiles(fragment, { includeStereo: false });
-          const english = await fetchIupacName(flatSmiles);
-          const spanish = language === "es" ? approximateSpanishIupacName(english) : undefined;
-          setState({ phase: "result", english, spanish, stereoOmitted: true });
-          return;
-        } catch {
-          // Fall through to surfacing the original error below.
-        }
-      }
       setState({ phase: "error", message: messageForError(err) });
     }
   };

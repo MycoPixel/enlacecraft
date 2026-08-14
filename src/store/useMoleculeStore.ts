@@ -25,6 +25,7 @@ const INITIAL_TAB_ID = `tab-${nextId()}`;
 const LANG_STORAGE_KEY = "enlacecraft-lang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "enlacecraft-sidebar-width";
 const ONBOARDING_STORAGE_KEY = "enlacecraft-onboarding-seen";
+const AUTO_IUPAC_STORAGE_KEY = "enlacecraft-auto-iupac";
 const DEFAULT_SIDEBAR_WIDTH = 112;
 const MIN_SIDEBAR_WIDTH = 88;
 const MAX_SIDEBAR_WIDTH = 280;
@@ -92,6 +93,17 @@ const PLUS_FONT_SIZE = 22;
 // How far above a reaction arrow's midpoint "Add reagent text" drops the
 // new (empty) text box — the conventional place to write reagents/conditions.
 const REAGENT_TEXT_GAP_ABOVE_ARROW = 6;
+
+// Off by default: this drives a PubChem request per structural edit (even
+// debounced), so it should be something the user opts into rather than
+// something that starts silently calling out to a third-party API.
+function detectAutoIupacName(): boolean {
+  try {
+    return localStorage.getItem(AUTO_IUPAC_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function detectHasSeenOnboarding(): boolean {
   try {
@@ -214,6 +226,12 @@ interface MoleculeStore {
    * canvasBackground (works with either a white or themed background).
    * Off by default; purely a visual drawing aid, no effect on the model. */
   showGrid: boolean;
+  /** When on, the live IUPAC name panel re-resolves the name automatically
+   * (debounced) as the molecule/selection changes, instead of requiring a
+   * manual lookup via IupacNameButton. Off by default and persisted like
+   * language — see detectAutoIupacName's doc comment for why the default
+   * is off. */
+  autoIupacName: boolean;
   language: Lang;
   /** Desktop sidebar's width in px, user-resizable by dragging its edge;
    * persisted across sessions like language. Unused on mobile (which uses
@@ -294,6 +312,7 @@ interface MoleculeStore {
   toggleTheme: () => void;
   toggleCanvasBackground: () => void;
   toggleShowGrid: () => void;
+  toggleAutoIupacName: () => void;
   toggleLanguage: () => void;
   setSidebarWidth: (w: number) => void;
   setStatus: (s: string) => void;
@@ -623,6 +642,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     // "theme" restores the normal off-white/dark themed background + grid.
     canvasBackground: "white",
     showGrid: false,
+    autoIupacName: detectAutoIupacName(),
     language: detectInitialLanguage(),
     sidebarWidth: detectInitialSidebarWidth(),
     userTemplates: loadUserTemplates(),
@@ -663,6 +683,16 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
     toggleCanvasBackground: () => set((s) => ({ canvasBackground: s.canvasBackground === "white" ? "theme" : "white" })),
     toggleShowGrid: () => set((s) => ({ showGrid: !s.showGrid })),
+    toggleAutoIupacName: () =>
+      set((s) => {
+        const next = !s.autoIupacName;
+        try {
+          localStorage.setItem(AUTO_IUPAC_STORAGE_KEY, next ? "1" : "0");
+        } catch {
+          // localStorage unavailable — persistence is a nicety, not a requirement
+        }
+        return { autoIupacName: next };
+      }),
     toggleLanguage: () =>
       set((s) => {
         const next: Lang = s.language === "en" ? "es" : "en";
