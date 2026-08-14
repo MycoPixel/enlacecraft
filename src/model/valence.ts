@@ -69,6 +69,24 @@ export type HSuffixPlacement = "right" | "left" | "top" | "bottom";
 export function hSuffixPlacement(mol: Molecule, atomId: string): HSuffixPlacement {
   const angles = neighborAngles(mol, atomId);
   if (angles.length === 0) return "right";
+  // Only fall back to a vertical (top/bottom) placement when bonds
+  // genuinely box in *both* horizontal sides - the bridging-atom case
+  // this function was written for (an interior chain's -NH-, with one
+  // bond up-right and one down-left, leaving no horizontal opening at
+  // all). A terminal atom - just one bond, e.g. methanol's -OH - always
+  // has an entire free half open even when that one bond happens to be
+  // drawn dead vertical (cos ~ 0, so it counts as neither east nor
+  // west): the "largest gap" in that case is mathematically straight up,
+  // but stacking the H above the O reads badly and isn't how anyone
+  // actually draws it - horizontal ("OH") is still correct there, same
+  // as if the bond were merely close to vertical rather than exactly on
+  // it. So: check for real east/west bonds first, and only hand off to
+  // the gap-based vertical logic when both are present.
+  const hasEast = angles.some((a) => Math.cos(a) > 0.5);
+  const hasWest = angles.some((a) => Math.cos(a) < -0.5);
+  if (!(hasEast && hasWest)) {
+    return hasEast ? "left" : "right";
+  }
   const center = largestGapAngle(angles);
   const cos = Math.cos(center);
   const sin = Math.sin(center);
