@@ -101,7 +101,18 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
+  // Don't use Menu.setApplicationMenu(null) here. On Windows/Linux, the
+  // OS doesn't supply copy/paste/cut/select-all/undo/redo keyboard
+  // shortcuts on its own - those only exist in Electron because they're
+  // accelerators tied to the standard "Edit" menu's roles. A null menu
+  // has no roles, so it silently kills those shortcuts app-wide (this is
+  // how the NMR report's shift table ended up selectable with the mouse
+  // but uncopyable with Ctrl+C on the Linux AppImage build). Building a
+  // menu with just the Edit role restores the shortcuts; autoHideMenuBar
+  // above keeps it invisible day-to-day exactly as before, same as a
+  // null menu looked visually.
+  const editMenu = Menu.buildFromTemplate([{ role: "editMenu" }]);
+  Menu.setApplicationMenu(editMenu);
   createWindow();
   nmrServer.startServer(); // no-op in dev/preview - see server.cjs
   structure3dServer.startServer(); // no-op in dev/preview - see structure3d_server.cjs

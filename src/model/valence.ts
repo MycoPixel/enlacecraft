@@ -135,6 +135,28 @@ export function usedValence(mol: Molecule, atomId: string): number {
   return bondsOfAtom(mol, atomId).reduce((sum, b) => sum + b.order, 0);
 }
 
+/**
+ * Total hydrogens actually attached to this atom as drawn — implicit
+ * (see implicitH) plus any explicit H atoms bonded to it as their own
+ * atom. Used to sanity-check an external tool's claim that some number
+ * of protons belong to a given atom (e.g. an NMR prediction service's
+ * atom_index) against what's actually structurally possible here — an
+ * ether oxygen or a fully-substituted quaternary carbon can never
+ * legitimately have H1 shifts attributed to it, so a mismatch there is
+ * a reliable, unambiguous sign of an atom-identification problem
+ * upstream (a stale/incorrect index mapping, or the service re-deriving
+ * a different atom order internally) rather than real chemistry -
+ * unlike an unusual-but-real shift *value*, which this can't and
+ * shouldn't try to judge.
+ */
+export function totalHydrogenCount(mol: Molecule, atomId: string): number {
+  const explicit = bondsOfAtom(mol, atomId).filter((b) => {
+    const otherId = b.a1 === atomId ? b.a2 : b.a1;
+    return mol.atoms[otherId]?.element === "H";
+  }).length;
+  return implicitH(mol, atomId) + explicit;
+}
+
 export function implicitH(mol: Molecule, atomId: string): number {
   const a = mol.atoms[atomId];
   // A group atom (e.g. "Boc") is a fixed, already-complete substituent —

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Activity, Loader2, Expand } from "lucide-react";
+import { Activity, Loader2, Expand, AlertTriangle } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { exportSmilesWithAtomOrder } from "../../io/smiles";
@@ -14,7 +14,7 @@ import {
   equivalenceGroupLabel,
   type NmrIsomerResult,
 } from "../../io/nmrPredict";
-import { hasIgnoredValenceAtoms } from "../../model/valence";
+import { hasIgnoredValenceAtoms, totalHydrogenCount } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
 import type { Molecule } from "../../types/chemistry";
@@ -286,6 +286,16 @@ export function NmrPredictionButton() {
                     .map((group) => {
                       const totalHs = group.members.reduce((sum, m) => sum + m.numHs, 0);
                       const rep = group.representative;
+                      // A reliable sign of an atom-index mismatch from
+                      // the prediction service (see totalHydrogenCount's
+                      // doc comment) rather than a real chemistry
+                      // result - the atom this shift landed on simply
+                      // can't have that many (or any) hydrogens as
+                      // actually drawn.
+                      const implausible = group.members.some((m) => {
+                        const atomId = state.atomOrder[m.atomIndex];
+                        return !atomId || totalHydrogenCount(state.fragment, atomId) <= 0;
+                      });
                       return (
                         <li key={rep.equivalenceGroup} className="nmr-result__row">
                           <span className="nmr-result__atom">
@@ -295,6 +305,11 @@ export function NmrPredictionButton() {
                                 String(rep.atomIndex),
                               count: String(totalHs),
                             })}
+                            {implausible && (
+                              <span className="nmr-result__implausible-icon" title={t("nmr.implausibleHint")}>
+                                <AlertTriangle size={12} />
+                              </span>
+                            )}
                           </span>
                           <span className="nmr-result__shift">
                             {rep.predictedShiftPpm.toFixed(2)} ppm

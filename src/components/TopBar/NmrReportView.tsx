@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { X, AlertTriangle } from "lucide-react";
 import type { Molecule } from "../../types/chemistry";
 import { useT } from "../../i18n/useT";
 import type { NmrIsomerResult } from "../../io/nmrPredict";
 import { buildAtomLabels } from "../../io/nmrPredict";
+import { totalHydrogenCount } from "../../model/valence";
 import { NmrSpectrumView } from "./NmrSpectrumView";
 
 interface AtomShifts {
@@ -15,6 +16,13 @@ interface AtomShifts {
    * group table rows for constitutionally equivalent atoms into one
    * line - see the table rendering below. */
   equivalenceGroup?: number;
+  /** True when this atom has an h1 shift attached but structurally
+   * cannot bear that many (or any) hydrogens as actually drawn — see
+   * totalHydrogenCount's doc comment. Surfaced as a warning rather than
+   * silently trusted, since it's a reliable sign of an atom-index
+   * mismatch coming from the prediction service, not a real chemistry
+   * result. */
+  implausible?: boolean;
 }
 
 /**
@@ -110,10 +118,11 @@ export function NmrReportView({
         multiplicityDetail: p.multiplicityDetail,
       };
       entry.equivalenceGroup = p.equivalenceGroup;
+      entry.implausible = totalHydrogenCount(fragment, atomId) <= 0;
       map.set(atomId, entry);
     }
     return map;
-  }, [predictions, predictionsH1, atomOrder]);
+  }, [predictions, predictionsH1, atomOrder, fragment]);
 
   const atoms = Object.values(fragment.atoms);
   const bonds = Object.values(fragment.bonds);
@@ -155,6 +164,7 @@ export function NmrReportView({
       label: members.map((m) => m.label).join(", "),
       shifts: members[0].shifts,
       totalHs: members.reduce((sum, m) => sum + (m.shifts?.h1?.numHs ?? 0), 0),
+      implausible: members.some((m) => m.shifts?.implausible),
     }));
   })();
 
@@ -321,10 +331,15 @@ export function NmrReportView({
                         <text
                           x={atom.x}
                           y={atom.y + (hasC ? 7 : 0)}
-                          className="nmr-report-svg__badge nmr-report-svg__badge--h nmr-report-svg__badge--oncenter"
+                          className={
+                            "nmr-report-svg__badge nmr-report-svg__badge--h nmr-report-svg__badge--oncenter" +
+                            (shifts?.implausible ? " nmr-report-svg__badge--implausible" : "")
+                          }
                         >
+                          {shifts?.implausible && <title>{t("nmr.implausibleHint")}</title>}
                           {shifts!.h1!.shift.toFixed(2)}
                           {shifts!.h1!.multiplicity ? ` (${shifts!.h1!.multiplicity})` : ""}
+                          {shifts?.implausible ? " \u26a0" : ""}
                         </text>
                       )}
                     </>
@@ -349,10 +364,17 @@ export function NmrReportView({
             </thead>
             <tbody>
               {groupedRows.map((r) => (
-                <tr key={r.key}>
+                <tr key={r.key} className={r.implausible ? "nmr-report-table__row--implausible" : undefined}>
                   <td>{r.label}</td>
                   <td>{r.shifts?.c13 !== undefined ? `${r.shifts.c13.toFixed(2)} ppm` : "\u2014"}</td>
-                  <td>{r.shifts?.h1 !== undefined ? `${r.shifts.h1.shift.toFixed(2)} ppm (${r.totalHs}H)` : "\u2014"}</td>
+                  <td>
+                    {r.shifts?.h1 !== undefined ? `${r.shifts.h1.shift.toFixed(2)} ppm (${r.totalHs}H)` : "\u2014"}
+                    {r.implausible && (
+                      <span className="nmr-report-table__warning" title={t("nmr.implausibleHint")}>
+                        <AlertTriangle size={12} />
+                      </span>
+                    )}
+                  </td>
                   <td
                     title={r.shifts?.h1?.multiplicityDetail || undefined}
                     className={r.shifts?.h1?.multiplicityDetail ? "nmr-report-table__mult-cell--hasdetail" : undefined}
