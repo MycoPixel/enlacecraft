@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Sparkles, LayoutGrid, Search, Wand2, Keyboard, type LucideIcon } from "lucide-react";
+import { X, Sparkles, LayoutGrid, Search, Wand2, Atom, Keyboard, type LucideIcon } from "lucide-react";
 import { useT } from "../../i18n/useT";
 
 interface Step {
@@ -14,7 +14,8 @@ const STEPS: Step[] = [
   { icon: LayoutGrid, titleKey: "onboarding.step2.title", bodyKey: "onboarding.step2.body" },
   { icon: Search, titleKey: "onboarding.step3.title", bodyKey: "onboarding.step3.body" },
   { icon: Wand2, titleKey: "onboarding.step4.title", bodyKey: "onboarding.step4.body" },
-  { icon: Keyboard, titleKey: "onboarding.step5.title", bodyKey: "onboarding.step5.body" },
+  { icon: Atom, titleKey: "onboarding.step5.title", bodyKey: "onboarding.step5.body" },
+  { icon: Keyboard, titleKey: "onboarding.step6.title", bodyKey: "onboarding.step6.body" },
 ];
 
 /**

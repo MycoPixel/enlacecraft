@@ -4,8 +4,8 @@ import type { Element } from "../types/chemistry";
 
 /**
  * Keyboard shortcuts (desktop):
- *   V = select   B = bond   C = chain   R = ring   E = erase   W = wedge   H = show hydrogens
- *   T = text box   A = reaction arrow   K = bracket ( [ {
+ *   V = select   L = lasso select   B = bond   C = chain   R = ring   E = erase   W = wedge   H = show hydrogens
+ *   T = text box   A = reaction arrow   K = bracket ( [ {   + = "+" annotation
  *   1 / 2 / 3 = bond order   [ / ] = rotate selection left/right 30°
  *   Enter = open free-text label editor on a single targeted atom
  *   (middle-click an atom, or press-and-hold on touch, does the same —
@@ -13,7 +13,16 @@ import type { Element } from "../types/chemistry";
  *   any element, a short
  *   condensed formula (CH3, COOH), or a placeholder label (R, R1, R')
  *   Ctrl/Cmd+Z = undo   Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y = redo
+ *   Ctrl/Cmd+A = select all
+ *   Escape = clear selection / cancel atom or label edit
  *   Delete / Backspace = delete selection (or selected annotation)
+ *
+ * This is the internal reference for what this hook implements — the
+ * user-facing list (ShortcutsOverlay.tsx) is the actual source of truth
+ * for what's shown in-app, and covers a few more entries handled
+ * elsewhere (mouse-based ones like Shift+click, marquee-select, the
+ * rotate handle — see useCanvasInteractions.ts). Keep both in sync when
+ * changing a binding here.
  */
 export function useKeyboardShortcuts() {
   const undo = useMoleculeStore((s) => s.undo);

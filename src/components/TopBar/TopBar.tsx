@@ -10,6 +10,7 @@ import { StructureSearchButton } from "./StructureSearchButton";
 import { IupacNameButton } from "./IupacNameButton";
 import { NmrPredictionButton } from "./NmrPredictionButton";
 import { MoleculeInfoButton } from "./MoleculeInfoButton";
+import { DesktopDownloadButton } from "./DesktopDownloadButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
 import { exportPNG, exportSVG } from "../../io/exportImage";
@@ -223,6 +224,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
           <HelpCircle size={18} />
         </ToolButton>
         <ClearDrawingButton />
+        <DesktopDownloadButton />
       </div>
 
       <input

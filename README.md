@@ -72,6 +72,13 @@ build.
   computed 3D structure of what you're drawing, with a choice of three generation
   methods (see below) — fast collision-free conformer, MMFF94 force-field
   optimization, or GFN2-xTB semi-empirical quantum refinement (desktop app only)
+- **IUPAC naming**: look up the systematic name for the current selection (or
+  whole molecule) against PubChem's naming service — on demand via the top-bar
+  button, or continuously via an auto-naming panel docked under the canvas that
+  re-resolves the name (debounced) as you edit, opt-in and off by default to
+  avoid hammering PubChem
+- **NMR prediction** (desktop app only): predicts ¹H/¹³C shifts for the drawn
+  structure via a bundled local model backend — see below
 - Light/dark theme
 
 <br/>
@@ -114,6 +121,8 @@ src/
     embed3d.ts                  3D conformer generation (OpenChemLib) + MMFF94
     xtbRefine.ts                 Client for the GFN2-xTB refinement backend
     pubchem.ts                    PubChem PUG REST client (compound search)
+    iupacLookup.ts                Shared IUPAC lookup+retry logic (button + live panel)
+    nmrPredict.ts                 Client for the NMR prediction backend
   store/
     useMoleculeStore.ts       Zustand store: structural state + undo/redo history
                               + tool/selection/view/theme UI state
@@ -121,13 +130,19 @@ src/
     useCanvasInteractions.ts  Pointer event handling (draw/move/pan/zoom)
     useKeyboardShortcuts.ts    Global keyboard shortcuts
     useIsMobile.ts              Responsive breakpoint hook
+    useAutoIupacName.ts          Debounced auto-naming for the live IUPAC panel
+    useUpdaterStatus.ts          Polls the desktop app's auto-update status
   components/
     Canvas/                   MoleculeCanvas, AtomView, BondView (SVG rendering)
+                              + LiveIupacPanel.tsx (auto-updating name panel)
     Sidebar/                  Desktop toolbar + pickers
     TopBar/                   Brand, formula, undo/redo, import/export, theme
+                              + IupacNameButton, NmrPredictionButton,
+                                DesktopDownloadButton
     Molecule3D/                3D structure panel (3Dmol.js viewer)
     MobileToolbar/            Touch-friendly bottom toolbar
-    StatusBar/                Status text, formula (mobile), zoom readout
+    StatusBar/                Status text, formula (mobile), zoom readout,
+                              update-ready prompt
   styles/                    theme.css (CSS variables) + app.css (layout)
   App.tsx                    Layout assembly
   main.tsx                   React entry point
@@ -135,6 +150,7 @@ src/
 electron/                   Desktop (Electron) shell — see ELECTRON.md
   server.cjs                  NMR prediction backend process manager
   structure3d_server.cjs       GFN2-xTB 3D-refinement backend process manager
+  updater.cjs                  electron-updater wrapper (checks/downloads updates)
 
 python/
   structure3d_server/        FastAPI backend for the "High accuracy (GFN2-xTB)"
@@ -192,6 +208,45 @@ talks to the backend over `localhost:8001`) is `io/xtbRefine.ts`. Abbreviated
 group atoms (Ph, Boc, etc.) aren't yet supported by any of the three methods,
 since this app stores them as a single labeled vertex with no real substructure
 — the panel shows a clear message rather than a confusing failure in that case.
+
+<br/>
+
+## NMR prediction
+
+Desktop app only. Predicts ¹H and ¹³C chemical shifts for the current selection
+(or whole molecule) via a separate local model backend (**NMRGraph**, a
+different project from this one — see `ELECTRON.md`'s "Bundling the NMR
+prediction server" section for how it gets frozen and copied in), reached over
+`localhost:8000` (`io/nmrPredict.ts`). Results are grouped by symmetry-
+equivalent atoms (`groupByEquivalence`) rather than shown one row per atom, and
+can optionally use a GFN2-xTB-refined 3D structure as the model's input
+geometry instead of its own default embed — see the doc comment at the top of
+`NmrPredictionButton.tsx` for why that's a meaningfully better input, not just
+a slower one. There's no web-build equivalent: unlike the 3D panel's Quick/
+MMFF94 tiers, this has no client-side fallback, since running a real predictive
+model in the browser isn't practical.
+
+<br/>
+
+## IUPAC naming
+
+Two ways to get a systematic name for the current selection (or whole
+molecule), both against PubChem's naming service and both sharing the same
+lookup/retry logic (`io/iupacLookup.ts`, factored out specifically so the two
+call sites can't drift apart in behavior):
+
+- **On demand** — `IupacNameButton.tsx` in the top bar, click to resolve once.
+- **Live** — `LiveIupacPanel.tsx`, docked under the canvas. Off by default
+  (toggle in the panel itself); when on, it re-resolves the name automatically
+  as the structure changes, debounced (`hooks/useAutoIupacName.ts`) so a burst
+  of edits collapses into one request after you pause, rather than hitting
+  PubChem on every bond drawn.
+
+If the exact stereoisomer doesn't resolve, both retry once with stereochemistry
+stripped and flag the result accordingly, rather than surfacing a dead end.
+When the UI language is Spanish, both also show a best-effort transliteration
+underneath the (always-authoritative) English name — see
+`approximateSpanishIupacName`'s doc comment in `io/compoundTranslate.ts`.
 
 <br/>
 
@@ -275,6 +330,34 @@ This runs `gh-pages -d dist` (already wired up in `package.json`) after building
 
 **Any static host** (Netlify, S3, nginx, etc.): run `npm run build` and serve the `dist/`
 folder — it's a fully static bundle.
+
+<br/>
+
+## Desktop app
+
+Packaged with Electron — see `ELECTRON.md` for building installers locally and
+bundling the two Python backends (NMR prediction, GFN2-xTB 3D refinement).
+Windows (`.exe`, NSIS) and Linux (`.AppImage`) only; no macOS build, since
+producing one needs actual Mac hardware or a GitHub Actions `macos-latest`
+runner, neither currently in use.
+
+**Distribution**: built installers are published to the separate, public
+[MycoPixel/enlacecraft-releases](https://github.com/MycoPixel/enlacecraft-releases)
+repo (`electron-builder`'s `publish` config in `package.json`) — this repo
+stays private, but that one holds nothing except compiled binaries, so nothing
+here gets exposed by publishing a release. The webapp's top bar has a
+**download button** (`DesktopDownloadButton.tsx`) that fetches that repo's
+latest release from the GitHub API client-side and links straight to the
+right asset for the visitor's OS.
+
+**Auto-update**: the desktop app checks for updates on launch via
+`electron-updater` (`electron/updater.cjs`), downloads any new version
+automatically in the background, and shows a "Restart to update" prompt in
+the status bar once it's ready — installing is never silent/forced, matching
+the app's existing unsaved-changes-on-close behavior. Publishing a new
+release is what triggers this for everyone already on an older version; see
+`ELECTRON.md`'s "Publishing a release" section for the actual steps
+(version bump, token, `--publish always`).
 
 <br/>
 

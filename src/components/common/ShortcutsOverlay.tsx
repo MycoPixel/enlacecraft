@@ -23,6 +23,7 @@ const GROUPS: ShortcutGroup[] = [
     titleKey: "shortcuts.group.tools",
     items: [
       { keys: "V", descKey: "shortcuts.selectTool" },
+      { keys: "L", descKey: "shortcuts.lassoTool" },
       { keys: "B / 1", descKey: "shortcuts.bondSingle" },
       { keys: "2", descKey: "shortcuts.bondDouble" },
       { keys: "3", descKey: "shortcuts.bondTriple" },

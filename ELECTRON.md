@@ -25,9 +25,13 @@ same as `npm run dev` in a browser but in a native window.
 
 ```
 npm run dist:win     # -> release/*.exe  (NSIS installer)
-npm run dist:linux   # -> release/*.AppImage and release/*.deb
+npm run dist:linux   # -> release/*.AppImage
 npm run dist         # both, in one go
 ```
+
+Linux builds AppImage only — `electron-updater`'s auto-update support doesn't
+cover `.deb` installs, so there was no reason to keep publishing an update
+path that would silently never trigger.
 
 Each of these runs the normal web build first (`vite build`) and then wraps
 that same `dist/` output with Electron via electron-builder. Output lands in
@@ -127,6 +131,49 @@ no cross-compiling. Same dev-mode behavior too - `electron:dev` /
 `uvicorn main:app --port 8001 --reload` yourself while developing (see that
 folder's README). Console output is prefixed `[structure3d-server]`.
 
+## Publishing a release
+
+Built installers are published to the public
+[MycoPixel/enlacecraft-releases](https://github.com/MycoPixel/enlacecraft-releases)
+repo (see `package.json`'s `build.publish` config), which is what
+`electron-updater` (`electron/updater.cjs`) checks against on every launch.
+Publishing a new version there is what makes already-installed copies of the
+app notice an update exists.
+
+1. **Bump the version** in `package.json` (e.g. `1.1.0` → `1.1.1`). This
+   becomes the release tag automatically — there's no separate manual
+   tagging step. Pull/copy that change to both build machines (Windows,
+   Linux) before building either, so they end up publishing to the same
+   release instead of two different ones.
+2. **Set a GitHub token** in the terminal you're building from —
+   `export GH_TOKEN=...` (Linux) or `$env:GH_TOKEN="..."` (Windows
+   PowerShell). Needs a fine-grained PAT scoped to only
+   `enlacecraft-releases`, with Contents: Read and write. This is what lets
+   electron-builder create the release on your behalf.
+3. **Build and publish**, on each machine:
+   ```
+   npm install                              # only if package.json changed
+   npm run dist:win -- --publish always     # Windows machine
+   npm run dist:linux -- --publish always   # Linux machine
+   ```
+   `--publish always` is required — publishing never happens by default,
+   even with `build.publish` configured, unless a CI environment is
+   detected. Building both platforms under the same version number adds
+   both to the same release rather than creating two.
+4. **Review and publish the draft.** electron-builder creates the release as
+   a draft, not public, by default. Open
+   [the releases page](https://github.com/MycoPixel/enlacecraft-releases/releases),
+   confirm the installers AND their small `latest*.yml` manifests are both
+   attached (the `.yml` files are what `electron-updater` actually reads —
+   an installer with no matching `.yml` silently won't be picked up as an
+   update), then click **Publish release**. Until that click, it's invisible
+   to `electron-updater` — GitHub's "latest release" only counts non-draft
+   releases.
+
+Once published, an already-running older copy of the app checks on its next
+launch, downloads the update in the background, and shows "Restart to
+update" in the status bar once it's ready.
+
 ## Adding features later
 
 There's only one app — you keep editing the same `src/` files as always.
@@ -142,5 +189,5 @@ build, and the Linux build automatically the next time you run `npm run dist`.
 `build/icon.png` and `build/icon.ico` are placeholder icons (a simple
 molecule glyph) so the build doesn't fail on a missing icon. Swap them out
 for real branding whenever you have it:
-- `build/icon.png` — at least 512×512, used for the Linux AppImage/.deb
+- `build/icon.png` — at least 512×512, used for the Linux AppImage
 - `build/icon.ico` — multi-resolution .ico, used for the Windows installer
