@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "3dmol": "^2.5.5",
+    "electron-updater": "^6.6.2",
     "lucide-react": "^1.28.0",
     "openchemlib": "^9.24.0",
     "react": "^19.2.8",
@@ -46,6 +47,11 @@
   "build": {
     "appId": "com.mycopixel.enlacecraft",
     "productName": "EnlaceCraft",
+    "publish": {
+      "provider": "github",
+      "owner": "MycoPixel",
+      "repo": "enlacecraft-releases"
+    },
     "files": [
       "dist/**/*",
       "electron/**/*"
@@ -79,8 +85,7 @@
     },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
       ],
       "icon": "build/icon.png",
       "category": "Education",

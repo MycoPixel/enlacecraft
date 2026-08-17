@@ -51,6 +51,10 @@ export const translations: Record<Lang, Dict> = {
     "iupac.livePending": "Waiting for you to stop editing\u2026",
     "iupac.liveEmpty": "Turn on auto-naming, then draw or select a structure to see its name here.",
 
+    "updater.downloading": "Downloading update\u2026",
+    "updater.restartToUpdate": "Restart to update",
+    "updater.installing": "Installing update\u2026",
+
     "nmr.button": "Predict NMR shifts for this structure",
     "nmr.buttonDisabled": "Draw a structure first to predict its NMR shifts",
     "nmr.needStructure": "Draw (or select) a structure on the canvas first, then use this to predict its NMR shifts.",
@@ -553,6 +557,10 @@ export const translations: Record<Lang, Dict> = {
     "iupac.liveToggleOff": "El nombre automático está desactivado. Haz clic para que el nombre se actualice automáticamente mientras dibujas (envía una solicitud a PubChem después de cada edición).",
     "iupac.livePending": "Esperando a que dejes de editar\u2026",
     "iupac.liveEmpty": "Activa el nombre automático y luego dibuja o selecciona una estructura para ver su nombre aquí.",
+
+    "updater.downloading": "Descargando actualización\u2026",
+    "updater.restartToUpdate": "Reiniciar para actualizar",
+    "updater.installing": "Instalando actualización\u2026",
 
     "nmr.button": "Predecir los desplazamientos de RMN de esta estructura",
     "nmr.buttonDisabled": "Dibuja primero una estructura para predecir sus desplazamientos de RMN",

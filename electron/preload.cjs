@@ -17,4 +17,19 @@ contextBridge.exposeInMainWorld("electron", {
   // Molecule3DView.tsx currently relies on xtbRefine.ts's own network-
   // error handling instead, same as the NMR button does today.
   getStructure3DServerStatus: () => ipcRenderer.invoke("structure3d-server:get-status"),
+  // Status of the auto-updater (only meaningful in a packaged build -
+  // see electron/updater.cjs). Returns
+  // { state: "idle" | "checking" | "downloading" | "downloaded" | "not-available" | "error",
+  //   version: string | null, percent: number | null, error: string | null }.
+  // Not consumed by the UI yet - a "restart to update" prompt (e.g. in
+  // the status bar) should poll this and show quitAndInstall() once
+  // state is "downloaded".
+  getUpdaterStatus: () => ipcRenderer.invoke("updater:get-status"),
+  // Only takes effect once getUpdaterStatus() reports state:
+  // "downloaded" - returns false (and does nothing) otherwise. Safe to
+  // call unconditionally on a button click without checking state
+  // first, but the button/prompt itself should still only be shown
+  // once "downloaded", so the user isn't clicking something that does
+  // nothing.
+  quitAndInstallUpdate: () => ipcRenderer.invoke("updater:quit-and-install"),
 });

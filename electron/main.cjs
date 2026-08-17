@@ -5,6 +5,7 @@ const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require("electron")
 const path = require("node:path");
 const nmrServer = require("./server.cjs");
 const structure3dServer = require("./structure3d_server.cjs");
+const updater = require("./updater.cjs");
 
 // Set by `npm run electron:dev` to point at the Vite dev server instead of
 // the built dist/ files, so you get hot reload while working on the app.
@@ -116,6 +117,7 @@ app.whenReady().then(() => {
   createWindow();
   nmrServer.startServer(); // no-op in dev/preview - see server.cjs
   structure3dServer.startServer(); // no-op in dev/preview - see structure3d_server.cjs
+  updater.init(); // no-op in dev/preview - see updater.cjs
 
   app.on("activate", () => {
     // macOS convention: re-create a window when the dock icon is clicked
@@ -135,6 +137,13 @@ ipcMain.handle("nmr-server:get-status", () => nmrServer.getStatus());
 // refinement backend - see structure3d_server.cjs and, on the renderer
 // side, preload.cjs's getStructure3DServerStatus().
 ipcMain.handle("structure3d-server:get-status", () => structure3dServer.getStatus());
+// Lets the renderer show its own "checking for updates / downloading /
+// restart to update" UI - see updater.cjs. quit-and-install triggers
+// the same before-quit sequence below (server shutdown, then
+// autoUpdater's own quit-and-relaunch-installer flow), so it's just as
+// safe to call as a normal window close.
+ipcMain.handle("updater:get-status", () => updater.getStatus());
+ipcMain.handle("updater:quit-and-install", () => updater.quitAndInstall());
 
 let quitConfirmed = false;
 app.on("before-quit", (event) => {
@@ -146,15 +155,18 @@ app.on("before-quit", (event) => {
   // server.cjs's stopServer() doc comment for why the previous
   // fire-and-forget version of this could leave a file lock behind
   // right as an installer tried to overwrite the install directory.
-  nmrServer.stopServer().finally(() => {
-    // Stopped in sequence rather than in parallel with Promise.all -
-    // there's no shared resource contention between the two that would
-    // make that unsafe, but sequencing keeps the shutdown log readable
-    // and this isn't a path where the extra second or two matters.
-    structure3dServer.stopServer().finally(() => {
-      quitConfirmed = true;
-      app.quit();
-    });
+  // Run in parallel rather than sequenced - there's no shared resource
+  // contention between the two (still true, per the original version
+  // of this comment), and this path is now also what runs before
+  // electron-updater's quitAndInstall() hands off to the installer
+  // (see updater.cjs). electron-updater has its own limited patience
+  // for the app to actually finish quitting before it proceeds
+  // regardless; each server already has its own 4s safety net below,
+  // so sequential (up to ~8s worst case) risked losing that race in a
+  // way parallel (up to ~4s worst case) doesn't.
+  Promise.all([nmrServer.stopServer(), structure3dServer.stopServer()]).finally(() => {
+    quitConfirmed = true;
+    app.quit();
   });
 });
 
