@@ -11,7 +11,9 @@
 const { app } = require("electron");
 const { spawn, exec } = require("node:child_process");
 const path = require("node:path");
+const fs = require("node:fs");
 const http = require("node:http");
+const logger = require("./logger.cjs");
 
 const PORT = 8001;
 
@@ -67,7 +69,16 @@ async function startServer() {
   }
 
   const exePath = getExecutablePath();
-  console.log(`[structure3d-server] Starting: ${exePath}`);
+  logger.log(`[structure3d-server] Starting: ${exePath}`);
+
+  const exists = fs.existsSync(exePath);
+  logger.log(`[structure3d-server] Executable exists at that path: ${exists}`);
+  if (!exists) {
+    status.state = "failed";
+    status.error = `Executable not found at ${exePath}`;
+    logger.log(`[structure3d-server] ${status.error}`);
+    return;
+  }
 
   status.state = "starting";
   status.error = null;
@@ -75,6 +86,15 @@ async function startServer() {
   try {
     serverProcess = spawn(exePath, ["--port", String(PORT)], {
       stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        // Preventative, mirroring the fix in server.cjs (see that
+        // file's comment for the full explanation) - not yet observed
+        // here specifically, but this process likely shares the same
+        // numpy/scipy dependency chain that caused it for nmrgraph_server,
+        // so there's no reason to wait for the same bug to show up twice.
+        KMP_DUPLICATE_LIB_OK: "TRUE",
+      },
     });
   } catch (error) {
     console.error("[structure3d-server] Failed to spawn:", error);
@@ -84,10 +104,13 @@ async function startServer() {
   }
 
   serverProcess.stdout.on("data", (data) => process.stdout.write(`[structure3d-server] ${data}`));
-  serverProcess.stderr.on("data", (data) => process.stderr.write(`[structure3d-server] ${data}`));
+  serverProcess.stderr.on("data", (data) => {
+    process.stderr.write(`[structure3d-server] ${data}`);
+    logger.log(`[structure3d-server] stderr: ${data}`);
+  });
 
   serverProcess.on("exit", (code, signal) => {
-    console.log(`[structure3d-server] Exited (code=${code}, signal=${signal})`);
+    logger.log(`[structure3d-server] Exited (code=${code}, signal=${signal})`);
     if (status.state !== "ready" || code !== 0) {
       status.state = "failed";
       status.error = `Server process exited (code=${code})`;
@@ -99,11 +122,11 @@ async function startServer() {
 
   if (healthy) {
     status.state = "ready";
-    console.log("[structure3d-server] Ready.");
+    logger.log("[structure3d-server] Ready.");
   } else if (status.state === "starting") {
     status.state = "failed";
     status.error = "Server did not become healthy within the timeout.";
-    console.error(`[structure3d-server] ${status.error}`);
+    logger.log(`[structure3d-server] ${status.error}`);
   }
 }
 
