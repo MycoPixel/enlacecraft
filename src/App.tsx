@@ -4,6 +4,8 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useClipboard } from "./hooks/useClipboard";
 import { useIsMobile } from "./hooks/useIsMobile";
 import { useAutosave } from "./hooks/useAutosave";
+import { useFileImport } from "./hooks/useFileImport";
+import { useT } from "./i18n/useT";
 import { TopBar } from "./components/TopBar/TopBar";
 import { TabBar } from "./components/TabBar/TabBar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
@@ -31,9 +33,20 @@ export default function App() {
   const language = useMoleculeStore((s) => s.language);
   const hasSeenOnboarding = useMoleculeStore((s) => s.hasSeenOnboarding);
   const markOnboardingSeen = useMoleculeStore((s) => s.markOnboardingSeen);
+  const setStatus = useMoleculeStore((s) => s.setStatus);
   const isMobile = useIsMobile();
   const svgRef = useRef<SVGSVGElement>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const t = useT();
+  const importFileContent = useFileImport();
+  // Tracks nesting depth of dragenter/dragleave rather than a plain
+  // boolean: the drop target is the whole app, which has many child
+  // elements, and the browser fires a dragleave for every child boundary
+  // crossed (not just when the pointer actually leaves the window) — a
+  // boolean flips off mid-drag every time that happens. Counting
+  // enter/leave pairs and only clearing the overlay at 0 is the standard
+  // fix for that.
+  const [dragDepth, setDragDepth] = useState(0);
   const show3DView = useMoleculeStore((s) => s.show3DView);
   const toggle3DView = useMoleculeStore((s) => s.toggle3DView);
   // Local, session-only width for the 3D panel — deliberately not in the
@@ -97,6 +110,38 @@ export default function App() {
     document.documentElement.setAttribute("lang", language);
   }, [language]);
 
+  // Drag-and-drop file import (.mol/.cdxml/.enlacecraft) onto the app
+  // window — works the same in the web build and the desktop build alike,
+  // since it's a plain browser API rather than anything Electron-specific
+  // (unlike the native Open/Save dialogs in TopBar.tsx, which only exist
+  // in the desktop build). preventDefault() on dragOver is required for
+  // drop to fire at all; without it (and without one on drop itself) the
+  // browser's/Electron's default behavior is to navigate the window to
+  // the dropped file instead.
+  const onDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    setDragDepth((d) => d + 1);
+  };
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragDepth((d) => Math.max(0, d - 1));
+  };
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragDepth(0);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    if (files.length > 1) setStatus(t("status.droppedMultipleFiles"));
+    const file = files[0];
+    const reader = new FileReader();
+    reader.onload = () => importFileContent(file.name, String(reader.result));
+    reader.readAsText(file);
+  };
+
   useEffect(() => {
     // Warns before closing/reloading/navigating away if there's anything
     // that hasn't been saved via "Save project" yet in ANY tab (see
@@ -117,7 +162,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className="app" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <TopBar svgRef={svgRef} onOpenShortcuts={() => setShortcutsOpen(true)} />
       <TabBar />
       <div className="body">
@@ -127,15 +172,20 @@ export default function App() {
           <LiveIupacPanel />
           <StatusBar />
         </main>
-        {show3DView && !isMobile && (
-          <div className="molecule-3d-dock" style={{ width: panel3DWidth }}>
-            <div
-              className="molecule-3d-dock-resize-handle"
-              onPointerDown={onPanelResizePointerDown}
-              onPointerMove={onPanelResizePointerMove}
-              onPointerUp={onPanelResizePointerUp}
-              onPointerCancel={onPanelResizePointerUp}
-            />
+        {show3DView && (
+          <div
+            className={isMobile ? "molecule-3d-dock molecule-3d-dock--mobile" : "molecule-3d-dock"}
+            style={isMobile ? undefined : { width: panel3DWidth }}
+          >
+            {!isMobile && (
+              <div
+                className="molecule-3d-dock-resize-handle"
+                onPointerDown={onPanelResizePointerDown}
+                onPointerMove={onPanelResizePointerMove}
+                onPointerUp={onPanelResizePointerUp}
+                onPointerCancel={onPanelResizePointerUp}
+              />
+            )}
             <Suspense fallback={null}>
               <Molecule3DView onClose={toggle3DView} />
             </Suspense>
@@ -153,6 +203,11 @@ export default function App() {
         onClose={() => { setOnboardingOpen(false); markOnboardingSeen(); }}
       />
       <ContextMenu copySelection={copySelection} pasteFromClipboard={pasteFromClipboard} />
+      {dragDepth > 0 && (
+        <div className="drop-overlay">
+          <div className="drop-overlay__box">{t("dragDrop.hint")}</div>
+        </div>
+      )}
     </div>
   );
 }

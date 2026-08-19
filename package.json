@@ -5,7 +5,7 @@
     "email": "paulo.castro@usach.cl"
   },
   "desktopName": "enlacecraft.desktop",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "A browser-based molecule drawing application.",
   "private": true,
   "type": "module",
@@ -14,6 +14,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "deploy": "npm run build && gh-pages -d dist",
     "electron:dev": "concurrently -k -s first \"vite\" \"wait-on tcp:5173 && cross-env ELECTRON_START_URL=http://localhost:5173 electron .\"",
     "electron:preview": "npm run build && electron .",
@@ -39,9 +41,11 @@
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
     "gh-pages": "^6.3.0",
+    "jsdom": "^30.0.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.0",
     "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.11",
     "wait-on": "^9.1.0"
   },
   "build": {
@@ -82,7 +86,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "include": "build/installer.nsh",
-	  "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [

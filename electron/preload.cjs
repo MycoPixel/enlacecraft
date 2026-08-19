@@ -32,4 +32,8 @@ contextBridge.exposeInMainWorld("electron", {
   // once "downloaded", so the user isn't clicking something that does
   // nothing.
   quitAndInstallUpdate: () => ipcRenderer.invoke("updater:quit-and-install"),
+  // See electron/main.cjs's "dialog:save-project" / "dialog:open-file"
+  // handlers, and src/types/electron.d.ts for the return shapes.
+  saveProjectFile: (defaultName, content) => ipcRenderer.invoke("dialog:save-project", { defaultName, content }),
+  openFile: () => ipcRenderer.invoke("dialog:open-file"),
 });

@@ -48,6 +48,8 @@ build.
   (e.g. every backbone carbon shows as CH₂/CH₃ instead of a bare vertex)
 - Black-and-white mode: a toggle that renders every atom label in the theme's ink
   color instead of CPK element colors, for print/grayscale-friendly output
+- Highlight tool: apply one of eight preset emphasis colors (or clear it) to the
+  current atom/bond selection, for calling out specific parts of a structure
 - Rotate the current selection (or the whole molecule, if nothing's selected) in
   30° steps — sidebar/mobile-toolbar buttons, or `[` / `]` on desktop
 - A universal "Clear everything" action (top bar, works on mobile and desktop)
@@ -56,10 +58,16 @@ build.
   supports it and an in-memory fallback otherwise (notably Firefox, which doesn't
   support arbitrary clipboard MIME types)
 - Undo/redo, keyboard shortcuts (desktop), touch-friendly bottom toolbar (mobile)
+- Multi-document tabs: work on several structures at once in one window, each
+  with its own undo history; rename, close (with an unsaved-changes confirm),
+  and open new tabs from the tab bar
 - **Compound search**: type a name (e.g. "aspirin", "caffeine") into the search box
   in the top bar and it's looked up against PubChem's public database and dropped
   onto the canvas with real 2D coordinates — no local SMILES parsing needed, since
   PubChem can hand back a ready-to-use 2D structure file directly
+- **Structure search**: the reverse lookup — searches PubChem for real compounds
+  that contain the currently drawn structure (or selection) as a substructure,
+  so you can start from a fragment and find what it's part of
 - **English / Spanish interface**: a language toggle in the top bar switches every
   tool tooltip, label, and status message; it remembers your choice (localStorage)
   and defaults to your browser's language on first visit
@@ -411,8 +419,5 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
   Fischer projections — no amino acid, peptide, nucleotide, or other biomolecule template
   library yet. See "Extending it" above for where more would plug in.
 - No reaction atom-mapping (numbering corresponding atoms across reactants/products).
-- No per-atom/per-bond highlight coloring for emphasis — only the global black-and-white
-  display toggle.
-- Single infinite canvas — no multi-scheme/multi-page documents.
 - CDXML import/export only; no native `.cdx` (ChemDraw's binary format is undocumented —
   see the comment at the top of `io/cdxml.ts`).

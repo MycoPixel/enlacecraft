@@ -3,6 +3,7 @@
 // Electron's main process is simplest and most compatible as CJS.
 const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs/promises");
 const nmrServer = require("./server.cjs");
 const structure3dServer = require("./structure3d_server.cjs");
 const updater = require("./updater.cjs");
@@ -144,6 +145,58 @@ ipcMain.handle("structure3d-server:get-status", () => structure3dServer.getStatu
 // safe to call as a normal window close.
 ipcMain.handle("updater:get-status", () => updater.getStatus());
 ipcMain.handle("updater:quit-and-install", () => updater.quitAndInstall());
+
+// Native "Save As" for the project format (see src/io/project.ts /
+// PROJECT_FILE_EXTENSION) — the renderer already has the fully serialized
+// JSON in hand (same string the web build would hand to a browser
+// download), this just asks the OS where to put it and writes it there
+// instead. Returning { error } rather than throwing/rejecting: a failed
+// write (permissions, full disk, a removable drive pulled mid-save) is an
+// expected-enough outcome that the renderer should show a normal status
+// message for it, not treat it as an IPC-layer failure.
+ipcMain.handle("dialog:save-project", async (event, { defaultName, content }) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: "Save project",
+    defaultPath: defaultName,
+    filters: [{ name: "EnlaceCraft project", extensions: ["enlacecraft"] }],
+  });
+  if (canceled || !filePath) return { canceled: true };
+  try {
+    await fs.writeFile(filePath, content, "utf-8");
+    return { canceled: false, filePath };
+  } catch (err) {
+    return { canceled: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// Native "Open" covering every format this app imports in one picker —
+// mirrors the browser <input accept=".mol,.cdxml,.enlacecraft"> in
+// TopBar.tsx. Reads the file here (main process has real filesystem
+// access; the renderer, even in Electron, does not) and hands the raw
+// text straight back — the renderer's useFileImport() hook then parses it
+// exactly the same way it would a browser-read File's content, so the
+// two paths share all their actual import logic.
+ipcMain.handle("dialog:open-file", async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: "Open",
+    properties: ["openFile"],
+    filters: [
+      { name: "All supported files", extensions: ["enlacecraft", "mol", "cdxml"] },
+      { name: "EnlaceCraft project", extensions: ["enlacecraft"] },
+      { name: "MDL Molfile", extensions: ["mol"] },
+      { name: "ChemDraw XML", extensions: ["cdxml"] },
+    ],
+  });
+  if (canceled || filePaths.length === 0) return { canceled: true };
+  try {
+    const content = await fs.readFile(filePaths[0], "utf-8");
+    return { canceled: false, fileName: path.basename(filePaths[0]), content };
+  } catch (err) {
+    return { canceled: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
 
 let quitConfirmed = false;
 app.on("before-quit", (event) => {

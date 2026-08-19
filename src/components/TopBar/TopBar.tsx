@@ -14,11 +14,12 @@ import { DesktopDownloadButton } from "./DesktopDownloadButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
 import { exportPNG, exportSVG } from "../../io/exportImage";
-import { exportMol, importMol } from "../../io/molfile";
-import { exportCdxml, importCdxml } from "../../io/cdxml";
+import { exportMol } from "../../io/molfile";
+import { exportCdxml } from "../../io/cdxml";
 import { exportSmiles } from "../../io/smiles";
-import { exportProject, importProject, PROJECT_FILE_EXTENSION, ProjectParseError } from "../../io/project";
+import { exportProject, PROJECT_FILE_EXTENSION } from "../../io/project";
 import { downloadBlob } from "../../io/exportImage";
+import { useFileImport } from "../../hooks/useFileImport";
 import { useT } from "../../i18n/useT";
 
 interface TopBarProps {
@@ -39,8 +40,6 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const redo = useMoleculeStore((s) => s.redo);
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
-  const importMoleculeAsNewTab = useMoleculeStore((s) => s.importMoleculeAsNewTab);
-  const importProjectAsNewTabs = useMoleculeStore((s) => s.importProjectAsNewTabs);
   const markProjectSaved = useMoleculeStore((s) => s.markProjectSaved);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
@@ -54,6 +53,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = useT();
+  const importFileContent = useFileImport();
 
   const hasOverValence = Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id));
   // The 3D viewer's embedding/optimization step (MMFF94, or the xTB
@@ -124,35 +124,50 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
     }
   };
 
-  const doSaveProject = () => {
+  const doSaveProject = async () => {
     const store = useMoleculeStore.getState();
     const json = exportProject({ activeTabId: store.activeTabId, tabs: store.getAllTabsForSave() });
+    // Desktop build: a real "Save As" dialog, written straight to disk by
+    // the main process (see electron/main.cjs) — otherwise fall through to
+    // the web build's browser-download behavior below.
+    if (window.electron) {
+      const result = await window.electron.saveProjectFile(`molecule${PROJECT_FILE_EXTENSION}`, json);
+      if (result.canceled) return;
+      if (result.error) {
+        setStatus(t("status.projectSaveError", { error: result.error }));
+        return;
+      }
+      markProjectSaved();
+      setStatus(t("status.projectSaved", { path: result.filePath ?? "" }));
+      return;
+    }
     downloadBlob(new Blob([json], { type: "application/json" }), `molecule${PROJECT_FILE_EXTENSION}`);
     markProjectSaved();
   };
 
   const doImportFile = (file: File) => {
-    const isCdxml = /\.cdxml$/i.test(file.name);
-    const isProject = file.name.toLowerCase().endsWith(PROJECT_FILE_EXTENSION);
     const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        if (isProject) {
-          const project = importProject(String(reader.result));
-          importProjectAsNewTabs(project);
-          const atomCount = project.tabs.reduce((sum, tb) => sum + Object.keys(tb.molecule.atoms).length, 0);
-          setStatus(t("status.imported", { count: atomCount }));
-          return;
-        }
-        const parsed = isCdxml ? importCdxml(String(reader.result)) : importMol(String(reader.result));
-        const title = file.name.replace(/\.(mol|cdxml)$/i, "");
-        importMoleculeAsNewTab(parsed, title);
-        setStatus(t("status.imported", { count: Object.keys(parsed.atoms).length }));
-      } catch (err) {
-        setStatus(t(err instanceof ProjectParseError ? "status.projectImportError" : "status.importError", { name: file.name }));
-      }
-    };
+    reader.onload = () => importFileContent(file.name, String(reader.result));
     reader.readAsText(file);
+  };
+
+  // Desktop build: a real native "Open" dialog (see electron/main.cjs's
+  // "dialog:open-file" handler) instead of the hidden <input type="file">
+  // below — the main process reads the file directly off disk and hands
+  // back its text, which importFileContent() then parses exactly the same
+  // way it would browser-read content.
+  const doOpen = async () => {
+    if (window.electron) {
+      const result = await window.electron.openFile();
+      if (result.canceled) return;
+      if (result.error) {
+        setStatus(t("status.openFileError", { error: result.error }));
+        return;
+      }
+      importFileContent(result.fileName ?? "", result.content ?? "");
+      return;
+    }
+    fileInputRef.current?.click();
   };
 
   return (
@@ -186,7 +201,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
           <Redo2 size={18} style={{ opacity: canRedo ? 1 : 0.35 }} />
         </ToolButton>
         <Divider />
-        <ToolButton title={t("tool.import")} onClick={() => fileInputRef.current?.click()}>
+        <ToolButton title={t("tool.import")} onClick={doOpen}>
           <Upload size={18} />
         </ToolButton>
         <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />

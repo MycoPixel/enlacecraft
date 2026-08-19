@@ -1838,6 +1838,14 @@
   min-width: 0;
 }
 
+.molecule-3d-dock--mobile {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  border-left: none;
+  width: 100% !important;
+}
+
 .molecule-3d-dock-resize-handle {
   position: absolute;
   top: 0;
@@ -2767,6 +2775,32 @@
 }
 
 /* ---------- Keyboard shortcuts overlay ---------- */
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110; /* above every other overlay (100), including the mobile 3D dock */
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Lets drag events pass through to the real drop target underneath
+     (the .app div) instead of the overlay itself - see App.tsx's
+     dragDepth doc comment for why that matters. */
+  pointer-events: none;
+}
+
+.drop-overlay__box {
+  background: var(--panel);
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  padding: 28px 40px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
 
 .shortcuts-overlay {
   position: fixed;
