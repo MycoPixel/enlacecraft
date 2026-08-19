@@ -195,6 +195,23 @@
   flex-shrink: 0;
 }
 
+/* Deliberately styled distinctly from every other icon button in the top
+   bar (which all stay transparent/icon-only) — this is the one button in
+   that row that isn't a molecule-editing action, and it shared the plain
+   Download icon with the Export button right next to it, which made the
+   two easy to mix up at a glance. A solid accent fill (plus its own
+   MonitorDown icon, rather than the same arrow-into-a-tray Download
+   uses) makes "get the desktop app" read as its own distinct thing. */
+.desktop-download-trigger .tool-btn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.desktop-download-trigger .tool-btn:hover {
+  filter: brightness(1.12);
+  background: var(--accent);
+}
+
 /* ---------- Compound search ---------- */
 
 .compound-search {
@@ -1918,6 +1935,27 @@
 .molecule-3d-panel__actions {
   display: flex;
   gap: 2px;
+}
+
+.molecule-3d-export-menu {
+  position: relative;
+}
+
+.molecule-3d-export-menu__dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  z-index: 20;
+  overflow: hidden;
+  padding: 4px 0;
 }
 
 .molecule-3d-panel__measure-row {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Loader2, ExternalLink } from "lucide-react";
+import { MonitorDown, Loader2, ExternalLink } from "lucide-react";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { useT } from "../../i18n/useT";
 
@@ -80,58 +80,60 @@ export function DesktopDownloadButton() {
   const detected = detectOS();
 
   return (
-    <ToolDropdown
-      title={t("desktop.button")}
-      active={false}
-      onOpen={load}
-      renderContent={(close) => (
-        <div className="desktop-download-menu">
-          <div className="desktop-download-menu__title">{t("desktop.title")}</div>
+    <div className="desktop-download-trigger">
+      <ToolDropdown
+        title={t("desktop.button")}
+        active={false}
+        onOpen={load}
+        renderContent={(close) => (
+          <div className="desktop-download-menu">
+            <div className="desktop-download-menu__title">{t("desktop.title")}</div>
 
-          {(!state || state.phase === "loading") && (
-            <div className="desktop-download-menu__status">
-              <Loader2 size={13} className="compound-search__spinner" />
-              {t("desktop.loading")}
-            </div>
-          )}
+            {(!state || state.phase === "loading") && (
+              <div className="desktop-download-menu__status">
+                <Loader2 size={13} className="compound-search__spinner" />
+                {t("desktop.loading")}
+              </div>
+            )}
 
-          {state?.phase === "error" && <div className="desktop-download-menu__status">{t("desktop.error")}</div>}
+            {state?.phase === "error" && <div className="desktop-download-menu__status">{t("desktop.error")}</div>}
 
-          {state?.phase === "result" && (
-            <>
-              {state.windowsUrl && (
-                <a
-                  href={state.windowsUrl}
-                  className={`desktop-download-menu__option ${detected === "windows" ? "desktop-download-menu__option--recommended" : ""}`}
-                  onClick={close}
-                >
-                  <span>{t("desktop.windows")}</span>
-                  {detected === "windows" && <span className="desktop-download-menu__badge">{t("desktop.recommended")}</span>}
-                </a>
-              )}
-              {state.linuxUrl && (
-                <a
-                  href={state.linuxUrl}
-                  className={`desktop-download-menu__option ${detected === "linux" ? "desktop-download-menu__option--recommended" : ""}`}
-                  onClick={close}
-                >
-                  <span>{t("desktop.linux")}</span>
-                  {detected === "linux" && <span className="desktop-download-menu__badge">{t("desktop.recommended")}</span>}
-                </a>
-              )}
-              {detected === "mac" && <div className="desktop-download-menu__note">{t("desktop.macNotAvailable")}</div>}
-              <div className="desktop-download-menu__version">{state.version}</div>
-            </>
-          )}
+            {state?.phase === "result" && (
+              <>
+                {state.windowsUrl && (
+                  <a
+                    href={state.windowsUrl}
+                    className={`desktop-download-menu__option ${detected === "windows" ? "desktop-download-menu__option--recommended" : ""}`}
+                    onClick={close}
+                  >
+                    <span>{t("desktop.windows")}</span>
+                    {detected === "windows" && <span className="desktop-download-menu__badge">{t("desktop.recommended")}</span>}
+                  </a>
+                )}
+                {state.linuxUrl && (
+                  <a
+                    href={state.linuxUrl}
+                    className={`desktop-download-menu__option ${detected === "linux" ? "desktop-download-menu__option--recommended" : ""}`}
+                    onClick={close}
+                  >
+                    <span>{t("desktop.linux")}</span>
+                    {detected === "linux" && <span className="desktop-download-menu__badge">{t("desktop.recommended")}</span>}
+                  </a>
+                )}
+                {detected === "mac" && <div className="desktop-download-menu__note">{t("desktop.macNotAvailable")}</div>}
+                <div className="desktop-download-menu__version">{state.version}</div>
+              </>
+            )}
 
-          <a href={RELEASES_PAGE_URL} target="_blank" rel="noreferrer" className="desktop-download-menu__all-releases" onClick={close}>
-            <ExternalLink size={12} />
-            {t("desktop.viewAllReleases")}
-          </a>
-        </div>
-      )}
-    >
-      <Download size={18} />
-    </ToolDropdown>
+            <a href={RELEASES_PAGE_URL} target="_blank" rel="noreferrer" className="desktop-download-menu__all-releases" onClick={close}>
+              <ExternalLink size={12} />
+              {t("desktop.viewAllReleases")}
+            </a>
+          </div>
+        )}
+      >
+        <MonitorDown size={18} />
+      </ToolDropdown>
+    </div>
   );
 }

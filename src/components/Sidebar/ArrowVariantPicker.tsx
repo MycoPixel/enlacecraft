@@ -101,10 +101,18 @@ export function MiniArrow({
         <line x1={3} y1={9} x2={23} y2={9} stroke="currentColor" strokeWidth={1.4} markerEnd={`url(#${markerId})`} />
       )}
       {variant === "curved" && (
-        <path d="M 3,12 Q 13,1 23,9" stroke="currentColor" strokeWidth={1.4} fill="none" markerEnd={`url(#${markerId})`} />
+        // Matches ArrowAnnotationView.tsx's real curveSign===+1 case: for a
+        // left-to-right arrow that bows toward larger y (downward in SVG's
+        // y-grows-down space) — this path's control point (y=17) sits below
+        // both endpoints for exactly that reason. (Swapped with
+        // "curvedReverse" below until both were found bowing the opposite
+        // way from what they actually draw on the canvas.)
+        <path d="M 3,9 Q 13,17 23,12" stroke="currentColor" strokeWidth={1.4} fill="none" markerEnd={`url(#${markerId})`} />
       )}
       {variant === "curvedReverse" && (
-        <path d="M 3,9 Q 13,17 23,12" stroke="currentColor" strokeWidth={1.4} fill="none" markerEnd={`url(#${markerId})`} />
+        // Matches curveSign===-1: bows toward smaller y (upward) — control
+        // point (y=1) sits above both endpoints.
+        <path d="M 3,12 Q 13,1 23,9" stroke="currentColor" strokeWidth={1.4} fill="none" markerEnd={`url(#${markerId})`} />
       )}
       {variant === "resonance" && (
         <line x1={3} y1={9} x2={23} y2={9} stroke="currentColor" strokeWidth={1.4} markerEnd={`url(#${markerId})`} markerStart={`url(#${markerId})`} />
