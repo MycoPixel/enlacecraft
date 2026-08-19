@@ -2802,6 +2802,85 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
+/* ---------- Crash screen (top-level ErrorBoundary fallback) ---------- */
+
+.crash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.crash-screen__box {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: min(480px, 100%);
+  padding: 28px;
+  text-align: center;
+}
+
+.crash-screen__title {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.crash-screen__body {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.crash-screen__reload {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.crash-screen__reload:hover {
+  filter: brightness(1.08);
+}
+
+.crash-screen__details {
+  margin-top: 18px;
+  text-align: left;
+}
+
+.crash-screen__details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.crash-screen__details pre {
+  margin-top: 8px;
+  max-height: 200px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .shortcuts-overlay {
   position: fixed;
   inset: 0;
