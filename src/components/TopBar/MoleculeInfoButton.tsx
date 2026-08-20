@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import { Info, Copy, Check, AlertTriangle, Loader2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
+import { useMoleculeDescriptors } from "../../hooks/useMoleculeDescriptors";
+import { useAdvancedMoleculeDescriptors } from "../../hooks/useAdvancedMoleculeDescriptors";
+import { MIN_HEAVY_ATOMS_FOR_ADVANCED_DESCRIPTORS } from "../../io/moleculeDescriptors";
 import { hasPlaceholderLabels } from "../../model/valence";
 import { Formula } from "../common/Formula";
 import { exportSmiles } from "../../io/smiles";
@@ -43,6 +46,9 @@ export function MoleculeInfoButton() {
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
   const { fragments } = useFormulaDisplay();
+  const descriptorFragments = useMoleculeDescriptors();
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const advancedDescriptorFragments = useAdvancedMoleculeDescriptors(showAdvanced);
   const hasAnyAtoms = Object.keys(molecule.atoms).length > 0;
   const hasPlaceholder = hasPlaceholderLabels(molecule);
 
@@ -145,6 +151,111 @@ export function MoleculeInfoButton() {
                 <AlertTriangle size={13} />
                 <span>{t("moleculeInfo.placeholderWarning")}</span>
               </div>
+            )}
+            {descriptorFragments.length > 0 && (
+              <>
+                <div className="molecule-info__divider" />
+                <div className="molecule-info__label">{t("moleculeInfo.descriptors")}</div>
+                <div className="molecule-info__fragments">
+                  {descriptorFragments.map((f, i) => (
+                    <div key={i}>
+                      {i > 0 && <div className="molecule-info__divider" />}
+                      {f.unavailable ? (
+                        <p className="align-menu__hint">{t(`moleculeInfo.descriptorsUnavailable.${f.unavailable}`)}</p>
+                      ) : (
+                        f.descriptors && (
+                          <>
+                            <div className="molecule-info__row">
+                              <span>{t("moleculeInfo.logP")}</span>
+                              <span className="molecule-info__mw">{f.descriptors.logP.toFixed(2)}</span>
+                            </div>
+                            <div className="molecule-info__row">
+                              <span>{t("moleculeInfo.logS")}</span>
+                              <span className="molecule-info__mw">{f.descriptors.logS.toFixed(2)}</span>
+                            </div>
+                            <div className="molecule-info__row">
+                              <span>{t("moleculeInfo.tpsa")}</span>
+                              <span className="molecule-info__mw">{f.descriptors.polarSurfaceArea.toFixed(1)} Å²</span>
+                            </div>
+                            <div className="molecule-info__row">
+                              <span>{t("moleculeInfo.hBondDonors")}</span>
+                              <span className="molecule-info__mw">{f.descriptors.hBondDonorCount}</span>
+                            </div>
+                            <div className="molecule-info__row">
+                              <span>{t("moleculeInfo.hBondAcceptors")}</span>
+                              <span className="molecule-info__mw">{f.descriptors.hBondAcceptorCount}</span>
+                            </div>
+                            <div className="molecule-info__row">
+                              <span>{t("moleculeInfo.rotatableBonds")}</span>
+                              <span className="molecule-info__mw">{f.descriptors.rotatableBondCount}</span>
+                            </div>
+                            <div className="molecule-info__row">
+                              <span>{t("moleculeInfo.stereocenters")}</span>
+                              <span className="molecule-info__mw">{f.descriptors.stereoCenterCount}</span>
+                            </div>
+                            {showAdvanced && (() => {
+                              const adv = advancedDescriptorFragments[i];
+                              if (!adv || adv.status === "loading") {
+                                return (
+                                  <div className="structure-search-menu__loading">
+                                    <Loader2 size={14} className="compound-search__spinner" />
+                                    {t("iupac.loading")}
+                                  </div>
+                                );
+                              }
+                              if (adv.status === "error") {
+                                return (
+                                  <p className="align-menu__hint">
+                                    {adv.unavailable === "TOO_SMALL"
+                                      ? t("moleculeInfo.descriptorsUnavailable.TOO_SMALL", {
+                                          minAtoms: MIN_HEAVY_ATOMS_FOR_ADVANCED_DESCRIPTORS,
+                                        })
+                                      : t(`moleculeInfo.descriptorsUnavailable.${adv.unavailable ?? "UNSUPPORTED"}`)}
+                                  </p>
+                                );
+                              }
+                              const a = adv.descriptors;
+                              if (!a) return null;
+                              return (
+                                <>
+                                  <div className="molecule-info__row">
+                                    <span>{t("moleculeInfo.druglikeness")}</span>
+                                    <span className="molecule-info__mw">{a.druglikeness.toFixed(2)}</span>
+                                  </div>
+                                  <div className="molecule-info__row">
+                                    <span>{t("moleculeInfo.drugScore")}</span>
+                                    <span className="molecule-info__mw">{a.drugScore.toFixed(2)}</span>
+                                  </div>
+                                  <div className="molecule-info__row">
+                                    <span>{t("moleculeInfo.mutagenicRisk")}</span>
+                                    <span className="molecule-info__mw">{t(`moleculeInfo.riskLevel.${a.mutagenicRisk}`)}</span>
+                                  </div>
+                                  <div className="molecule-info__row">
+                                    <span>{t("moleculeInfo.tumorigenicRisk")}</span>
+                                    <span className="molecule-info__mw">{t(`moleculeInfo.riskLevel.${a.tumorigenicRisk}`)}</span>
+                                  </div>
+                                  <div className="molecule-info__row">
+                                    <span>{t("moleculeInfo.irritantRisk")}</span>
+                                    <span className="molecule-info__mw">{t(`moleculeInfo.riskLevel.${a.irritantRisk}`)}</span>
+                                  </div>
+                                  <div className="molecule-info__row">
+                                    <span>{t("moleculeInfo.reproductiveRisk")}</span>
+                                    <span className="molecule-info__mw">{t(`moleculeInfo.riskLevel.${a.reproductiveRisk}`)}</span>
+                                  </div>
+                                  <p className="align-menu__hint">{t("moleculeInfo.advancedCaveat")}</p>
+                                </>
+                              );
+                            })()}
+                          </>
+                        )
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button className="molecule-info__inchi-btn" onClick={() => setShowAdvanced((v) => !v)}>
+                  {t(showAdvanced ? "moleculeInfo.hideMoreDescriptors" : "moleculeInfo.showMoreDescriptors")}
+                </button>
+              </>
             )}
             <div className="molecule-info__divider" />
             <div className="molecule-info__label">{t("moleculeInfo.smiles")}</div>

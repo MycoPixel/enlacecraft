@@ -1,28 +1,8 @@
-import { ConformerGenerator, ForceFieldMMFF94, Molecule as OCLMolecule, Resources } from "openchemlib";
+import { ConformerGenerator, ForceFieldMMFF94, Molecule as OCLMolecule } from "openchemlib";
 import type { Molecule } from "../types/chemistry";
 import { exportMol } from "./molfile";
+import { ensureOclResourcesLoaded } from "./oclResources";
 import { refineWithXtb } from "./xtbRefine";
-
-// OpenChemLib's force-field/conformer-generation code (but not basic
-// molfile parsing — see the PARSED_OK check during development) needs its
-// static parameter tables (MMFF94 atom/bond/angle terms, torsion
-// preferences, etc. — the "resources.json" data file Vite emits as a
-// build asset automatically, since OpenChemLib locates it via a
-// bundler-friendly `new URL("resources.json", import.meta.url)`) loaded
-// before first use. Fetched once and memoized — every embed call after
-// the first reuses the same resolved promise instead of re-registering.
-let resourcesReady: Promise<void> | null = null;
-function ensureResourcesLoaded(): Promise<void> {
-  if (!resourcesReady) {
-    resourcesReady = Resources.registerFromUrl().catch((err) => {
-      // Let the next call retry rather than permanently caching a
-      // failure (e.g. a transient network blip on first load).
-      resourcesReady = null;
-      throw err;
-    });
-  }
-  return resourcesReady;
-}
 
 /**
  * The three 3D generation methods offered in the 3D panel — see
@@ -101,7 +81,7 @@ export async function embedMolecule3DWithMethod(
  * already agrees on, instead of a second, possibly-drifting reimplementation.
  *
  * Async because OpenChemLib's force-field data has to be fetched once
- * before first use (see ensureResourcesLoaded above) — after that first
+ * before first use (see ensureOclResourcesLoaded in io/oclResources.ts) — after that first
  * call it resolves on the next microtask. The actual embedding/
  * minimisation work is synchronous CPU work (openchemlib is plain JS, no
  * worker), so callers should still treat this as "possibly slow" for
@@ -127,7 +107,7 @@ export async function embedMolecule3D(
     throw new Embed3DError("ABBREVIATED_GROUP", "Abbreviated groups aren't supported in the 3D view yet");
   }
 
-  await ensureResourcesLoaded();
+  await ensureOclResourcesLoaded();
 
   const molblock = exportMol(mol);
   let oclMol: OCLMolecule;
@@ -186,7 +166,7 @@ export async function embedMolecule3D(
  * a hard error mid-drag.
  */
 export async function mmff94SinglePointEnergy(molfile: string): Promise<number | null> {
-  await ensureResourcesLoaded();
+  await ensureOclResourcesLoaded();
   try {
     const oclMol = OCLMolecule.fromMolfile(molfile);
     const ff = new ForceFieldMMFF94(oclMol, ForceFieldMMFF94.MMFF94S);
