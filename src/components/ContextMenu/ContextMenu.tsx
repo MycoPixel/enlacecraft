@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Trash2, Copy, ClipboardPaste, CopyPlus, Plus, Minus, Zap, Palette,
-  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check,
+  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import type { BondOrder, BondStereo } from "../../types/chemistry";
+import { resolveHapticSelection, findHapticBond } from "../../model/molecule";
 
 interface ContextMenuProps {
   copySelection: () => boolean;
@@ -49,12 +50,15 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const setBondHighlightColor = useMoleculeStore((s) => s.setBondHighlightColor);
   const setBondOrder = useMoleculeStore((s) => s.setBondOrder);
   const setBondStereo = useMoleculeStore((s) => s.setBondStereo);
+  const setBondDative = useMoleculeStore((s) => s.setBondDative);
   const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
   const duplicateSelection = useMoleculeStore((s) => s.duplicateSelection);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
   const resetRotation = useMoleculeStore((s) => s.resetRotation);
   const rotationSession = useMoleculeStore((s) => s.rotationSession);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
+  const addChargeBracket = useMoleculeStore((s) => s.addChargeBracket);
+  const toggleHapticBond = useMoleculeStore((s) => s.toggleHapticBond);
   const selectAll = useMoleculeStore((s) => s.selectAll);
   const resetView = useMoleculeStore((s) => s.resetView);
 
@@ -114,10 +118,13 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const atom = contextMenu.atomId ? molecule.atoms[contextMenu.atomId] : null;
   const bond = contextMenu.bondId ? molecule.bonds[contextMenu.bondId] : null;
   const hasSelection = selected.size > 0;
+  const hapticSelection = resolveHapticSelection(molecule, selected);
+  const existingHapticBond = hapticSelection ? findHapticBond(molecule, hapticSelection.metalAtomId, hapticSelection.ringAtomIds) : null;
   const canResetRotation = rotationSession != null && rotationSession.key === [...selected].sort().join(",");
 
   const doOrder = (order: BondOrder) => { if (bond) { setBondOrder(bond.id, order); close(); } };
   const doStereo = (stereo: BondStereo) => { if (bond) { setBondStereo(bond.id, stereo); close(); } };
+  const doDative = () => { if (bond) { setBondDative(bond.id, !bond.dative); close(); } };
 
   // The actual menu content — built once, then rendered twice below: an
   // invisible first pass (so menuRef.offsetWidth/Height above are real
@@ -194,6 +201,7 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
                 <button className="context-menu__chip" title={t("tool.dash")} onClick={() => doStereo("dash")}>&#8944;</button>
                 <button className="context-menu__chip" title={t("tool.wavy")} onClick={() => doStereo("wavy")}>&#8993;</button>
                 <button className="context-menu__chip" title={t("contextMenu.plainBond")} onClick={() => doStereo("none")}>&mdash;</button>
+                <button className="context-menu__chip" title={t("contextMenu.dativeBond")} onClick={doDative}>&#8594;</button>
               </div>
               <button className="context-menu__item" onClick={() => setSubmenu("bond-highlight")}>
                 <Palette size={15} /> {t("section.highlight")} &rsaquo;
@@ -231,6 +239,14 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
               <button className="context-menu__item" onClick={() => { cleanUpSelection(); close(); }}>
                 <Wand2 size={15} /> {t("tool.cleanUpLabel")}
               </button>
+              <button className="context-menu__item" onClick={() => { addChargeBracket(selected); close(); }}>
+                <Brackets size={15} /> {t("contextMenu.addChargeBracket")}
+              </button>
+              {hapticSelection && (
+                <button className="context-menu__item" onClick={() => { toggleHapticBond(selected); close(); }}>
+                  <Orbit size={15} /> {t(existingHapticBond ? "contextMenu.removeHapticBond" : "contextMenu.addHapticBond")}
+                </button>
+              )}
               <button className="context-menu__item context-menu__item--danger" onClick={() => { deleteSelection(); close(); }}>
                 <Trash2 size={15} /> {t("contextMenu.deleteSelection")}
               </button>

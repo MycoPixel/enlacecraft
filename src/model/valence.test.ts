@@ -1,13 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { addAtom, addBond, emptyMolecule } from "./molecule";
+import { addAtom, addBond, addHapticBond, emptyMolecule } from "./molecule";
 import {
   computeFormula,
   computeMolecularWeight,
   effectiveValence,
+  findConnectedFragments,
   hasPlaceholderLabels,
   implicitH,
   isOverValent,
   isPlaceholderLabel,
+  usedValence,
 } from "./valence";
 import type { Molecule } from "../types/chemistry";
 
@@ -216,5 +218,89 @@ describe("placeholder labels", () => {
   test("a plain element atom is never a placeholder", () => {
     const mol = addAtom(emptyMolecule(), "c1", { x: 0, y: 0 }, "C");
     expect(hasPlaceholderLabels(mol)).toBe(false);
+  });
+});
+
+describe("dative bonds and valence", () => {
+  test("a dative bond doesn't count toward either endpoint's used valence", () => {
+    // NH3 already fully valence-satisfied by its 3 real N-H bonds, plus a
+    // dative bond out to a cobalt center — that 4th connection shouldn't
+    // push nitrogen's used valence past 3, or it'd be (wrongly) flagged
+    // overvalent for something entirely normal in a coordination compound.
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "n", { x: 0, y: 0 }, "N");
+    mol = addAtom(mol, "h1", { x: 10, y: 0 }, "H");
+    mol = addAtom(mol, "h2", { x: 20, y: 0 }, "H");
+    mol = addAtom(mol, "h3", { x: 30, y: 0 }, "H");
+    mol = addAtom(mol, "co", { x: 40, y: 0 }, "Co");
+    mol = addBond(mol, "b1", "n", "h1");
+    mol = addBond(mol, "b2", "n", "h2");
+    mol = addBond(mol, "b3", "n", "h3");
+    mol = addBond(mol, "b4", "n", "co");
+    mol = { ...mol, bonds: { ...mol.bonds, b4: { ...mol.bonds.b4, dative: true } } };
+
+    expect(usedValence(mol, "n")).toBe(3);
+    expect(implicitH(mol, "n")).toBe(0);
+    expect(isOverValent(mol, "n")).toBe(false);
+  });
+
+  test("a bare atom with only a dative bond still gets its normal implicit hydrogens", () => {
+    // A lone N with nothing but a dative bond to a metal should still
+    // auto-complete to what it'd look like as a free ligand (NH3), not be
+    // treated as if the dative bond already used up a valence slot.
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "n", { x: 0, y: 0 }, "N");
+    mol = addAtom(mol, "co", { x: 10, y: 0 }, "Co");
+    mol = addBond(mol, "b1", "n", "co");
+    mol = { ...mol, bonds: { ...mol.bonds, b1: { ...mol.bonds.b1, dative: true } } };
+
+    expect(usedValence(mol, "n")).toBe(0);
+    expect(implicitH(mol, "n")).toBe(3);
+  });
+
+  test("a transition metal is still exempt from over-valence regardless of how many dative bonds it has", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "co", { x: 0, y: 0 }, "Co");
+    const ligandIds = ["n1", "n2", "n3", "n4", "n5", "n6"];
+    ligandIds.forEach((id, i) => {
+      mol = addAtom(mol, id, { x: (i + 1) * 10, y: 0 }, "N");
+      const bondId = `b${i}`;
+      mol = addBond(mol, bondId, "co", id);
+      mol = { ...mol, bonds: { ...mol.bonds, [bondId]: { ...mol.bonds[bondId], dative: true } } };
+    });
+
+    expect(isOverValent(mol, "co")).toBe(false);
+  });
+});
+
+describe("findConnectedFragments and haptic bonds", () => {
+  test("a metal and its ring, connected only by a haptic bond, count as one fragment", () => {
+    // Ferrocene-shaped: Fe with no ordinary bonds to a 5-membered C ring,
+    // linked only via a haptic bond \u2014 without hapticAdjacency in
+    // findConnectedFragments, this would wrongly come back as 2 fragments
+    // (bare Fe, and the ring), splitting its formula/MW/descriptors in
+    // useFormulaDisplay/useMoleculeDescriptors as if they were unrelated.
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "fe", { x: 0, y: 0 }, "Fe");
+    const ringIds = ["c1", "c2", "c3", "c4", "c5"];
+    ringIds.forEach((id, i) => { mol = addAtom(mol, id, { x: 40 + i * 10, y: i * 5 }, "C"); });
+    for (let i = 0; i < ringIds.length; i++) {
+      mol = addBond(mol, `rb${i}`, ringIds[i], ringIds[(i + 1) % ringIds.length]);
+    }
+    mol = addHapticBond(mol, "hb1", "fe", ringIds);
+
+    const fragments = findConnectedFragments(mol);
+    expect(fragments).toHaveLength(1);
+    expect(fragments[0].sort()).toEqual(["c1", "c2", "c3", "c4", "c5", "fe"]);
+  });
+
+  test("without any haptic bond, a bare metal and an unrelated ring are still separate fragments", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "fe", { x: 0, y: 0 }, "Fe");
+    mol = addAtom(mol, "c1", { x: 100, y: 0 }, "C");
+    mol = addAtom(mol, "c2", { x: 110, y: 0 }, "C");
+    mol = addBond(mol, "rb0", "c1", "c2");
+
+    expect(findConnectedFragments(mol)).toHaveLength(2);
   });
 });

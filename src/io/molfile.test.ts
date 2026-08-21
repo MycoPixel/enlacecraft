@@ -41,6 +41,29 @@ describe("exportMol / importMol round-trip", () => {
     expect(orders).toEqual([2, 3]);
   });
 
+  test("a dative bond survives as MDL type 8, order 1, no stereo — same convention OpenChemLib itself uses", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "Co");
+    mol = addAtom(mol, "a1", { x: 40, y: 0 }, "N");
+    mol = addBond(mol, "b0", "a0", "a1");
+    mol = { ...mol, bonds: { ...mol.bonds, b0: { ...mol.bonds.b0, dative: true } } };
+
+    const mf = exportMol(mol);
+    expect(mf).toMatch(/\n\s*1\s*2\s*8\s*0/);
+
+    const roundTripped = importMol(mf);
+    const bonds = Object.values(roundTripped.bonds);
+    expect(bonds).toHaveLength(1);
+    expect(bonds[0].dative).toBe(true);
+    expect(bonds[0].order).toBe(1);
+    expect(bonds[0].stereo).toBe("none");
+  });
+
+  test("an ordinary (non-dative) bond round-trips without ever gaining a dative flag", () => {
+    const roundTripped = importMol(exportMol(ethanolSkeleton()));
+    expect(Object.values(roundTripped.bonds).every((b) => !b.dative)).toBe(true);
+  });
+
   test("wedge/dash stereo bonds survive, and become order 1 regardless of the original order", () => {
     let mol = emptyMolecule();
     mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");

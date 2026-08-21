@@ -163,6 +163,27 @@ export interface Bond {
   /** Same emphasis-color mechanism as Atom.highlightColor — see its doc
    * comment (purely visual, not exported). */
   highlightColor?: string;
+  /**
+   * Dative/coordinate bond (the M\u2190L arrow convention for a ligand's lone
+   * pair donated to a metal center), rendered as a plain arrow into
+   * whichever endpoint is metal-like \u2014 see BondView.tsx \u2014 instead of any
+   * of the usual order/stereo styles. `order` is left at its normal value
+   * (1) rather than repurposed as some kind of "order 0"; nothing reads
+   * order on a dative bond, and keeping it a normal BondOrder avoids
+   * introducing a value every existing order-1/2/3 switch would need to
+   * account for. Optional for backward compatibility with drawings saved
+   * before this field existed \u2014 absent means an ordinary covalent bond,
+   * same as every dative bond before this feature shipped.
+   *
+   * Deliberately excluded from usedValence's sum (see valence.ts) on
+   * *both* ends, not just the donor: the ligand atom's own valence is
+   * already fully accounted for by its other, ordinary bonds (e.g. NH3's
+   * nitrogen is already valence-satisfied by its three N-H bonds; the
+   * dative bond to a metal is additional credit from a lone pair, not a
+   * fourth covalent connection in the counted sense), and the metal side
+   * already has no VALENCE entry to violate regardless.
+   */
+  dative?: boolean;
 }
 
 /** Live, uncommitted preview of a bond being dragged out from an atom. */
@@ -218,6 +239,45 @@ export type RingAttachment =
 export interface Molecule {
   atoms: Record<string, Atom>;
   bonds: Record<string, Bond>;
+  /** See HapticBond's own doc comment. Always present (emptyMolecule
+   * initializes it to {}) \u2014 unlike Bond.dative, this isn't an "absent
+   * means legacy data" optional field, since every Molecule-producing
+   * function in this codebase was updated to set it at the same time
+   * this field was introduced, including the molfile/SMILES importers
+   * (which just always produce {}, since neither format carries
+   * hapticity \u2014 see HapticBond's doc comment). */
+  hapticBonds: Record<string, HapticBond>;
+}
+
+/**
+ * A bond from a metal atom to the centroid of a set of atoms (typically a
+ * ring) rather than to one specific atom \u2014 the standard notation for
+ * hapticity (e.g. ferrocene's Fe-to-Cp bonds, \u03b75). Deliberately kept as
+ * its own top-level collection rather than folded into Bond/mol.bonds:
+ * the ring atoms keep their own ordinary bonds to each other in mol.bonds
+ * exactly as always (an \u03b75-Cp ring is still just a normal 5-membered
+ * carbon ring chemically), so nothing about valence checking, ring
+ * perception, or double-bond-side placement needs to know hapticity
+ * exists at all \u2014 only rendering (a line to the ring's live-computed
+ * centroid, see HapticBondView.tsx) and the context-menu action that
+ * creates/removes these treat it specially. molfile/SMILES export
+ * currently drop these entirely rather than writing something invalid:
+ * neither format has a real representation for a multi-center bond
+ * (MDL's own "multiple attachment" SGroup extension isn't implemented by
+ * this app's molfile reader/writer, and mainline SMILES has no hapticity
+ * notation at all), so a ferrocene-like structure round-trips through
+ * either format as a bare metal atom plus disconnected rings \u2014
+ * chemically incomplete, but not silently wrong, and still fully
+ * preserved in this app's own native project format (a plain JSON dump
+ * of the whole Molecule, hapticBonds included).
+ */
+export interface HapticBond {
+  id: string;
+  metalAtomId: string;
+  /** The ring (or other ligand fragment) atoms the bond is drawn to the
+   * centroid of. At least 2 \u2014 a single atom wouldn't need a centroid, and
+   * should just be an ordinary Bond or a dative Bond instead. */
+  ringAtomIds: string[];
 }
 
 export interface Point {

@@ -1,5 +1,6 @@
 import type { Atom, Bond } from "../../types/chemistry";
 import { insetSegment } from "../../model/geometry";
+import { isMetalLike } from "../../model/valence";
 
 interface BondViewProps {
   bond: Bond;
@@ -31,14 +32,40 @@ export function BondView({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: BondVie
 
 function BondStrokes({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: Required<Pick<BondViewProps, "bond" | "a1" | "a2">> & Pick<BondViewProps, "resolvedSide" | "r1" | "r2">) {
 
+  // Pull the endpoints in from each atom's center so the line stops at the
+  // edge of that atom's label instead of running underneath it. Needed by
+  // the dative-bond arrow below too, so it's computed before that check
+  // rather than after (order normalization, right below, isn't).
+  const { p1, p2 } = insetSegment(a1, a2, r1, r2);
+
+  // A dative/coordinate bond (see Bond.dative's doc comment) is drawn as a
+  // plain arrow into the acceptor, not as any of the order/stereo styles
+  // below \u2014 real coordination-compound drawings don't combine "this is a
+  // dative bond" with a wedge/dash 3D depiction on the same bond, so this
+  // takes full precedence rather than layering on top of order/stereo.
+  // markerEnd puts the arrowhead at the line's second endpoint, so the
+  // line's own point order needs to end at the acceptor (metal-like) atom
+  // \u2014 detected the same way the rest of the app already treats an atom as
+  // "no ordinary valence rules apply" (see valence.ts): no VALENCE entry.
+  // Only reversed when that's unambiguous (exactly one endpoint qualifies);
+  // any other case (both, neither, or unresolved) keeps a1\u2192a2, same as an
+  // ordinary bond's natural draw direction.
+  if (bond.dative) {
+    const arrowIntoA1 = isMetalLike(a1.element) && !isMetalLike(a2.element);
+    const [lx1, ly1, lx2, ly2] = arrowIntoA1 ? [p2.x, p2.y, p1.x, p1.y] : [p1.x, p1.y, p2.x, p2.y];
+    return (
+      <line
+        x1={lx1} y1={ly1} x2={lx2} y2={ly2}
+        stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+        markerEnd="url(#arrowhead-small)"
+      />
+    );
+  }
+
   // Defensively normalize order: anything other than a real 1/2/3 (e.g. an
   // aromatic "4" or a query bond type from an imported MOL/SDF file) falls
   // back to a single bond rather than being misrendered as a triple bond.
   const order = bond.order === 2 ? 2 : bond.order === 3 ? 3 : 1;
-
-  // Pull the endpoints in from each atom's center so the line stops at the
-  // edge of that atom's label instead of running underneath it.
-  const { p1, p2 } = insetSegment(a1, a2, r1, r2);
 
   const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x);
   const perp = ang + Math.PI / 2;

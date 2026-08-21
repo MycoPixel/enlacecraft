@@ -114,6 +114,19 @@ function applyChargeToBase(base: number, el: keyof typeof VALENCE, charge: numbe
   return Math.max(0, base + charge);
 }
 
+/** True for elements with no VALENCE table entry — transition metals,
+ * lanthanides, actinides, and noble gases, per this file's own valence
+ * rules (see VALENCE in constants.ts and isOverValent below). Used
+ * anywhere "is this the metal side" needs deciding \u2014 e.g. which end of a
+ * dative bond gets the arrowhead (BondView.tsx), or which atom in a
+ * selection is the metal center for a haptic bond (useMoleculeStore.ts)
+ * \u2014 so those call sites share this one definition rather than each
+ * re-deriving "no VALENCE entry" for itself.
+ */
+export function isMetalLike(element: Element): boolean {
+  return VALENCE[element] === undefined;
+}
+
 export function effectiveValence(el: keyof typeof VALENCE, charge: number): number {
   return applyChargeToBase(VALENCE[el] ?? 0, el, charge);
 }
@@ -150,7 +163,10 @@ function resolvedValence(el: Element, charge: number, used: number): number {
 }
 
 export function usedValence(mol: Molecule, atomId: string): number {
-  return bondsOfAtom(mol, atomId).reduce((sum, b) => sum + b.order, 0);
+  // Dative bonds don't consume the donor's own valence budget (or the
+  // acceptor's, though that side never has a VALENCE entry to violate
+  // anyway) — see Bond.dative's doc comment for why.
+  return bondsOfAtom(mol, atomId).reduce((sum, b) => sum + (b.dative ? 0 : b.order), 0);
 }
 
 /**
@@ -354,6 +370,25 @@ export function computeFormula(mol: Molecule, atomIds?: Iterable<string>): strin
  * is drawn in (e.g. matching "A + B -> C" left to right).
  */
 export function findConnectedFragments(mol: Molecule): string[][] {
+  // Haptic bonds (see HapticBond's doc comment in types/chemistry.ts)
+  // connect a metal atom to a ring without ever touching mol.bonds, so a
+  // plain bonds-only traversal would wrongly split e.g. ferrocene into
+  // three disconnected pieces \u2014 a bare Fe, and each Cp ring on its own
+  // \u2014 for formula/MW/descriptor purposes (both useFormulaDisplay and
+  // useMoleculeDescriptors scope to these fragments). The extra
+  // adjacency is folded in here rather than into neighborIds, since
+  // callers rely on that one for real geometric bond angles and valence
+  // sums, where a haptic "neighbor" doesn't behave like an ordinary
+  // bonded one \u2014 this function only cares about "are these atoms part of
+  // the same chemical entity," not bond angles.
+  const hapticAdjacency = new Map<string, string[]>();
+  for (const hb of Object.values(mol.hapticBonds)) {
+    const group = [hb.metalAtomId, ...hb.ringAtomIds];
+    for (const id of group) {
+      hapticAdjacency.set(id, [...(hapticAdjacency.get(id) ?? []), ...group.filter((other) => other !== id)]);
+    }
+  }
+
   const visited = new Set<string>();
   const fragments: { ids: string[]; cx: number }[] = [];
   for (const id in mol.atoms) {
@@ -364,7 +399,7 @@ export function findConnectedFragments(mol: Molecule): string[][] {
     while (stack.length) {
       const cur = stack.pop()!;
       ids.push(cur);
-      for (const nb of neighborIds(mol, cur)) {
+      for (const nb of [...neighborIds(mol, cur), ...(hapticAdjacency.get(cur) ?? [])]) {
         if (!visited.has(nb)) {
           visited.add(nb);
           stack.push(nb);

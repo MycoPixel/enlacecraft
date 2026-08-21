@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, RotationSession, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, RotationSession, TextAnnotation, Theme, ToolId, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
@@ -89,6 +89,14 @@ const MAX_FONT_SIZE = 72;
 const PLUS_BOX_WIDTH = 26;
 const PLUS_BOX_HEIGHT = 30;
 const PLUS_FONT_SIZE = 22;
+/** addChargeBracket layout: gap beyond the atoms' bounding box before the
+ * bracket glyphs start, gap between the close bracket and the charge
+ * label, and the label's own box size (a short ionic charge like "3+" or
+ * "2\u2212", not a paragraph). */
+const CHARGE_BRACKET_PADDING = 24;
+const CHARGE_LABEL_GAP = 2;
+const CHARGE_LABEL_WIDTH = 40;
+const CHARGE_LABEL_HEIGHT = 22;
 
 // How far above a reaction arrow's midpoint "Add reagent text" drops the
 // new (empty) text box — the conventional place to write reagents/conditions.
@@ -365,6 +373,20 @@ interface MoleculeStore {
   addArrowAnnotation: (p1: Point, p2: Point, variant: ArrowVariant, barb?: "full" | "single", headSize?: ArrowHeadSize) => string;
   addBracketAnnotation: (p: Point, variant: BracketVariant, facing: BracketFacing) => string;
   addBracketPair: (corner1: Point, corner2: Point, variant: BracketVariant) => { openId: string; closeId: string };
+  /** The "wrap this in [ ]^charge" convenience for coordination complexes
+   * / polyatomic ions: an open+close square bracket pair sized around
+   * atomIds' current positions, plus an empty, immediately-editable text
+   * label at the close bracket's top-right corner for the charge (e.g.
+   * type "3+"). One undo step; null if atomIds is empty. See its
+   * implementation for why this needed its own action rather than just
+   * composing addBracketPair + addTextAnnotation from a caller. */
+  addChargeBracket: (atomIds: Iterable<string>) => { openId: string; closeId: string; labelId: string } | null;
+  /** Adds a haptic (\u03b7) bond if the selection resolves to one metal atom +
+   * \u22652 ligand atoms and none exists between them yet, or removes it if one
+   * already does \u2014 see model/molecule.ts's resolveHapticSelection and
+   * findHapticBond for the exact rule. False if the selection doesn't
+   * resolve at all (nothing was done). */
+  toggleHapticBond: (atomIds: Iterable<string>) => boolean;
   addPlusAnnotation: (p: Point) => string;
   addReagentText: () => string | null;
   updateTextHtml: (id: string, html: string) => void;
@@ -420,6 +442,7 @@ interface MoleculeStore {
   toggleAtomRadical: (id: string) => void;
   setBondOrder: (id: string, order: BondOrder) => void;
   setBondStereo: (id: string, stereo: BondStereo) => void;
+  setBondDative: (id: string, dative: boolean) => void;
   /** Applies (color) or clears (null) an emphasis color across the
    * current selection — every selected atom, plus every bond whose both
    * endpoints are selected. No-op with nothing selected. */
@@ -904,6 +927,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     toggleAtomRadical: (id) => commit((mol) => M.toggleAtomRadical(mol, id)),
     setBondOrder: (id, order) => commit((mol) => M.setBondOrder(mol, id, order)),
     setBondStereo: (id, stereo) => commit((mol) => M.setBondStereo(mol, id, stereo)),
+    setBondDative: (id, dative) => commit((mol) => M.setBondDative(mol, id, dative)),
     highlightSelection: (color) => {
       const { selected } = get();
       commit((mol) => M.setHighlightForSelection(mol, selected, color));
@@ -1413,6 +1437,77 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       };
       commitAnnotations((anns) => ({ ...anns, [openId]: open, [closeId]: close }));
       return { openId, closeId };
+    },
+
+    /**
+     * Deliberately doesn't just call addBracketPair() + addTextAnnotation()
+     * in sequence \u2014 each of those calls commitAnnotations itself, which
+     * would split this into two separate undo steps (the person would need
+     * two undos to remove one charge bracket). Building all three
+     * annotations here and committing them together keeps it atomic, same
+     * reasoning as addBracketPair batching its open+close pair.
+     *
+     * Padding and label position are fixed defaults, not configurable \u2014
+     * same as every other annotation this store creates (addPlusAnnotation,
+     * addReagentText, ...): a reasonable starting point the person can drag
+     * to taste afterward, not a placement the store needs to get exactly
+     * right up front.
+     */
+    addChargeBracket: (atomIds) => {
+      const { molecule } = get();
+      const atoms: Atom[] = [...atomIds].map((id) => molecule.atoms[id]).filter((a): a is Atom => !!a);
+      if (atoms.length === 0) return null;
+
+      const minX = Math.min(...atoms.map((a) => a.x));
+      const maxX = Math.max(...atoms.map((a) => a.x));
+      const minY = Math.min(...atoms.map((a) => a.y));
+      const maxY = Math.max(...atoms.map((a) => a.y));
+
+      const { left, right, top, height } = bracketPairLayout(
+        { x: minX - CHARGE_BRACKET_PADDING, y: minY - CHARGE_BRACKET_PADDING },
+        { x: maxX + CHARGE_BRACKET_PADDING, y: maxY + CHARGE_BRACKET_PADDING },
+      );
+
+      const openId = nextId();
+      const closeId = nextId();
+      const labelId = nextId();
+      const open: BracketAnnotation = {
+        id: openId, kind: "bracket",
+        x: left - DEFAULT_BRACKET_WIDTH, y: top, width: DEFAULT_BRACKET_WIDTH, height,
+        variant: "square", facing: "open",
+      };
+      const close: BracketAnnotation = {
+        id: closeId, kind: "bracket",
+        x: right, y: top, width: DEFAULT_BRACKET_WIDTH, height,
+        variant: "square", facing: "close",
+      };
+      const label: TextAnnotation = {
+        id: labelId,
+        kind: "text",
+        x: right + DEFAULT_BRACKET_WIDTH + CHARGE_LABEL_GAP,
+        y: top - CHARGE_LABEL_HEIGHT * 0.7,
+        width: CHARGE_LABEL_WIDTH,
+        height: CHARGE_LABEL_HEIGHT,
+        html: "",
+        fontSize: DEFAULT_FONT_SIZE,
+      };
+
+      commitAnnotations((anns) => ({ ...anns, [openId]: open, [closeId]: close, [labelId]: label }));
+      set({ selectedAnnotationIds: new Set([labelId]), editingTextId: labelId });
+      return { openId, closeId, labelId };
+    },
+
+    toggleHapticBond: (atomIds) => {
+      const { molecule } = get();
+      const resolved = M.resolveHapticSelection(molecule, atomIds);
+      if (!resolved) return false;
+      const existing = M.findHapticBond(molecule, resolved.metalAtomId, resolved.ringAtomIds);
+      if (existing) {
+        commit((mol) => M.deleteHapticBond(mol, existing.id));
+      } else {
+        commit((mol) => M.addHapticBond(mol, nextId(), resolved.metalAtomId, resolved.ringAtomIds));
+      }
+      return true;
     },
 
     /**

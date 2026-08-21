@@ -43,8 +43,11 @@ function molCodeToCharge(code: number): number {
  * through unchanged. Real-world files (not just PubChem's) commonly use
  * type 4 for aromatic bonds instead of Kekulized alternating 1/2 — treating
  * that as a double bond is a reasonable display approximation. Query bond
- * types (5-8: single-or-double, single-or-aromatic, etc.) fall back to a
+ * types (5-7: single-or-double, single-or-aromatic, etc.) fall back to a
  * single bond rather than being misinterpreted as something they're not.
+ * Type 8 ("any bond") is handled separately, not here — see its own
+ * comment at the import call site — since it's the code both this app and
+ * OpenChemLib use for a dative/metal-ligand bond, not a query type.
  */
 function mdlBondOrderToOrder(code: number): BondOrder {
   if (code === 2) return 2;
@@ -93,9 +96,20 @@ export function exportMol(mol: Molecule, name = "molecule"): string {
   }
 
   for (const b of bondList) {
-    const stereoCode = b.stereo === "wedge" ? 1 : b.stereo === "dash" ? 6 : b.stereo === "wavy" ? 4 : 0;
+    // Dative bonds are written as MDL type 8 ("any bond") rather than
+    // their own order — the same code OpenChemLib's own writer uses for
+    // its native cBondTypeMetalLigand (verified against its output before
+    // relying on it here), and its reader maps type 8 straight back to
+    // that same bond type, order 0 for its own valence purposes — which
+    // is exactly why usedValence() (see valence.ts) also excludes dative
+    // bonds from its sum, independently arriving at the same convention
+    // OpenChemLib already uses internally. Standard MDL V2000 has no
+    // dedicated "dative bond" code, so type 8 is the closest compatible
+    // choice, not a made-up one.
+    const stereoCode = b.dative ? 0 : b.stereo === "wedge" ? 1 : b.stereo === "dash" ? 6 : b.stereo === "wavy" ? 4 : 0;
+    const orderCode = b.dative ? 8 : b.order;
     out += `${String(index[b.a1]).padStart(3)}${String(index[b.a2]).padStart(3)}`;
-    out += `${String(b.order).padStart(3)}${String(stereoCode).padStart(3)}  0  0  0\n`;
+    out += `${String(orderCode).padStart(3)}${String(stereoCode).padStart(3)}  0  0  0\n`;
   }
 
   out += "M  END\n";
@@ -150,15 +164,25 @@ export function importMol(text: string): Molecule {
     }
   }
 
-  const bondPairs: { a1: string; a2: string; order: BondOrder; stereo: BondStereo }[] = [];
+  const bondPairs: { a1: string; a2: string; order: BondOrder; stereo: BondStereo; dative: boolean }[] = [];
   for (let i = 0; i < nbonds; i++) {
     const line = lines[4 + natoms + i] || "";
     const a1 = ids[parseInt(line.slice(0, 3), 10) - 1];
     const a2 = ids[parseInt(line.slice(3, 6), 10) - 1];
-    const order = mdlBondOrderToOrder(parseInt(line.slice(6, 9), 10) || 1);
+    const rawOrderCode = parseInt(line.slice(6, 9), 10) || 1;
+    // Type 8 ("any bond") is how both this app and OpenChemLib write a
+    // dative/metal-ligand bond (see exportMol's comment) — checked before
+    // handing off to mdlBondOrderToOrder, which treats 8 as just another
+    // unrecognized query type and falls back to a plain single bond. A
+    // file written by some other tool that happens to use type 8 for an
+    // actual query bond, rather than a coordination bond, will still just
+    // come in as a plain single bond with the arrow rendering — order 1
+    // either way, only the dative flag (and thus the arrowhead) differs.
+    const dative = rawOrderCode === 8;
+    const order = dative ? 1 : mdlBondOrderToOrder(rawOrderCode);
     const stereoCode = parseInt(line.slice(9, 12), 10) || 0;
-    const stereo: BondStereo = stereoCode === 1 ? "wedge" : stereoCode === 6 ? "dash" : stereoCode === 4 ? "wavy" : "none";
-    if (a1 && a2) bondPairs.push({ a1, a2, order, stereo });
+    const stereo: BondStereo = dative ? "none" : stereoCode === 1 ? "wedge" : stereoCode === 6 ? "dash" : stereoCode === 4 ? "wavy" : "none";
+    if (a1 && a2) bondPairs.push({ a1, a2, order, stereo, dative });
   }
 
   // Different sources (hand-authored files, various drawing programs,
@@ -193,9 +217,9 @@ export function importMol(text: string): Molecule {
     mol.atoms[id].y = -rawY[i] * scale;
   });
 
-  for (const { a1, a2, order, stereo } of bondPairs) {
+  for (const { a1, a2, order, stereo, dative } of bondPairs) {
     const id = nextId();
-    mol.bonds[id] = { id, a1, a2, order: stereo === "none" ? order : 1, stereo, doubleSide: "auto" };
+    mol.bonds[id] = { id, a1, a2, order: stereo === "none" ? order : 1, stereo, doubleSide: "auto", dative: dative || undefined };
   }
 
   // "M  CHG" property lines are the modern, unbounded way to specify formal

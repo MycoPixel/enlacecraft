@@ -1,14 +1,28 @@
-import type { Atom, Bond, BondOrder, BondStereo, DoubleBondSide, Element, Molecule, Point } from "../types/chemistry";
+import type { Atom, Bond, BondOrder, BondStereo, DoubleBondSide, Element, HapticBond, Molecule, Point } from "../types/chemistry";
 import { nextId } from "./id";
 import { BOND_LEN } from "./constants";
 import { angleOf, dist, polar, snapAngle } from "./geometry";
+import { isMetalLike } from "./valence";
 
 export function emptyMolecule(): Molecule {
-  return { atoms: {}, bonds: {} };
+  return { atoms: {}, bonds: {}, hapticBonds: {} };
 }
 
 export function cloneMolecule(mol: Molecule): Molecule {
-  return { atoms: { ...mol.atoms }, bonds: { ...mol.bonds } };
+  return { atoms: { ...mol.atoms }, bonds: { ...mol.bonds }, hapticBonds: { ...mol.hapticBonds } };
+}
+
+/** Keeps only the haptic bonds whose metal atom and every ring atom are
+ * still present, per `isSurviving` — the same "drop it if either end is
+ * gone" cascade-cleanup Bond filtering already does at each of these
+ * call sites, extended to a haptic bond's multi-atom ring reference. */
+function survivingHapticBonds(hapticBonds: Record<string, HapticBond>, isSurviving: (id: string) => boolean): Record<string, HapticBond> {
+  const result: Record<string, HapticBond> = {};
+  for (const id in hapticBonds) {
+    const hb = hapticBonds[id];
+    if (isSurviving(hb.metalAtomId) && hb.ringAtomIds.every(isSurviving)) result[id] = hb;
+  }
+  return result;
 }
 
 /**
@@ -288,13 +302,24 @@ export function clearAllMapNumbers(mol: Molecule): Molecule {
 export function setBondOrder(mol: Molecule, id: string, order: BondOrder): Molecule {
   const b = mol.bonds[id];
   if (!b) return mol;
-  return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, order, stereo: "none", doubleSide: "auto" } } };
+  return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, order, stereo: "none", doubleSide: "auto", dative: false } } };
 }
 
 export function setBondStereo(mol: Molecule, id: string, stereo: BondStereo): Molecule {
   const b = mol.bonds[id];
   if (!b) return mol;
-  return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, stereo, order: 1, doubleSide: "auto" } } };
+  return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, stereo, order: 1, doubleSide: "auto", dative: false } } };
+}
+
+/** Toggles the dative/coordinate-bond arrow (see Bond.dative's doc
+ * comment) on or off. Mirrors setBondOrder/setBondStereo's own
+ * mutual-exclusivity: choosing any of the three always resets the other
+ * two to their plain defaults, so a bond is never simultaneously "order
+ * 2" and "dative" and "wedge" at once. */
+export function setBondDative(mol: Molecule, id: string, dative: boolean): Molecule {
+  const b = mol.bonds[id];
+  if (!b) return mol;
+  return { ...mol, bonds: { ...mol.bonds, [id]: { ...b, dative, order: 1, stereo: "none", doubleSide: "auto" } } };
 }
 
 /**
@@ -349,13 +374,63 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
     const b = mol.bonds[bid];
     if (b.a1 !== id && b.a2 !== id) bonds[bid] = b;
   }
-  return { atoms, bonds };
+  const hapticBonds = survivingHapticBonds(mol.hapticBonds, (aid) => aid !== id);
+  return { atoms, bonds, hapticBonds };
 }
 
 export function deleteBond(mol: Molecule, id: string): Molecule {
   const bonds = { ...mol.bonds };
   delete bonds[id];
   return { ...mol, bonds };
+}
+
+/**
+ * Looks for a haptic bond already covering exactly this metal + ring atom
+ * set (in either atom order, since a set of ring atoms has no inherent
+ * order) — used to make the context-menu action a toggle: "add" if none
+ * exists yet for this exact selection, "remove" if one already does,
+ * rather than letting repeated clicks pile up duplicate haptic bonds
+ * between the same atoms.
+ */
+export function findHapticBond(mol: Molecule, metalAtomId: string, ringAtomIds: Iterable<string>): HapticBond | null {
+  const ringSet = new Set(ringAtomIds);
+  for (const hb of Object.values(mol.hapticBonds)) {
+    if (hb.metalAtomId !== metalAtomId) continue;
+    if (hb.ringAtomIds.length !== ringSet.size) continue;
+    if (hb.ringAtomIds.every((id) => ringSet.has(id))) return hb;
+  }
+  return null;
+}
+
+export function addHapticBond(mol: Molecule, id: string, metalAtomId: string, ringAtomIds: string[]): Molecule {
+  const hb: HapticBond = { id, metalAtomId, ringAtomIds };
+  return { ...mol, hapticBonds: { ...mol.hapticBonds, [id]: hb } };
+}
+
+export function deleteHapticBond(mol: Molecule, id: string): Molecule {
+  const hapticBonds = { ...mol.hapticBonds };
+  delete hapticBonds[id];
+  return { ...mol, hapticBonds };
+}
+
+/**
+ * Resolves a selection into "one metal atom + \u22652 ligand atoms" for the
+ * haptic-bond context-menu action \u2014 shared between deciding whether to
+ * show that action at all (and whether it should read "add" or "remove")
+ * and actually applying it, so both agree on exactly the same rule for
+ * what counts as a valid selection. Null whenever the selection doesn't
+ * unambiguously split that way: no metal atom, more than one, or fewer
+ * than two remaining atoms to serve as the ring/ligand \u2014 deliberately
+ * strict rather than guessing, since a wrong guess here would silently
+ * bond the wrong atom set.
+ */
+export function resolveHapticSelection(mol: Molecule, atomIds: Iterable<string>): { metalAtomId: string; ringAtomIds: string[] } | null {
+  const atoms = [...atomIds].map((id) => mol.atoms[id]).filter((a): a is Atom => !!a);
+  const metals = atoms.filter((a) => isMetalLike(a.element));
+  if (metals.length !== 1) return null;
+  const ringAtomIds = atoms.filter((a) => a.id !== metals[0].id).map((a) => a.id);
+  if (ringAtomIds.length < 2) return null;
+  return { metalAtomId: metals[0].id, ringAtomIds };
 }
 
 /**
@@ -388,7 +463,7 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
     delete bonds[connected[0].id];
   }
 
-  return { atoms, bonds };
+  return { atoms, bonds, hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => id in atoms) };
 }
 
 /**
@@ -410,7 +485,7 @@ export function subMolecule(mol: Molecule, atomIds: Iterable<string>): Molecule 
     const b = mol.bonds[id];
     if (idSet.has(b.a1) && idSet.has(b.a2)) bonds[id] = b;
   }
-  return { atoms, bonds };
+  return { atoms, bonds, hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => idSet.has(id)) };
 }
 
 /** All atoms reachable from `atomId` by traversing bonds (its connected fragment). */
@@ -486,10 +561,16 @@ export function insertMolecule(
   for (const oldId in incoming.bonds) {
     const b = incoming.bonds[oldId];
     const newId = nextId();
-    bonds[newId] = { id: newId, a1: idMap[b.a1], a2: idMap[b.a2], order: b.order, stereo: b.stereo, doubleSide: b.doubleSide };
+    bonds[newId] = { id: newId, a1: idMap[b.a1], a2: idMap[b.a2], order: b.order, stereo: b.stereo, doubleSide: b.doubleSide, dative: b.dative };
+  }
+  const hapticBonds = { ...base.hapticBonds };
+  for (const oldId in incoming.hapticBonds) {
+    const hb = incoming.hapticBonds[oldId];
+    const newId = nextId();
+    hapticBonds[newId] = { id: newId, metalAtomId: idMap[hb.metalAtomId], ringAtomIds: hb.ringAtomIds.map((id) => idMap[id]) };
   }
 
-  return { mol: { atoms, bonds }, newAtomIds };
+  return { mol: { atoms, bonds, hapticBonds }, newAtomIds };
 }
 
 /**
@@ -512,7 +593,11 @@ export function extractFragment(mol: Molecule, atomIds: Iterable<string>): Molec
   for (const [id, b] of Object.entries(mol.bonds)) {
     if (idSet.has(b.a1) && idSet.has(b.a2)) bonds[id] = { ...b };
   }
-  return { atoms, bonds };
+  const hapticBonds: Record<string, HapticBond> = {};
+  for (const [id, hb] of Object.entries(survivingHapticBonds(mol.hapticBonds, (aid) => idSet.has(aid)))) {
+    hapticBonds[id] = { ...hb, ringAtomIds: [...hb.ringAtomIds] };
+  }
+  return { atoms, bonds, hapticBonds };
 }
 
 /**

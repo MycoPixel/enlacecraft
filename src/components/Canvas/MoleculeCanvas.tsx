@@ -3,6 +3,7 @@ import { useMoleculeStore, effectiveCanvasBackground } from "../../store/useMole
 import { useCanvasInteractions } from "../../hooks/useCanvasInteractions";
 import { AtomView } from "./AtomView";
 import { BondView } from "./BondView";
+import { HapticBondView } from "./HapticBondView";
 import { ArrowAnnotationView } from "./ArrowAnnotationView";
 import { TextAnnotationView } from "./TextAnnotationView";
 import { BracketAnnotationView, bracketPath } from "./BracketAnnotationView";
@@ -16,7 +17,7 @@ import { computeExplicitHydrogens } from "../../engine/explicitHydrogens";
 import { bracketPairLayout } from "../../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, RING_TEMPLATES } from "../../model/constants";
 import { FUNCTIONAL_GROUP_TEMPLATES } from "../../model/functionalGroupTemplates";
-import type { BracketAnnotation, RingAttachment, FunctionalGroupAttachment } from "../../types/chemistry";
+import type { Atom, BracketAnnotation, RingAttachment, FunctionalGroupAttachment } from "../../types/chemistry";
 
 export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(_props, ref) {
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -205,6 +206,14 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
                 r2={atomLabelRadius(molecule, b.a2, showHydrogens, atomLabelRevealTargets.has(b.a2))}
               />
             </g>
+          ))}
+          {Object.values(molecule.hapticBonds).map((hb) => (
+            <HapticBondView
+              key={hb.id}
+              metal={molecule.atoms[hb.metalAtomId]}
+              ringAtoms={hb.ringAtomIds.map((id) => molecule.atoms[id]).filter((a): a is Atom => !!a)}
+              r1={atomLabelRadius(molecule, hb.metalAtomId, showHydrogens, atomLabelRevealTargets.has(hb.metalAtomId))}
+            />
           ))}
           {explicitHydrogens.map((h, i) => (
             <BondView
