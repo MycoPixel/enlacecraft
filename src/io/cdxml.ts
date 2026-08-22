@@ -81,7 +81,17 @@ export function exportCdxml(mol: Molecule, name = "molecule"): string {
     out += `<n ${attrs}/>\n`;
   }
 
+  // Dative bonds (see Bond.dative's doc comment) and haptic bonds (see
+  // HapticBond's doc comment) are both dropped here rather than written —
+  // same choice molfile.ts makes and for the same reason: CDXML's plain
+  // Order/Display attributes have no distinct dative-bond representation
+  // this writer implements, so writing one out as a normal Order="1" bond
+  // would silently relabel an M<-L donor bond as an ordinary covalent
+  // bond, which is worse than omitting it. Chemically incomplete on
+  // export, but not silently wrong — this app's own project format is
+  // still the lossless round-trip for these.
   for (const b of bondList) {
+    if (b.dative) continue;
     const bId = cdxIdOf[b.a1];
     const eId = cdxIdOf[b.a2];
     if (!bId || !eId) continue;

@@ -14,7 +14,7 @@ import {
   equivalenceGroupLabel,
   type NmrIsomerResult,
 } from "../../io/nmrPredict";
-import { hasIgnoredValenceAtoms, totalHydrogenCount } from "../../model/valence";
+import { hasIgnoredValenceAtoms, hasOrganometallicContent, totalHydrogenCount } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
 import type { Molecule } from "../../types/chemistry";
@@ -102,7 +102,13 @@ export function NmrPredictionButton() {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     return hasIgnoredValenceAtoms(extractFragment(molecule, ids));
   }, [molecule, selected]);
-  const canRun = hasContent && !blockedByIgnoredValence;
+  // Same reasoning, but for dative/haptic bonds — see
+  // hasOrganometallicContent's doc comment.
+  const blockedByOrganometallic = useMemo(() => {
+    const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+    return hasOrganometallicContent(extractFragment(molecule, ids));
+  }, [molecule, selected]);
+  const canRun = hasContent && !blockedByIgnoredValence && !blockedByOrganometallic;
 
   const messageForError = (err: unknown): string => {
     if (err instanceof NmrPredictError) {
@@ -173,13 +179,14 @@ export function NmrPredictionButton() {
 
   return (
     <ToolDropdown
-      title={!hasContent ? t("nmr.buttonDisabled") : blockedByIgnoredValence ? t("nmr.blockedByIgnoredValence") : t("nmr.button")}
+      title={!hasContent ? t("nmr.buttonDisabled") : blockedByIgnoredValence ? t("nmr.blockedByIgnoredValence") : blockedByOrganometallic ? t("nmr.blockedByOrganometallic") : t("nmr.button")}
       active={false}
       onOpen={canRun ? runPrediction : undefined}
       renderContent={(close) => (
         <div className="nmr-menu">
           {!hasContent && <p className="align-menu__hint">{t("nmr.needStructure")}</p>}
           {hasContent && blockedByIgnoredValence && <p className="align-menu__hint">{t("nmr.blockedByIgnoredValence")}</p>}
+          {hasContent && !blockedByIgnoredValence && blockedByOrganometallic && <p className="align-menu__hint">{t("nmr.blockedByOrganometallic")}</p>}
 
           {canRun && (
             <div className="nmr-result__isomer-tabs" role="tablist" aria-label={t("nmr.structureQuality")}>

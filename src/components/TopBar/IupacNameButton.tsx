@@ -5,7 +5,7 @@ import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { extractFragment } from "../../model/molecule";
 import { PubChemError } from "../../io/pubchem";
 import { lookupIupacName } from "../../io/iupacLookup";
-import { hasIgnoredValenceAtoms } from "../../model/valence";
+import { hasIgnoredValenceAtoms, hasOrganometallicContent } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 
 type NameState =
@@ -48,7 +48,13 @@ export function IupacNameButton() {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     return hasIgnoredValenceAtoms(extractFragment(molecule, ids));
   }, [molecule, selected]);
-  const canRun = hasContent && !blockedByIgnoredValence;
+  // Same reasoning as blockedByIgnoredValence, but for dative/haptic
+  // bonds instead — see hasOrganometallicContent's doc comment.
+  const blockedByOrganometallic = useMemo(() => {
+    const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+    return hasOrganometallicContent(extractFragment(molecule, ids));
+  }, [molecule, selected]);
+  const canRun = hasContent && !blockedByIgnoredValence && !blockedByOrganometallic;
 
   const messageForError = (err: unknown): string => {
     if (err instanceof PubChemError) {
@@ -88,13 +94,14 @@ export function IupacNameButton() {
 
   return (
     <ToolDropdown
-      title={!hasContent ? t("iupac.buttonDisabled") : blockedByIgnoredValence ? t("iupac.blockedByIgnoredValence") : t("iupac.button")}
+      title={!hasContent ? t("iupac.buttonDisabled") : blockedByIgnoredValence ? t("iupac.blockedByIgnoredValence") : blockedByOrganometallic ? t("iupac.blockedByOrganometallic") : t("iupac.button")}
       active={false}
       onOpen={canRun ? runLookup : undefined}
       renderContent={() => (
         <div className="iupac-menu">
           {!hasContent && <p className="align-menu__hint">{t("iupac.needStructure")}</p>}
           {hasContent && blockedByIgnoredValence && <p className="align-menu__hint">{t("iupac.blockedByIgnoredValence")}</p>}
+          {hasContent && !blockedByIgnoredValence && blockedByOrganometallic && <p className="align-menu__hint">{t("iupac.blockedByOrganometallic")}</p>}
           {canRun && state?.phase === "loading" && (
             <div className="structure-search-menu__loading">
               <Loader2 size={14} className="compound-search__spinner" />

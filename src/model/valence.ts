@@ -232,6 +232,25 @@ export function hasIgnoredValenceAtoms(mol: Molecule): boolean {
   return Object.values(mol.atoms).some((a) => a.ignoreValence);
 }
 
+/**
+ * True if the molecule has any dative bond or any haptic bond — i.e.
+ * anything that isn't representable as a plain covalent connectivity
+ * graph (see Bond.dative's and HapticBond's doc comments in
+ * types/chemistry.ts for why exportSmiles/exportMol/exportCdxml all
+ * either drop or can't fully round-trip these). Naming/NMR prediction go
+ * through a SMILES string handed to PubChem/RDKit-style tooling, which
+ * would silently receive a chemically-incomplete structure (a bare metal
+ * atom plus disconnected rings, for an η5-Cp-type haptic bond) rather
+ * than erroring — same "would silently produce a meaningless result"
+ * concern hasIgnoredValenceAtoms exists for, so the same callers check
+ * this too rather than spending a network round trip on a query that
+ * can't mean what the user drew.
+ */
+export function hasOrganometallicContent(mol: Molecule): boolean {
+  if (Object.keys(mol.hapticBonds).length > 0) return true;
+  return Object.values(mol.bonds).some((b) => b.dative);
+}
+
 export interface AtomLabelInfo {
   /** Whether this atom shows a text label at all (vs. a bare skeletal vertex). */
   visible: boolean;

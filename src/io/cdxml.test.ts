@@ -89,6 +89,21 @@ describe("exportCdxml / importCdxml round-trip", () => {
     const [id1, id2] = Object.keys(roundTripped.atoms);
     expect(dist(roundTripped, id1, id2)).toBeCloseTo(dist(mol, "a0", "a1"), 1);
   });
+
+  test("a dative bond is omitted rather than exported as a plain covalent bond", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "N");
+    mol = addAtom(mol, "a1", { x: 42, y: 0 }, "Fe");
+    mol = addBond(mol, "b0", "a0", "a1");
+    mol.bonds["b0"] = { ...mol.bonds["b0"], dative: true };
+
+    const xml = exportCdxml(mol);
+    expect(xml).not.toContain("<b ");
+
+    const roundTripped = importCdxml(xml);
+    expect(Object.keys(roundTripped.bonds)).toHaveLength(0);
+    expect(Object.keys(roundTripped.atoms)).toHaveLength(2);
+  });
 });
 
 describe("importCdxml: CDX-specific value mapping", () => {

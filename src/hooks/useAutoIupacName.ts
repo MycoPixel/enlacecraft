@@ -5,7 +5,7 @@ import { extractFragment } from "../model/molecule";
 import { exportSmiles } from "../io/smiles";
 import { lookupIupacName, type IupacLookupResult } from "../io/iupacLookup";
 import { PubChemError, type PubChemErrorCode } from "../io/pubchem";
-import { hasIgnoredValenceAtoms } from "../model/valence";
+import { hasIgnoredValenceAtoms, hasOrganometallicContent } from "../model/valence";
 
 export type AutoNameState =
   | { phase: "idle" }
@@ -48,7 +48,8 @@ export function useAutoIupacName(molecule: Molecule, selectedIds: string[], lang
   // lets the effect below depend on the actual structure instead of on
   // `molecule`'s object identity, which changes on every edit including
   // ones that don't affect the name (e.g. moving atoms).
-  const smiles = enabled && ids.length > 0 && !hasIgnoredValenceAtoms(extractFragment(molecule, ids)) ? exportSmiles(extractFragment(molecule, ids)) : "";
+  const fragment = ids.length > 0 ? extractFragment(molecule, ids) : null;
+  const smiles = enabled && fragment && !hasIgnoredValenceAtoms(fragment) && !hasOrganometallicContent(fragment) ? exportSmiles(fragment) : "";
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
