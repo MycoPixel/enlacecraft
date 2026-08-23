@@ -50,21 +50,57 @@ const BADGE: Record<string, string> = {
   benzoyl: "Bz",
   cbz: "Cbz",
   tosyl: "Ts",
+  "ser-sidechain": "Ser",
+  "cys-sidechain": "Cys",
+  "thr-sidechain": "Thr",
+  "met-sidechain": "Met",
+  "asp-sidechain": "Asp",
+  "glu-sidechain": "Glu",
+  "asn-sidechain": "Asn",
+  "gln-sidechain": "Gln",
+  "lys-sidechain": "Lys",
+  "arg-sidechain": "Arg",
+  "his-sidechain": "His",
+  "tyr-sidechain": "Tyr",
+  "trp-sidechain": "Trp",
 };
+
+/** Category display order — anything not listed here (shouldn't normally
+ * happen) falls back to appearing after all of these, in whatever order
+ * Object.keys gives it, rather than being silently dropped. */
+const CATEGORY_ORDER = ["common", "alkyl", "protecting", "aromatic", "aminoAcid"];
 
 export function FunctionalGroupPicker({ value, onChange, active }: FunctionalGroupPickerProps) {
   const t = useT();
+  const byCategory = new Map<string, typeof FUNCTIONAL_GROUP_TEMPLATES>();
+  for (const tmpl of FUNCTIONAL_GROUP_TEMPLATES) {
+    const list = byCategory.get(tmpl.category) ?? [];
+    list.push(tmpl);
+    byCategory.set(tmpl.category, list);
+  }
+  const categories = [...byCategory.keys()].sort((a, b) => {
+    const ia = CATEGORY_ORDER.indexOf(a);
+    const ib = CATEGORY_ORDER.indexOf(b);
+    return (ia === -1 ? CATEGORY_ORDER.length : ia) - (ib === -1 ? CATEGORY_ORDER.length : ib);
+  });
   return (
-    <div className="fgroup-grid">
-      {FUNCTIONAL_GROUP_TEMPLATES.map((tmpl) => (
-        <button
-          key={tmpl.id}
-          className={`fgroup-btn ${active && value === tmpl.id ? "fgroup-btn--active" : ""}`}
-          onClick={() => onChange(tmpl.id)}
-          title={t(`fgroup.${tmpl.id}`)}
-        >
-          {BADGE[tmpl.id] ?? tmpl.label}
-        </button>
+    <div className="fgroup-groups">
+      {categories.map((category) => (
+        <div key={category} className="fgroup-group">
+          <div className="fgroup-group-label">{t(`fgroupCategory.${category}`)}</div>
+          <div className="fgroup-grid">
+            {byCategory.get(category)!.map((tmpl) => (
+              <button
+                key={tmpl.id}
+                className={`fgroup-btn ${active && value === tmpl.id ? "fgroup-btn--active" : ""}`}
+                onClick={() => onChange(tmpl.id)}
+                title={t(`fgroup.${tmpl.id}`)}
+              >
+                {BADGE[tmpl.id] ?? tmpl.label}
+              </button>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );

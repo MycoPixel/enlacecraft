@@ -40,6 +40,20 @@ export function exportProject(data: { activeTabId: string; tabs: ProjectTab[] })
 
 export class ProjectParseError extends Error {}
 
+/**
+ * Backfills fields that didn't exist yet when older project files/
+ * autosave snapshots were written — right now, just `hapticBonds` (added
+ * well after this format already had files and autosaved sessions in the
+ * wild). Without this, an old save loads with `molecule.hapticBonds`
+ * simply absent, and the first thing that calls Object.values() on it
+ * (e.g. findConnectedFragments, for the formula/MW display) throws
+ * immediately on open. Mutates nothing — returns a fresh Molecule with
+ * the gap filled in, leaving everything else as it was.
+ */
+function migrateMolecule(molecule: Molecule): Molecule {
+  return { ...molecule, hapticBonds: molecule.hapticBonds ?? {} };
+}
+
 export function importProject(json: string): ProjectFile {
   let parsed: unknown;
   try {
@@ -59,7 +73,7 @@ export function importProject(json: string): ProjectFile {
       throw new ProjectParseError("Missing expected project fields");
     }
     const id = `tab-${nextId()}`;
-    return { version: 2, activeTabId: id, tabs: [{ id, title: "Tab 1", molecule: v1.molecule, annotations: v1.annotations, view: v1.view }] };
+    return { version: 2, activeTabId: id, tabs: [{ id, title: "Tab 1", molecule: migrateMolecule(v1.molecule), annotations: v1.annotations, view: v1.view }] };
   }
 
   if (version === 2) {
@@ -72,7 +86,7 @@ export function importProject(json: string): ProjectFile {
         throw new ProjectParseError("Missing expected project fields");
       }
     }
-    return v2;
+    return { ...v2, tabs: v2.tabs.map((tab) => ({ ...tab, molecule: migrateMolecule(tab.molecule) })) };
   }
 
   throw new ProjectParseError(`Unrecognized project file version: ${String(version)}`);

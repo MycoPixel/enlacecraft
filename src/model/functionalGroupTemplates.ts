@@ -93,10 +93,111 @@ const CENTER_ANGLE = 0;
 const BRANCH_UP = 60;
 const BRANCH_DOWN = -60;
 
+/**
+ * A five-membered ring extending out from `fromKey` (which must already
+ * be a placed atom on the local x-axis at `fromPos`) — the heteroaromatic
+ * counterpart to ring6() above, needed for histidine's imidazole side
+ * chain (and, via appendedRing() below, for tryptophan's fused indole).
+ * Unlike ring6, the caller supplies each vertex's element and each edge's
+ * bond order directly (`elements`/`orders`, both length 5, walked in ring
+ * order starting from the ipso atom bonded to fromKey) since there's no
+ * single aromatic/heteroatom convention that would fit every 5-ring this
+ * file needs the way ring6's benzene-or-cyclohexane toggle does.
+ *
+ * Unlike ring6's ipso bond (see that function's own vertex-placement
+ * comment — its external bond ends up shorter than BOND_LEN), this
+ * places the ipso vertex a full BOND_LEN out from fromKey, matching every
+ * other bond build() draws; the ring center sits one more ring-circumradius
+ * further along +x from there.
+ */
+function ring5(
+  fromKey: string,
+  fromPos: { x: number; y: number },
+  keyPrefix: string,
+  elements: FunctionalGroupTemplate["atoms"][number]["element"][],
+  orders: (1 | 2)[],
+) {
+  const R = BOND_LEN / (2 * Math.sin(Math.PI / 5));
+  const ipso = { x: fromPos.x + BOND_LEN, y: fromPos.y };
+  const cx = ipso.x + R;
+  const cy = ipso.y;
+  const key = (i: number) => `${keyPrefix}${i}`;
+  const atoms: FunctionalGroupTemplate["atoms"] = [];
+  const pos: { x: number; y: number }[] = [];
+  for (let i = 0; i < 5; i++) {
+    const theta = ((180 - 72 * i) * Math.PI) / 180;
+    const p = { x: cx + R * Math.cos(theta), y: cy + R * Math.sin(theta) };
+    pos.push(p);
+    atoms.push({ key: key(i), element: elements[i], x: p.x, y: p.y });
+  }
+  const bonds: FunctionalGroupTemplate["bonds"] = [{ from: fromKey, to: key(0), order: 1 }];
+  for (let i = 0; i < 5; i++) bonds.push({ from: key(i), to: key((i + 1) % 5), order: orders[i] });
+  return { atoms, bonds, pos, ipsoKey: key(0) };
+}
+
+function rotateAround(p: { x: number; y: number }, center: { x: number; y: number }, deg: number) {
+  const rad = (deg * Math.PI) / 180;
+  const dx = p.x - center.x;
+  const dy = p.y - center.y;
+  return { x: center.x + dx * Math.cos(rad) - dy * Math.sin(rad), y: center.y + dx * Math.sin(rad) + dy * Math.cos(rad) };
+}
+
+/**
+ * Fuses a new regular ring of `size` atoms (5 or 6) onto the edge between
+ * two already-placed, adjacent ring atoms (`sharedAKey`/`sharedBKey`,
+ * looked up in `existingPos`), growing away from `awayFromCenter` (the
+ * existing ring's own center, so the new ring doesn't fold back onto it)
+ * — the general version of the geometry tryptophan's indole needs to
+ * append its benzo ring onto ring5()'s imidazole-shaped pentagon. Returns
+ * only the newly-created (size - 2) atoms/bonds; the shared edge's bond
+ * already exists from whichever call built the first ring, so this
+ * doesn't duplicate it.
+ */
+function appendedRing(
+  sharedAKey: string,
+  sharedBKey: string,
+  sharedAPos: { x: number; y: number },
+  sharedBPos: { x: number; y: number },
+  awayFromCenter: { x: number; y: number },
+  keyPrefix: string,
+  size: 5 | 6,
+  elements: FunctionalGroupTemplate["atoms"][number]["element"][],
+  // Bond order for each of the (size - 1) new edges, walked from
+  // sharedAKey through the new atoms to sharedBKey (the shared edge's own
+  // order was already fixed by whichever ring built it first).
+  orders: (1 | 2)[],
+) {
+  const interior = 360 / size;
+  const R = BOND_LEN / (2 * Math.sin((interior / 2) * (Math.PI / 180)));
+  const apothem = R * Math.cos((interior / 2) * (Math.PI / 180));
+  const mid = { x: (sharedAPos.x + sharedBPos.x) / 2, y: (sharedAPos.y + sharedBPos.y) / 2 };
+  const away = { x: mid.x - awayFromCenter.x, y: mid.y - awayFromCenter.y };
+  const awayLen = Math.hypot(away.x, away.y);
+  const center = { x: mid.x + (away.x / awayLen) * apothem, y: mid.y + (away.y / awayLen) * apothem };
+  // Whichever rotation sign lands on sharedBPos in one step is the "short
+  // way" (the existing shared edge); the new vertices are generated going
+  // the long way around, starting adjacent to sharedAKey.
+  const plus = rotateAround(sharedAPos, center, interior);
+  const longWaySign = Math.hypot(plus.x - sharedBPos.x, plus.y - sharedBPos.y) < 1e-6 ? -1 : 1;
+  const key = (i: number) => `${keyPrefix}${i}`;
+  const atoms: FunctionalGroupTemplate["atoms"] = [];
+  const newKeys: string[] = [];
+  for (let i = 1; i < size - 1; i++) {
+    const p = rotateAround(sharedAPos, center, longWaySign * interior * i);
+    atoms.push({ key: key(i), element: elements[i - 1], x: p.x, y: p.y });
+    newKeys.push(key(i));
+  }
+  const chain = [sharedAKey, ...newKeys, sharedBKey];
+  const bonds: FunctionalGroupTemplate["bonds"] = [];
+  for (let i = 0; i < chain.length - 1; i++) bonds.push({ from: chain[i], to: chain[i + 1], order: orders[i] });
+  return { atoms, bonds };
+}
+
 export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "hydroxyl",
     label: "Hydroxyl",
+    category: "common",
     ...build("A", [
       ["A", "O1", CENTER_ANGLE, 1, "O"],
     ]),
@@ -104,6 +205,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "amine",
     label: "Amine",
+    category: "common",
     ...build("A", [
       ["A", "N1", CENTER_ANGLE, 1, "N"],
     ]),
@@ -111,6 +213,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "thiol",
     label: "Thiol",
+    category: "common",
     ...build("A", [
       ["A", "S1", CENTER_ANGLE, 1, "S"],
     ]),
@@ -118,6 +221,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "ether",
     label: "Ether",
+    category: "common",
     ...build("A", [
       ["A", "O1", CENTER_ANGLE, 1, "O"],
       ["O1", "C2", BRANCH_UP, 1, "C"],
@@ -126,6 +230,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "carboxylic-acid",
     label: "Carboxylic acid",
+    category: "common",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "O1", BRANCH_UP, 2, "O"],
@@ -135,6 +240,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "ester",
     label: "Ester",
+    category: "common",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "O1", BRANCH_UP, 2, "O"],
@@ -148,6 +254,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "amide",
     label: "Amide",
+    category: "common",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "O1", BRANCH_UP, 2, "O"],
@@ -157,6 +264,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "ketone",
     label: "Ketone",
+    category: "common",
     ...build("A", [
       // Deliberately leaves the carbonyl carbon's second substituent
       // open — attaching this onto one atom gives R-C(=O)-, and the
@@ -172,6 +280,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "aldehyde",
     label: "Aldehyde",
+    category: "common",
     ...build("A", [
       // Same carbonyl shape as ketone, but with an explicit H on the
       // carbonyl carbon — aldehydes are conventionally drawn with that H
@@ -186,6 +295,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "nitrile",
     label: "Nitrile",
+    category: "common",
     ...build("A", [
       // Linear: -C#N drawn straight out from the attachment point.
       ["A", "C1", CENTER_ANGLE, 1, "C"],
@@ -195,6 +305,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "nitro",
     label: "Nitro",
+    category: "common",
     ...build("A", [
       // The standard charge-separated resonance form: N+ with one O=
       // and one O-.
@@ -213,10 +324,11 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   // atom-type) this doesn't attempt.
   // -------------------------------------------------------------------
 
-  { id: "methyl", label: "Methyl", ...build("A", [["A", "C1", CENTER_ANGLE, 1, "C"]]) },
+  { id: "methyl", label: "Methyl", category: "alkyl", ...build("A", [["A", "C1", CENTER_ANGLE, 1, "C"]]) },
   {
     id: "ethyl",
     label: "Ethyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", 30, 1, "C"],
@@ -225,6 +337,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "n-propyl",
     label: "n-Propyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", 30, 1, "C"],
@@ -234,6 +347,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "n-butyl",
     label: "n-Butyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", 30, 1, "C"],
@@ -244,6 +358,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "isopropyl",
     label: "Isopropyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", BRANCH_UP, 1, "C"],
@@ -253,6 +368,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "isobutyl",
     label: "Isobutyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", 30, 1, "C"],
@@ -263,6 +379,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "sec-butyl",
     label: "sec-Butyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", BRANCH_UP, 1, "C"],
@@ -273,6 +390,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "tert-butyl",
     label: "tert-Butyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", CENTER_ANGLE, 1, "C"],
@@ -283,6 +401,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "vinyl",
     label: "Vinyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", 30, 2, "C"],
@@ -291,6 +410,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "allyl",
     label: "Allyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "C2", 30, 1, "C"],
@@ -300,6 +420,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "trifluoromethyl",
     label: "Trifluoromethyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "F1", CENTER_ANGLE, 1, "F"],
@@ -310,6 +431,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "trichloromethyl",
     label: "Trichloromethyl",
+    category: "alkyl",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "Cl1", CENTER_ANGLE, 1, "Cl"],
@@ -320,6 +442,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "azide",
     label: "Azide",
+    category: "common",
     // R-N=N+=N-, the standard charge-separated resonance form, drawn
     // straight (all three N's on the same axis) since the real group is
     // near-linear.
@@ -332,6 +455,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "acetyl",
     label: "Acetyl",
+    category: "protecting",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "O1", BRANCH_UP, 2, "O"],
@@ -341,6 +465,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "pivaloyl",
     label: "Pivaloyl",
+    category: "protecting",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "O1", BRANCH_UP, 2, "O"],
@@ -353,6 +478,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "mesyl",
     label: "Mesyl",
+    category: "protecting",
     ...build("A", [
       ["A", "S1", CENTER_ANGLE, 1, "S"],
       ["S1", "O1", BRANCH_UP, 2, "O"],
@@ -363,6 +489,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "triflyl",
     label: "Triflyl",
+    category: "protecting",
     ...build("A", [
       ["A", "S1", CENTER_ANGLE, 1, "S"],
       ["S1", "O1", BRANCH_UP, 2, "O"],
@@ -376,6 +503,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "tms",
     label: "TMS",
+    category: "protecting",
     ...build("A", [
       ["A", "Si1", CENTER_ANGLE, 1, "Si"],
       ["Si1", "C1", CENTER_ANGLE, 1, "C"],
@@ -386,6 +514,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "tbs",
     label: "TBS",
+    category: "protecting",
     ...build("A", [
       ["A", "Si1", CENTER_ANGLE, 1, "Si"],
       ["Si1", "C1", BRANCH_UP, 1, "C"],
@@ -399,6 +528,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   {
     id: "boc",
     label: "Boc",
+    category: "protecting",
     ...build("A", [
       ["A", "C1", CENTER_ANGLE, 1, "C"],
       ["C1", "O1", BRANCH_UP, 2, "O"],
@@ -415,7 +545,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   // enough for those); these few add ring6()'s closing bond on top.
   (() => {
     const ring = ring6("A", { x: 0, y: 0 }, "ph", true);
-    return { id: "phenyl", label: "Phenyl", attachKey: "A", atoms: [{ key: "A", element: "C" as const, x: 0, y: 0 }, ...ring.atoms], bonds: ring.bonds };
+    return { id: "phenyl", label: "Phenyl", category: "aromatic", attachKey: "A", atoms: [{ key: "A", element: "C" as const, x: 0, y: 0 }, ...ring.atoms], bonds: ring.bonds };
   })(),
   (() => {
     const c1 = { x: BOND_LEN, y: 0 };
@@ -423,6 +553,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
     return {
       id: "benzyl",
       label: "Benzyl",
+      category: "aromatic",
       attachKey: "A",
       atoms: [{ key: "A", element: "C" as const, x: 0, y: 0 }, { key: "C1", element: "C" as const, x: c1.x, y: c1.y }, ...ring.atoms],
       bonds: [{ from: "A", to: "C1", order: 1 as const }, ...ring.bonds],
@@ -430,7 +561,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
   })(),
   (() => {
     const ring = ring6("A", { x: 0, y: 0 }, "cy", false);
-    return { id: "cyclohexyl", label: "Cyclohexyl", attachKey: "A", atoms: [{ key: "A", element: "C" as const, x: 0, y: 0 }, ...ring.atoms], bonds: ring.bonds };
+    return { id: "cyclohexyl", label: "Cyclohexyl", category: "aromatic", attachKey: "A", atoms: [{ key: "A", element: "C" as const, x: 0, y: 0 }, ...ring.atoms], bonds: ring.bonds };
   })(),
   (() => {
     const c1 = { x: BOND_LEN, y: 0 };
@@ -439,6 +570,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
     return {
       id: "benzoyl",
       label: "Benzoyl",
+      category: "aromatic",
       attachKey: "A",
       atoms: [
         { key: "A", element: "C" as const, x: 0, y: 0 },
@@ -463,6 +595,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
     return {
       id: "cbz",
       label: "Cbz",
+      category: "protecting",
       attachKey: "A",
       atoms: [
         { key: "A", element: "C" as const, x: 0, y: 0 },
@@ -494,6 +627,7 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
     return {
       id: "tosyl",
       label: "Tosyl",
+      category: "protecting",
       attachKey: "A",
       atoms: [
         { key: "A", element: "C" as const, x: 0, y: 0 },
@@ -510,6 +644,209 @@ export const FUNCTIONAL_GROUP_TEMPLATES: FunctionalGroupTemplate[] = [
         ...ring.bonds,
         { from: ring.paraKey, to: "tsMe", order: 1 as const },
       ],
+    };
+  })(),
+
+  // -------------------------------------------------------------------
+  // Amino acid side chains (the standard residues' R groups, attached to
+  // whatever backbone carbon the person has already drawn) — same
+  // build()/ring6() conventions as everything above, plus ring5() and
+  // appendedRing() for histidine's imidazole and tryptophan's fused
+  // indole. Alanine, valine, leucine, isoleucine, and phenylalanine's
+  // side chains are chemically identical to the generic methyl/
+  // isopropyl/isobutyl/sec-butyl/benzyl groups above, so they aren't
+  // duplicated here — use those. Glycine's side chain is just H, i.e.
+  // nothing to attach — leave the backbone carbon as-is. Proline isn't
+  // included: its ring closes back onto the backbone nitrogen rather
+  // than branching off a single attach point, which doesn't fit this
+  // one-point-of-attachment convention at all.
+  // -------------------------------------------------------------------
+
+  {
+    id: "ser-sidechain",
+    label: "Serine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "O1", CENTER_ANGLE, 1, "O"],
+    ]),
+  },
+  {
+    id: "cys-sidechain",
+    label: "Cysteine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "S1", CENTER_ANGLE, 1, "S"],
+    ]),
+  },
+  {
+    id: "thr-sidechain",
+    label: "Threonine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "O1", BRANCH_UP, 1, "O"],
+      ["C1", "C2", BRANCH_DOWN, 1, "C"],
+    ]),
+  },
+  {
+    id: "met-sidechain",
+    label: "Methionine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "C2", 30, 1, "C"],
+      ["C2", "S1", -30, 1, "S"],
+      ["S1", "C3", 30, 1, "C"],
+    ]),
+  },
+  {
+    id: "asp-sidechain",
+    label: "Aspartate side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "C2", 30, 1, "C"],
+      ["C2", "O1", BRANCH_UP, 2, "O"],
+      ["C2", "O2", BRANCH_DOWN, 1, "O"],
+    ]),
+  },
+  {
+    id: "glu-sidechain",
+    label: "Glutamate side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "C2", 30, 1, "C"],
+      ["C2", "C3", -30, 1, "C"],
+      ["C3", "O1", BRANCH_UP, 2, "O"],
+      ["C3", "O2", BRANCH_DOWN, 1, "O"],
+    ]),
+  },
+  {
+    id: "asn-sidechain",
+    label: "Asparagine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "C2", 30, 1, "C"],
+      ["C2", "O1", BRANCH_UP, 2, "O"],
+      ["C2", "N1", BRANCH_DOWN, 1, "N"],
+    ]),
+  },
+  {
+    id: "gln-sidechain",
+    label: "Glutamine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "C2", 30, 1, "C"],
+      ["C2", "C3", -30, 1, "C"],
+      ["C3", "O1", BRANCH_UP, 2, "O"],
+      ["C3", "N1", BRANCH_DOWN, 1, "N"],
+    ]),
+  },
+  {
+    id: "lys-sidechain",
+    label: "Lysine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "C2", 30, 1, "C"],
+      ["C2", "C3", -30, 1, "C"],
+      ["C3", "C4", 30, 1, "C"],
+      ["C4", "N1", -30, 1, "N"],
+    ]),
+  },
+  {
+    id: "arg-sidechain",
+    label: "Arginine side chain",
+    category: "aminoAcid",
+    ...build("A", [
+      ["A", "C1", CENTER_ANGLE, 1, "C"],
+      ["C1", "C2", 30, 1, "C"],
+      ["C2", "C3", -30, 1, "C"],
+      ["C3", "N1", 30, 1, "N"],
+      ["N1", "C4", -30, 1, "C"],
+      ["C4", "N2", BRANCH_UP, 2, "N"],
+      ["C4", "N3", BRANCH_DOWN, 1, "N"],
+    ]),
+  },
+  (() => {
+    // -CH2-(imidazol-4-yl): ring5()'s generic pentagon, walked ipso(C,
+    // attach) = C(H) [double] - N(H) [single] - C [single] = N [double] -
+    // closing back to ipso [single], matching real imidazole's Kekulé
+    // structure (verified against RDKit's own Kekulization while authoring
+    // this).
+    const c1 = { x: BOND_LEN, y: 0 };
+    const ring = ring5("C1", c1, "his", ["C", "C", "N", "C", "N"], [2, 1, 1, 2, 1]);
+    return {
+      id: "his-sidechain",
+      label: "Histidine side chain",
+      category: "aminoAcid",
+      attachKey: "A",
+      atoms: [
+        { key: "A", element: "C" as const, x: 0, y: 0 },
+        { key: "C1", element: "C" as const, x: c1.x, y: c1.y },
+        ...ring.atoms,
+      ],
+      bonds: [{ from: "A", to: "C1", order: 1 as const }, ...ring.bonds],
+    };
+  })(),
+  (() => {
+    // -CH2-C6H4-OH (para) — same ring6()-plus-paraKey-substituent pattern
+    // as tosyl's methyl above, with a hydroxyl instead.
+    const c1 = { x: BOND_LEN, y: 0 };
+    const ring = ring6("C1", c1, "tyr", true);
+    const paraPos = ring.atoms.find((a) => a.key === ring.paraKey)!;
+    const oh = { x: paraPos.x + BOND_LEN, y: paraPos.y };
+    return {
+      id: "tyr-sidechain",
+      label: "Tyrosine side chain",
+      category: "aminoAcid",
+      attachKey: "A",
+      atoms: [
+        { key: "A", element: "C" as const, x: 0, y: 0 },
+        { key: "C1", element: "C" as const, x: c1.x, y: c1.y },
+        ...ring.atoms,
+        { key: "O1", element: "O" as const, x: oh.x, y: oh.y },
+      ],
+      bonds: [
+        { from: "A", to: "C1", order: 1 as const },
+        ...ring.bonds,
+        { from: ring.paraKey, to: "O1", order: 1 as const },
+      ],
+    };
+  })(),
+  (() => {
+    // -CH2-(indol-3-yl): ring5() builds the pyrrole ring (ipso = indole's
+    // C3), then appendedRing() fuses the benzo ring onto its far edge —
+    // same fused-ring technique naphthalene's own placement uses
+    // (engine/ringPlacement.ts's placeNaphthalene), generalized to a
+    // hexagon-on-pentagon instead of hexagon-on-hexagon. Bond orders
+    // again verified against RDKit's Kekulization of indole while
+    // authoring this.
+    const c1 = { x: BOND_LEN, y: 0 };
+    const pyrrole = ring5("C1", c1, "trp", ["C", "C", "N", "C", "C"], [2, 1, 1, 1, 1]);
+    const [v0, v1, v2, v3, v4] = pyrrole.pos;
+    const pentCenter = {
+      x: (v0.x + v1.x + v2.x + v3.x + v4.x) / 5,
+      y: (v0.y + v1.y + v2.y + v3.y + v4.y) / 5,
+    };
+    const benzo = appendedRing("trp3", "trp4", v3, v4, pentCenter, "trpb", 6, ["C", "C", "C", "C"], [2, 1, 2, 1, 2]);
+    return {
+      id: "trp-sidechain",
+      label: "Tryptophan side chain",
+      category: "aminoAcid",
+      attachKey: "A",
+      atoms: [
+        { key: "A", element: "C" as const, x: 0, y: 0 },
+        { key: "C1", element: "C" as const, x: c1.x, y: c1.y },
+        ...pyrrole.atoms,
+        ...benzo.atoms,
+      ],
+      bonds: [{ from: "A", to: "C1", order: 1 as const }, ...pyrrole.bonds, ...benzo.bonds],
     };
   })(),
 ];

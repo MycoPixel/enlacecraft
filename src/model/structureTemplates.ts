@@ -26,6 +26,11 @@ import type { Annotation, Molecule } from "../types/chemistry";
 export interface StructureTemplate {
   id: string;
   label: string;
+  /** Groups related templates together in the picker (e.g. every sugar
+   * under one heading, every nucleobase under another) instead of one
+   * long undifferentiated list — see StructureTemplatePicker.tsx. Purely
+   * a display grouping; has no effect on insertion. */
+  category: string;
   molecule: Molecule;
   annotations: Annotation[];
 }
@@ -34,6 +39,7 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
   {
     id: "d-glucose-fischer",
     label: "D-Glucose (Fischer)",
+    category: "sugars",
     molecule: {
       atoms: {
       "2": { id: "2", x: 0, y: -84, element: "C", charge: 0 },
@@ -79,6 +85,7 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
   {
     id: "l-glucose-fischer",
     label: "L-Glucose (Fischer)",
+    category: "sugars",
     molecule: {
       atoms: {
       "36": { id: "36", x: 0, y: -84, element: "C", charge: 0 },
@@ -120,5 +127,187 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
       hapticBonds: {},
     },
     annotations: [],
+  },  {
+    id: "cyclopentadienyl",
+    label: "Cyclopentadienyl (Cp⁻)",
+    category: "ligands",
+    molecule: {
+      atoms: {
+      "1": { id: "1", x: 0.0, y: -35.73, element: "C", charge: -1 },
+      "2": { id: "2", x: 33.98, y: -11.04, element: "C", charge: 0 },
+      "3": { id: "3", x: 21.0, y: 28.9, element: "C", charge: 0 },
+      "4": { id: "4", x: -21.0, y: 28.9, element: "C", charge: 0 },
+      "5": { id: "5", x: -33.98, y: -11.04, element: "C", charge: 0 },
+      },
+      bonds: {
+      "6": { id: "6", a1: "1", a2: "2", order: 1, stereo: "none", doubleSide: "auto" },
+      "7": { id: "7", a1: "2", a2: "3", order: 2, stereo: "none", doubleSide: "auto" },
+      "8": { id: "8", a1: "3", a2: "4", order: 1, stereo: "none", doubleSide: "auto" },
+      "9": { id: "9", a1: "4", a2: "5", order: 2, stereo: "none", doubleSide: "auto" },
+      "10": { id: "10", a1: "5", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      },
+      hapticBonds: {},
+    },
+    annotations: [],
   },
+  {
+    id: "adenine",
+    label: "Adenine",
+    category: "nucleobases",
+    molecule: {
+      atoms: {
+      "1": { id: "1", x: 0.0, y: -42.0, element: "C", charge: 0 },
+      "2": { id: "2", x: 36.37, y: -21.0, element: "N", charge: 0 },
+      "3": { id: "3", x: 36.37, y: 21.0, element: "C", charge: 0 },
+      "4": { id: "4", x: 0.0, y: 42.0, element: "N", charge: 0 },
+      "5": { id: "5", x: -36.37, y: 21.0, element: "C", charge: 0 },
+      "9": { id: "9", x: -36.37, y: -21.0, element: "C", charge: 0 },
+      "6": { id: "6", x: -76.32, y: 33.98, element: "N", charge: 0 },
+      "7": { id: "7", x: -101.0, y: 0.0, element: "C", charge: 0 },
+      "8": { id: "8", x: -76.32, y: -33.98, element: "N", charge: 0 },
+      "0": { id: "0", x: 0.0, y: -84.0, element: "N", charge: 0 },
+      },
+      bonds: {
+      "b1": { id: "b1", a1: "1", a2: "2", order: 1, stereo: "none", doubleSide: "auto" },
+      "b2": { id: "b2", a1: "2", a2: "3", order: 2, stereo: "none", doubleSide: "auto" },
+      "b3": { id: "b3", a1: "3", a2: "4", order: 1, stereo: "none", doubleSide: "auto" },
+      "b4": { id: "b4", a1: "4", a2: "5", order: 2, stereo: "none", doubleSide: "auto" },
+      "b5": { id: "b5", a1: "5", a2: "9", order: 1, stereo: "none", doubleSide: "auto" },
+      "b6": { id: "b6", a1: "9", a2: "1", order: 2, stereo: "none", doubleSide: "auto" },
+      "b7": { id: "b7", a1: "5", a2: "6", order: 1, stereo: "none", doubleSide: "auto" },
+      "b8": { id: "b8", a1: "6", a2: "7", order: 1, stereo: "none", doubleSide: "auto" },
+      "b9": { id: "b9", a1: "7", a2: "8", order: 2, stereo: "none", doubleSide: "auto" },
+      "b10": { id: "b10", a1: "8", a2: "9", order: 1, stereo: "none", doubleSide: "auto" },
+      "b11": { id: "b11", a1: "0", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      },
+      hapticBonds: {},
+    },
+    annotations: [],
+  },
+  {
+    id: "guanine",
+    label: "Guanine",
+    category: "nucleobases",
+    molecule: {
+      atoms: {
+      "8": { id: "8", x: 0.0, y: -42.0, element: "C", charge: 0 },
+      "10": { id: "10", x: 36.37, y: -21.0, element: "N", charge: 0 },
+      "1": { id: "1", x: 36.37, y: 21.0, element: "C", charge: 0 },
+      "2": { id: "2", x: 0.0, y: 42.0, element: "N", charge: 0 },
+      "3": { id: "3", x: -36.37, y: 21.0, element: "C", charge: 0 },
+      "7": { id: "7", x: -36.37, y: -21.0, element: "C", charge: 0 },
+      "4": { id: "4", x: -76.32, y: 33.98, element: "N", charge: 0 },
+      "5": { id: "5", x: -101.0, y: 0.0, element: "C", charge: 0 },
+      "6": { id: "6", x: -76.32, y: -33.98, element: "N", charge: 0 },
+      "0": { id: "0", x: 72.75, y: 42.0, element: "N", charge: 0 },
+      "9": { id: "9", x: 0.0, y: -84.0, element: "O", charge: 0 },
+      },
+      bonds: {
+      "b1": { id: "b1", a1: "8", a2: "10", order: 1, stereo: "none", doubleSide: "auto" },
+      "b2": { id: "b2", a1: "10", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      "b3": { id: "b3", a1: "1", a2: "2", order: 2, stereo: "none", doubleSide: "auto" },
+      "b4": { id: "b4", a1: "2", a2: "3", order: 1, stereo: "none", doubleSide: "auto" },
+      "b5": { id: "b5", a1: "3", a2: "7", order: 2, stereo: "none", doubleSide: "auto" },
+      "b6": { id: "b6", a1: "7", a2: "8", order: 1, stereo: "none", doubleSide: "auto" },
+      "b7": { id: "b7", a1: "3", a2: "4", order: 1, stereo: "none", doubleSide: "auto" },
+      "b8": { id: "b8", a1: "4", a2: "5", order: 1, stereo: "none", doubleSide: "auto" },
+      "b9": { id: "b9", a1: "5", a2: "6", order: 2, stereo: "none", doubleSide: "auto" },
+      "b10": { id: "b10", a1: "6", a2: "7", order: 1, stereo: "none", doubleSide: "auto" },
+      "b11": { id: "b11", a1: "0", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      "b12": { id: "b12", a1: "8", a2: "9", order: 2, stereo: "none", doubleSide: "auto" },
+      },
+      hapticBonds: {},
+    },
+    annotations: [],
+  },
+  {
+    id: "cytosine",
+    label: "Cytosine",
+    category: "nucleobases",
+    molecule: {
+      atoms: {
+      "1": { id: "1", x: 0.0, y: -42.0, element: "C", charge: 0 },
+      "2": { id: "2", x: 36.37, y: -21.0, element: "C", charge: 0 },
+      "3": { id: "3", x: 36.37, y: 21.0, element: "C", charge: 0 },
+      "4": { id: "4", x: 0.0, y: 42.0, element: "N", charge: 0 },
+      "5": { id: "5", x: -36.37, y: 21.0, element: "C", charge: 0 },
+      "7": { id: "7", x: -36.37, y: -21.0, element: "N", charge: 0 },
+      "0": { id: "0", x: 0.0, y: -84.0, element: "N", charge: 0 },
+      "6": { id: "6", x: -72.75, y: 42.0, element: "O", charge: 0 },
+      },
+      bonds: {
+      "b1": { id: "b1", a1: "1", a2: "2", order: 1, stereo: "none", doubleSide: "auto" },
+      "b2": { id: "b2", a1: "2", a2: "3", order: 2, stereo: "none", doubleSide: "auto" },
+      "b3": { id: "b3", a1: "3", a2: "4", order: 1, stereo: "none", doubleSide: "auto" },
+      "b4": { id: "b4", a1: "4", a2: "5", order: 1, stereo: "none", doubleSide: "auto" },
+      "b5": { id: "b5", a1: "5", a2: "7", order: 1, stereo: "none", doubleSide: "auto" },
+      "b6": { id: "b6", a1: "7", a2: "1", order: 2, stereo: "none", doubleSide: "auto" },
+      "b7": { id: "b7", a1: "0", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      "b8": { id: "b8", a1: "5", a2: "6", order: 2, stereo: "none", doubleSide: "auto" },
+      },
+      hapticBonds: {},
+    },
+    annotations: [],
+  },
+  {
+    id: "thymine",
+    label: "Thymine",
+    category: "nucleobases",
+    molecule: {
+      atoms: {
+      "1": { id: "1", x: 0.0, y: -42.0, element: "C", charge: 0 },
+      "2": { id: "2", x: 36.37, y: -21.0, element: "C", charge: 0 },
+      "3": { id: "3", x: 36.37, y: 21.0, element: "N", charge: 0 },
+      "4": { id: "4", x: 0.0, y: 42.0, element: "C", charge: 0 },
+      "6": { id: "6", x: -36.37, y: 21.0, element: "N", charge: 0 },
+      "7": { id: "7", x: -36.37, y: -21.0, element: "C", charge: 0 },
+      "0": { id: "0", x: 0.0, y: -84.0, element: "C", charge: 0 },
+      "5": { id: "5", x: 0.0, y: 84.0, element: "O", charge: 0 },
+      "8": { id: "8", x: -72.75, y: -42.0, element: "O", charge: 0 },
+      },
+      bonds: {
+      "b1": { id: "b1", a1: "1", a2: "2", order: 2, stereo: "none", doubleSide: "auto" },
+      "b2": { id: "b2", a1: "2", a2: "3", order: 1, stereo: "none", doubleSide: "auto" },
+      "b3": { id: "b3", a1: "3", a2: "4", order: 1, stereo: "none", doubleSide: "auto" },
+      "b4": { id: "b4", a1: "4", a2: "6", order: 1, stereo: "none", doubleSide: "auto" },
+      "b5": { id: "b5", a1: "6", a2: "7", order: 1, stereo: "none", doubleSide: "auto" },
+      "b6": { id: "b6", a1: "7", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      "b7": { id: "b7", a1: "0", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      "b8": { id: "b8", a1: "4", a2: "5", order: 2, stereo: "none", doubleSide: "auto" },
+      "b9": { id: "b9", a1: "7", a2: "8", order: 2, stereo: "none", doubleSide: "auto" },
+      },
+      hapticBonds: {},
+    },
+    annotations: [],
+  },
+  {
+    id: "uracil",
+    label: "Uracil",
+    category: "nucleobases",
+    molecule: {
+      atoms: {
+      "1": { id: "1", x: 0.0, y: -42.0, element: "C", charge: 0 },
+      "2": { id: "2", x: 36.37, y: -21.0, element: "C", charge: 0 },
+      "3": { id: "3", x: 36.37, y: 21.0, element: "C", charge: 0 },
+      "4": { id: "4", x: 0.0, y: 42.0, element: "N", charge: 0 },
+      "5": { id: "5", x: -36.37, y: 21.0, element: "C", charge: 0 },
+      "7": { id: "7", x: -36.37, y: -21.0, element: "N", charge: 0 },
+      "0": { id: "0", x: 0.0, y: -84.0, element: "O", charge: 0 },
+      "6": { id: "6", x: -72.75, y: 42.0, element: "O", charge: 0 },
+      },
+      bonds: {
+      "b1": { id: "b1", a1: "1", a2: "2", order: 1, stereo: "none", doubleSide: "auto" },
+      "b2": { id: "b2", a1: "2", a2: "3", order: 2, stereo: "none", doubleSide: "auto" },
+      "b3": { id: "b3", a1: "3", a2: "4", order: 1, stereo: "none", doubleSide: "auto" },
+      "b4": { id: "b4", a1: "4", a2: "5", order: 1, stereo: "none", doubleSide: "auto" },
+      "b5": { id: "b5", a1: "5", a2: "7", order: 1, stereo: "none", doubleSide: "auto" },
+      "b6": { id: "b6", a1: "7", a2: "1", order: 1, stereo: "none", doubleSide: "auto" },
+      "b7": { id: "b7", a1: "0", a2: "1", order: 2, stereo: "none", doubleSide: "auto" },
+      "b8": { id: "b8", a1: "5", a2: "6", order: 2, stereo: "none", doubleSide: "auto" },
+      },
+      hapticBonds: {},
+    },
+    annotations: [],
+  },
+
 ];

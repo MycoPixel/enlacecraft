@@ -420,6 +420,11 @@ export interface FunctionalGroupBond {
 export interface FunctionalGroupTemplate {
   id: string;
   label: string;
+  /** Groups related templates together in the picker (e.g. every amino
+   * acid side chain under one heading) instead of one long
+   * undifferentiated grid — see FunctionalGroupPicker.tsx. Purely a
+   * display grouping; has no effect on placement. */
+  category: string;
   atoms: FunctionalGroupAtom[];
   bonds: FunctionalGroupBond[];
   attachKey: string;

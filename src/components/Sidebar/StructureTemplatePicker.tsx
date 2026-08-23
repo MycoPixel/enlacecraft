@@ -1,4 +1,5 @@
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
+import { useT } from "../../i18n/useT";
 
 interface StructureTemplatePickerProps {
   /** Called with the chosen template's full fragment, ready to hand
@@ -7,13 +8,35 @@ interface StructureTemplatePickerProps {
   onChoose: (id: string) => void;
 }
 
+/** Category display order — anything not listed here (shouldn't normally
+ * happen) falls back to appearing after all of these, in whatever order
+ * Object.keys gives it, rather than being silently dropped. */
+const CATEGORY_ORDER = ["sugars", "nucleobases", "ligands"];
+
 export function StructureTemplatePicker({ onChoose }: StructureTemplatePickerProps) {
+  const t = useT();
+  const byCategory = new Map<string, typeof STRUCTURE_TEMPLATES>();
+  for (const tmpl of STRUCTURE_TEMPLATES) {
+    const list = byCategory.get(tmpl.category) ?? [];
+    list.push(tmpl);
+    byCategory.set(tmpl.category, list);
+  }
+  const categories = [...byCategory.keys()].sort((a, b) => {
+    const ia = CATEGORY_ORDER.indexOf(a);
+    const ib = CATEGORY_ORDER.indexOf(b);
+    return (ia === -1 ? CATEGORY_ORDER.length : ia) - (ib === -1 ? CATEGORY_ORDER.length : ib);
+  });
   return (
     <div className="structure-list">
-      {STRUCTURE_TEMPLATES.map((tmpl) => (
-        <button key={tmpl.id} className="structure-list__item" onClick={() => onChoose(tmpl.id)}>
-          {tmpl.label}
-        </button>
+      {categories.map((category) => (
+        <div key={category} className="structure-list__group">
+          <div className="structure-list__group-label">{t(`structureCategory.${category}`)}</div>
+          {byCategory.get(category)!.map((tmpl) => (
+            <button key={tmpl.id} className="structure-list__item" onClick={() => onChoose(tmpl.id)}>
+              {tmpl.label}
+            </button>
+          ))}
+        </div>
       ))}
     </div>
   );
