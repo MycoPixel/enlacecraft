@@ -8,14 +8,22 @@ interface BondViewProps {
   a2?: Atom;
   /** Pre-resolved "center"/"left"/"right" for order-2 bonds; see resolveDoubleBondSide. */
   resolvedSide?: "center" | "left" | "right";
+  /** True when this bond is one edge of a ring currently shown with an
+   * inscribed aromatic circle instead of its own alternating double-bond
+   * lines (see engine/aromaticRings.ts and the ring's own
+   * AromaticRingDisplay) -- draws as a single line regardless of the
+   * bond's real order, same as the circle's whole point: the underlying
+   * Kekule order is untouched, only how this one bond happens to render
+   * right now. */
+  hideForAromaticCircle?: boolean;
   /** How far to pull the line back from each end to clear that atom's label (0 for a bare vertex). */
   r1?: number;
   r2?: number;
 }
 
-export function BondView({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: BondViewProps) {
+export function BondView({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1 = 0, r2 = 0 }: BondViewProps) {
   if (!a1 || !a2) return null;
-  const strokes = <BondStrokes bond={bond} a1={a1} a2={a2} resolvedSide={resolvedSide} r1={r1} r2={r2} />;
+  const strokes = <BondStrokes bond={bond} a1={a1} a2={a2} resolvedSide={resolvedSide} hideForAromaticCircle={hideForAromaticCircle} r1={r1} r2={r2} />;
   if (!bond.highlightColor) return strokes;
   // A thick, translucent underlay along the same segment as the real
   // bond line(s) — drawn first (so it sits behind), same idea as
@@ -30,7 +38,7 @@ export function BondView({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: BondVie
   );
 }
 
-function BondStrokes({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: Required<Pick<BondViewProps, "bond" | "a1" | "a2">> & Pick<BondViewProps, "resolvedSide" | "r1" | "r2">) {
+function BondStrokes({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1 = 0, r2 = 0 }: Required<Pick<BondViewProps, "bond" | "a1" | "a2">> & Pick<BondViewProps, "resolvedSide" | "hideForAromaticCircle" | "r1" | "r2">) {
 
   // Pull the endpoints in from each atom's center so the line stops at the
   // edge of that atom's label instead of running underneath it. Needed by
@@ -65,7 +73,11 @@ function BondStrokes({ bond, a1, a2, resolvedSide, r1 = 0, r2 = 0 }: Required<Pi
   // Defensively normalize order: anything other than a real 1/2/3 (e.g. an
   // aromatic "4" or a query bond type from an imported MOL/SDF file) falls
   // back to a single bond rather than being misrendered as a triple bond.
-  const order = bond.order === 2 ? 2 : bond.order === 3 ? 3 : 1;
+  // A ring bond currently shown with an inscribed circle (see
+  // hideForAromaticCircle's own doc comment) draws the same way regardless
+  // of its real order -- the circle stands in for whatever double bonds
+  // this ring would otherwise show.
+  const order = hideForAromaticCircle ? 1 : bond.order === 2 ? 2 : bond.order === 3 ? 3 : 1;
 
   const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x);
   const perp = ang + Math.PI / 2;

@@ -1,15 +1,15 @@
-import type { Atom, Bond, BondOrder, BondStereo, DoubleBondSide, Element, HapticBond, Molecule, Point } from "../types/chemistry";
+import type { Atom, AromaticRingDisplay, Bond, BondOrder, BondStereo, DoubleBondSide, Element, HapticBond, Molecule, Point } from "../types/chemistry";
 import { nextId } from "./id";
 import { BOND_LEN } from "./constants";
 import { angleOf, dist, polar, snapAngle } from "./geometry";
 import { isMetalLike } from "./valence";
 
 export function emptyMolecule(): Molecule {
-  return { atoms: {}, bonds: {}, hapticBonds: {} };
+  return { atoms: {}, bonds: {}, hapticBonds: {}, aromaticRingDisplays: {} };
 }
 
 export function cloneMolecule(mol: Molecule): Molecule {
-  return { atoms: { ...mol.atoms }, bonds: { ...mol.bonds }, hapticBonds: { ...mol.hapticBonds } };
+  return { atoms: { ...mol.atoms }, bonds: { ...mol.bonds }, hapticBonds: { ...mol.hapticBonds }, aromaticRingDisplays: { ...mol.aromaticRingDisplays } };
 }
 
 /** Keeps only the haptic bonds whose metal atom and every ring atom are
@@ -21,6 +21,17 @@ function survivingHapticBonds(hapticBonds: Record<string, HapticBond>, isSurvivi
   for (const id in hapticBonds) {
     const hb = hapticBonds[id];
     if (isSurviving(hb.metalAtomId) && hb.ringAtomIds.every(isSurviving)) result[id] = hb;
+  }
+  return result;
+}
+
+/** Same idea as survivingHapticBonds, for aromatic-ring circle toggles:
+ * drops one the moment any single ring atom is gone, since the remaining
+ * atoms may no longer even form a ring at all. */
+function survivingAromaticRingDisplays(rings: Record<string, AromaticRingDisplay>, isSurviving: (id: string) => boolean): Record<string, AromaticRingDisplay> {
+  const result: Record<string, AromaticRingDisplay> = {};
+  for (const id in rings) {
+    if (rings[id].atomIds.every(isSurviving)) result[id] = rings[id];
   }
   return result;
 }
@@ -375,7 +386,8 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
     if (b.a1 !== id && b.a2 !== id) bonds[bid] = b;
   }
   const hapticBonds = survivingHapticBonds(mol.hapticBonds, (aid) => aid !== id);
-  return { atoms, bonds, hapticBonds };
+  const aromaticRingDisplays = survivingAromaticRingDisplays(mol.aromaticRingDisplays, (aid) => aid !== id);
+  return { atoms, bonds, hapticBonds, aromaticRingDisplays };
 }
 
 export function deleteBond(mol: Molecule, id: string): Molecule {
@@ -411,6 +423,32 @@ export function deleteHapticBond(mol: Molecule, id: string): Molecule {
   const hapticBonds = { ...mol.hapticBonds };
   delete hapticBonds[id];
   return { ...mol, hapticBonds };
+}
+
+/**
+ * Looks for an aromatic ring circle display already covering exactly
+ * this atom set (in any order) — same toggle-matching idea as
+ * findHapticBond, for the same reason: "add" if this exact ring has no
+ * circle yet, "remove" if it already does.
+ */
+export function findAromaticRingDisplay(mol: Molecule, atomIds: Iterable<string>): AromaticRingDisplay | null {
+  const set = new Set(atomIds);
+  for (const r of Object.values(mol.aromaticRingDisplays)) {
+    if (r.atomIds.length !== set.size) continue;
+    if (r.atomIds.every((id) => set.has(id))) return r;
+  }
+  return null;
+}
+
+export function addAromaticRingDisplay(mol: Molecule, id: string, atomIds: string[]): Molecule {
+  const r: AromaticRingDisplay = { id, atomIds };
+  return { ...mol, aromaticRingDisplays: { ...mol.aromaticRingDisplays, [id]: r } };
+}
+
+export function deleteAromaticRingDisplay(mol: Molecule, id: string): Molecule {
+  const aromaticRingDisplays = { ...mol.aromaticRingDisplays };
+  delete aromaticRingDisplays[id];
+  return { ...mol, aromaticRingDisplays };
 }
 
 /**
@@ -463,7 +501,12 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
     delete bonds[connected[0].id];
   }
 
-  return { atoms, bonds, hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => id in atoms) };
+  return {
+    atoms,
+    bonds,
+    hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => id in atoms),
+    aromaticRingDisplays: survivingAromaticRingDisplays(mol.aromaticRingDisplays, (id) => id in atoms),
+  };
 }
 
 /**
@@ -485,7 +528,12 @@ export function subMolecule(mol: Molecule, atomIds: Iterable<string>): Molecule 
     const b = mol.bonds[id];
     if (idSet.has(b.a1) && idSet.has(b.a2)) bonds[id] = b;
   }
-  return { atoms, bonds, hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => idSet.has(id)) };
+  return {
+    atoms,
+    bonds,
+    hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => idSet.has(id)),
+    aromaticRingDisplays: survivingAromaticRingDisplays(mol.aromaticRingDisplays, (id) => idSet.has(id)),
+  };
 }
 
 /** All atoms reachable from `atomId` by traversing bonds (its connected fragment). */
@@ -569,8 +617,14 @@ export function insertMolecule(
     const newId = nextId();
     hapticBonds[newId] = { id: newId, metalAtomId: idMap[hb.metalAtomId], ringAtomIds: hb.ringAtomIds.map((id) => idMap[id]) };
   }
+  const aromaticRingDisplays = { ...base.aromaticRingDisplays };
+  for (const oldId in incoming.aromaticRingDisplays) {
+    const r = incoming.aromaticRingDisplays[oldId];
+    const newId = nextId();
+    aromaticRingDisplays[newId] = { id: newId, atomIds: r.atomIds.map((id) => idMap[id]) };
+  }
 
-  return { mol: { atoms, bonds, hapticBonds }, newAtomIds };
+  return { mol: { atoms, bonds, hapticBonds, aromaticRingDisplays }, newAtomIds };
 }
 
 /**
@@ -597,7 +651,11 @@ export function extractFragment(mol: Molecule, atomIds: Iterable<string>): Molec
   for (const [id, hb] of Object.entries(survivingHapticBonds(mol.hapticBonds, (aid) => idSet.has(aid)))) {
     hapticBonds[id] = { ...hb, ringAtomIds: [...hb.ringAtomIds] };
   }
-  return { atoms, bonds, hapticBonds };
+  const aromaticRingDisplays: Record<string, AromaticRingDisplay> = {};
+  for (const [id, r] of Object.entries(survivingAromaticRingDisplays(mol.aromaticRingDisplays, (aid) => idSet.has(aid)))) {
+    aromaticRingDisplays[id] = { ...r, atomIds: [...r.atomIds] };
+  }
+  return { atoms, bonds, hapticBonds, aromaticRingDisplays };
 }
 
 /**

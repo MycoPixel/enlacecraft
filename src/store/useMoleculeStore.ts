@@ -387,6 +387,13 @@ interface MoleculeStore {
    * findHapticBond for the exact rule. False if the selection doesn't
    * resolve at all (nothing was done). */
   toggleHapticBond: (atomIds: Iterable<string>) => boolean;
+  /** Toggles the inscribed-circle display for the ring at atomIds: adds
+   * one if this exact ring doesn't have it yet, removes it if it does.
+   * Purely a rendering choice (see AromaticRingDisplay's own doc
+   * comment) -- callers are expected to have already confirmed the ring
+   * is eligible (see engine/aromaticRings.ts's resolveEligibleRingForBond),
+   * since this just records the toggle for whatever atom set it's given. */
+  toggleAromaticRingDisplay: (atomIds: string[]) => void;
   addPlusAnnotation: (p: Point) => string;
   addReagentText: () => string | null;
   updateTextHtml: (id: string, html: string) => void;
@@ -1508,6 +1515,16 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         commit((mol) => M.addHapticBond(mol, nextId(), resolved.metalAtomId, resolved.ringAtomIds));
       }
       return true;
+    },
+
+    toggleAromaticRingDisplay: (atomIds) => {
+      const { molecule } = get();
+      const existing = M.findAromaticRingDisplay(molecule, atomIds);
+      if (existing) {
+        commit((mol) => M.deleteAromaticRingDisplay(mol, existing.id));
+      } else {
+        commit((mol) => M.addAromaticRingDisplay(mol, nextId(), atomIds));
+      }
     },
 
     /**

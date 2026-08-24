@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Trash2, Copy, ClipboardPaste, CopyPlus, Plus, Minus, Zap, Palette,
-  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit,
+  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit, Circle,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import type { BondOrder, BondStereo } from "../../types/chemistry";
-import { resolveHapticSelection, findHapticBond } from "../../model/molecule";
+import { resolveHapticSelection, findHapticBond, findAromaticRingDisplay } from "../../model/molecule";
+import { resolveEligibleRingForBond } from "../../engine/aromaticRings";
 
 interface ContextMenuProps {
   copySelection: () => boolean;
@@ -59,6 +60,7 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
   const addChargeBracket = useMoleculeStore((s) => s.addChargeBracket);
   const toggleHapticBond = useMoleculeStore((s) => s.toggleHapticBond);
+  const toggleAromaticRingDisplay = useMoleculeStore((s) => s.toggleAromaticRingDisplay);
   const selectAll = useMoleculeStore((s) => s.selectAll);
   const resetView = useMoleculeStore((s) => s.resetView);
 
@@ -120,6 +122,8 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const hasSelection = selected.size > 0;
   const hapticSelection = resolveHapticSelection(molecule, selected);
   const existingHapticBond = hapticSelection ? findHapticBond(molecule, hapticSelection.metalAtomId, hapticSelection.ringAtomIds) : null;
+  const eligibleRing = bond ? resolveEligibleRingForBond(molecule, bond) : null;
+  const existingRingDisplay = eligibleRing ? findAromaticRingDisplay(molecule, eligibleRing) : null;
   const canResetRotation = rotationSession != null && rotationSession.key === [...selected].sort().join(",");
 
   const doOrder = (order: BondOrder) => { if (bond) { setBondOrder(bond.id, order); close(); } };
@@ -206,6 +210,11 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
               <button className="context-menu__item" onClick={() => setSubmenu("bond-highlight")}>
                 <Palette size={15} /> {t("section.highlight")} &rsaquo;
               </button>
+              {eligibleRing && (
+                <button className="context-menu__item" onClick={() => { toggleAromaticRingDisplay(eligibleRing); close(); }}>
+                  <Circle size={15} /> {t(existingRingDisplay ? "contextMenu.removeAromaticCircle" : "contextMenu.addAromaticCircle")}
+                </button>
+              )}
               <button className="context-menu__item context-menu__item--danger" onClick={() => { deleteBond(bond.id); close(); }}>
                 <Trash2 size={15} /> {t("contextMenu.deleteBond")}
               </button>

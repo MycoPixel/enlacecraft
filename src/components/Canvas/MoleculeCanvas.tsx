@@ -11,6 +11,7 @@ import { AnnotationToolbar } from "./AnnotationToolbar";
 import { DragReadout } from "./DragReadout";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
 import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
+import { ringBondIds, ringCircleGeometry } from "../../engine/aromaticRings";
 import { previewRingLoops } from "../../engine/ringPlacement";
 import { previewFunctionalGroupSegments } from "../../engine/functionalGroupPlacement";
 import { computeExplicitHydrogens } from "../../engine/explicitHydrogens";
@@ -58,6 +59,25 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const explicitHydrogens = useMemo(
     () => (showExpandedFormula ? computeExplicitHydrogens(molecule) : []),
     [showExpandedFormula, molecule]
+  );
+
+  // Aromatic ring circles the person has toggled on (see
+  // AromaticRingDisplay's own doc comment) -- one memo for which bonds
+  // should skip their own double-line rendering, one for the circles
+  // themselves to draw on top.
+  const aromaticCircleBondIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of Object.values(molecule.aromaticRingDisplays)) {
+      for (const bid of ringBondIds(molecule, r.atomIds)) ids.add(bid);
+    }
+    return ids;
+  }, [molecule]);
+  const aromaticCircles = useMemo(
+    () =>
+      Object.values(molecule.aromaticRingDisplays)
+        .map((r) => ({ id: r.id, geometry: ringCircleGeometry(molecule, r.atomIds) }))
+        .filter((c): c is { id: string; geometry: NonNullable<ReturnType<typeof ringCircleGeometry>> } => !!c.geometry),
+    [molecule]
   );
 
   // Hover preview for the ring tool: exactly the same attachment resolution
@@ -202,10 +222,23 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
                 a1={molecule.atoms[b.a1]}
                 a2={molecule.atoms[b.a2]}
                 resolvedSide={b.order === 2 ? resolveDoubleBondSide(molecule, b) : undefined}
+                hideForAromaticCircle={aromaticCircleBondIds.has(b.id)}
                 r1={atomLabelRadius(molecule, b.a1, showHydrogens, atomLabelRevealTargets.has(b.a1))}
                 r2={atomLabelRadius(molecule, b.a2, showHydrogens, atomLabelRevealTargets.has(b.a2))}
               />
             </g>
+          ))}
+          {aromaticCircles.map(({ id, geometry }) => (
+            <circle
+              key={id}
+              cx={geometry.cx}
+              cy={geometry.cy}
+              r={geometry.r}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              pointerEvents="none"
+            />
           ))}
           {Object.values(molecule.hapticBonds).map((hb) => (
             <HapticBondView

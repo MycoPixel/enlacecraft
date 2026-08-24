@@ -239,14 +239,19 @@ export type RingAttachment =
 export interface Molecule {
   atoms: Record<string, Atom>;
   bonds: Record<string, Bond>;
-  /** See HapticBond's own doc comment. Always present (emptyMolecule
-   * initializes it to {}) \u2014 unlike Bond.dative, this isn't an "absent
-   * means legacy data" optional field, since every Molecule-producing
-   * function in this codebase was updated to set it at the same time
-   * this field was introduced, including the molfile/SMILES importers
-   * (which just always produce {}, since neither format carries
-   * hapticity \u2014 see HapticBond's doc comment). */
+  /** See HapticBond's own doc comment. Always present at runtime going
+   * forward (emptyMolecule initializes it to {}, and every
+   * Molecule-producing function in this codebase sets it) -- but a
+   * project file or autosave snapshot saved before this field existed
+   * won't have it, so anything that loads a Molecule from outside this
+   * app's own runtime (see io/project.ts's importProject/
+   * migrateMolecule) must still defend against it being absent rather
+   * than trusting this comment alone. */
   hapticBonds: Record<string, HapticBond>;
+  /** See AromaticRingDisplay's own doc comment. Same "always present at
+   * runtime, but migrate on load" caveat as hapticBonds above applies
+   * here too. */
+  aromaticRingDisplays: Record<string, AromaticRingDisplay>;
 }
 
 /**
@@ -278,6 +283,27 @@ export interface HapticBond {
    * centroid of. At least 2 \u2014 a single atom wouldn't need a centroid, and
    * should just be an ordinary Bond or a dative Bond instead. */
   ringAtomIds: string[];
+}
+
+/**
+ * A ring the person has explicitly chosen to draw with an inscribed
+ * circle instead of its own Kekule alternating-double-bond lines -- see
+ * engine/aromaticRings.ts for the ring-detection/eligibility logic this
+ * pairs with, and ContextMenu's "Toggle aromatic circle" action for
+ * where it's set. Purely a rendering choice, the same way Bond.doubleSide
+ * is: toggling it never touches any atom's or bond's own data (the bonds
+ * keep their real alternating single/double orders underneath), so it
+ * has no effect on formula, valence, or any export format -- the circle
+ * is drawn on top, and that ring's double bonds simply skip drawing
+ * their own second line while it's on.
+ *
+ * atomIds is the ring's own atom ids; order doesn't matter for matching
+ * (see findAromaticRingDisplay) but is kept in ring-walk order since
+ * that's what the geometry that creates one already has on hand.
+ */
+export interface AromaticRingDisplay {
+  id: string;
+  atomIds: string[];
 }
 
 export interface Point {

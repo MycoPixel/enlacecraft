@@ -42,16 +42,25 @@ export class ProjectParseError extends Error {}
 
 /**
  * Backfills fields that didn't exist yet when older project files/
- * autosave snapshots were written — right now, just `hapticBonds` (added
- * well after this format already had files and autosaved sessions in the
- * wild). Without this, an old save loads with `molecule.hapticBonds`
- * simply absent, and the first thing that calls Object.values() on it
- * (e.g. findConnectedFragments, for the formula/MW display) throws
- * immediately on open. Mutates nothing — returns a fresh Molecule with
- * the gap filled in, leaving everything else as it was.
+ * autosave snapshots were written -- `hapticBonds` and
+ * `aromaticRingDisplays` so far, each added well after this format
+ * already had files and autosaved sessions in the wild. Without this, an
+ * old save loads with one of those fields simply absent, and the first
+ * thing that calls Object.values() on it (e.g. findConnectedFragments,
+ * for the formula/MW display) throws immediately on open -- exactly what
+ * happened for hapticBonds before this function existed at all;
+ * aromaticRingDisplays got its own default added here from day one
+ * instead of waiting to hit the same bug again. Mutates nothing --
+ * returns a fresh Molecule with every gap filled in, leaving everything
+ * else as it was. Any future field on Molecule that isn't guaranteed
+ * present on every historical save should get the same treatment here.
  */
 function migrateMolecule(molecule: Molecule): Molecule {
-  return { ...molecule, hapticBonds: molecule.hapticBonds ?? {} };
+  return {
+    ...molecule,
+    hapticBonds: molecule.hapticBonds ?? {},
+    aromaticRingDisplays: molecule.aromaticRingDisplays ?? {},
+  };
 }
 
 export function importProject(json: string): ProjectFile {
