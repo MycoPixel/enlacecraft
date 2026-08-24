@@ -8,8 +8,13 @@ import { useT } from "../../i18n/useT";
 interface ViewOptionsMenuProps {
   showHydrogens: boolean;
   onToggleHydrogens: () => void;
-  showExpandedFormula: boolean;
-  onToggleExpandedFormula: () => void;
+  /** Whether the current molecule already has real, explicit terminal
+   * hydrogen atoms (see model/molecule.ts's hasExplicitHydrogens) --
+   * read straight from the molecule's own content, not a separately
+   * tracked view preference, since toggling this now performs a real,
+   * undoable structural edit rather than a display-only setting. */
+  hasExplicitHydrogens: boolean;
+  onToggleExplicitHydrogens: () => void;
   monochromeAtoms: boolean;
   onToggleMonochromeAtoms: () => void;
   showGrid: boolean;
@@ -36,7 +41,7 @@ interface ViewOptionsMenuProps {
  */
 export function ViewOptionsMenu({
   showHydrogens, onToggleHydrogens,
-  showExpandedFormula, onToggleExpandedFormula,
+  hasExplicitHydrogens, onToggleExplicitHydrogens,
   monochromeAtoms, onToggleMonochromeAtoms,
   showGrid, onToggleGrid,
   canvasBackground, onToggleCanvasBackground,
@@ -83,7 +88,7 @@ export function ViewOptionsMenu({
   // whole still gives an at-a-glance signal the way the standalone icons
   // used to — you don't have to open the menu just to know something in
   // here is active.
-  const anyActive = showHydrogens || showExpandedFormula || monochromeAtoms || showGrid || (!isDarkTheme && canvasBackground === "white");
+  const anyActive = showHydrogens || hasExplicitHydrogens || monochromeAtoms || showGrid || (!isDarkTheme && canvasBackground === "white");
 
   const canvasBgDisabled = isDarkTheme;
   const canvasBgTitle = isDarkTheme
@@ -107,8 +112,8 @@ export function ViewOptionsMenu({
             <ViewOptionRow
               icon={<ExpandedFormulaIcon size={16} />}
               label={t("tool.viewOptionsExpandedFormula")}
-              active={showExpandedFormula}
-              onClick={onToggleExpandedFormula}
+              active={hasExplicitHydrogens}
+              onClick={onToggleExplicitHydrogens}
             />
             <ViewOptionRow
               icon={<Contrast size={16} />}

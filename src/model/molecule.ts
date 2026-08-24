@@ -471,6 +471,14 @@ export function resolveHapticSelection(mol: Molecule, atomIds: Iterable<string>)
   return { metalAtomId: metals[0].id, ringAtomIds };
 }
 
+/** The shared "is this a redundant explicit hydrogen" test stripExplicitHydrogens
+ * and hasExplicitHydrogens both need to agree on: element H, a single bond,
+ * no charge, no isotope label, no custom group text. */
+function isSimpleTerminalHydrogen(a: Atom, connected: Bond[]): boolean {
+  if (a.element !== "H" || a.charge !== 0 || a.isotope || a.group) return false;
+  return connected.length === 1 && connected[0].order === 1 && connected[0].stereo === "none";
+}
+
 /**
  * Removes "simple" terminal hydrogen atoms — element H, a single bond, no
  * charge, no other bonds — and the bonds connecting them. Used when
@@ -494,9 +502,8 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
 
   for (const id in mol.atoms) {
     const a = mol.atoms[id];
-    if (a.element !== "H" || a.charge !== 0 || a.isotope || a.group) continue;
     const connected = bondsByAtom.get(id) ?? [];
-    if (connected.length !== 1 || connected[0].order !== 1 || connected[0].stereo !== "none") continue;
+    if (!isSimpleTerminalHydrogen(a, connected)) continue;
     delete atoms[id];
     delete bonds[connected[0].id];
   }
@@ -507,6 +514,27 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
     hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => id in atoms),
     aromaticRingDisplays: survivingAromaticRingDisplays(mol.aromaticRingDisplays, (id) => id in atoms),
   };
+}
+
+/**
+ * Whether this molecule has at least one atom stripExplicitHydrogens
+ * would remove -- i.e. whether it currently looks "explicit" rather than
+ * "implicit" for hydrogens. Used to decide which way the store's single
+ * toggleExplicitHydrogens action should go on the next click, the same
+ * way a real molecule editor's explicit-hydrogens button reads as
+ * pressed or not based on the document's actual content rather than a
+ * separately-tracked view flag.
+ */
+export function hasExplicitHydrogens(mol: Molecule): boolean {
+  const bondsByAtom = new Map<string, Bond[]>();
+  for (const b of Object.values(mol.bonds)) {
+    (bondsByAtom.get(b.a1) ?? bondsByAtom.set(b.a1, []).get(b.a1)!).push(b);
+    (bondsByAtom.get(b.a2) ?? bondsByAtom.set(b.a2, []).get(b.a2)!).push(b);
+  }
+  for (const id in mol.atoms) {
+    if (isSimpleTerminalHydrogen(mol.atoms[id], bondsByAtom.get(id) ?? [])) return true;
+  }
+  return false;
 }
 
 /**

@@ -8,6 +8,7 @@ import * as M from "../model/molecule";
 import { nextId } from "../model/id";
 import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
+import { addExplicitHydrogens } from "../engine/explicitHydrogens";
 import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS, REACTIVE_SITE_PRESETS } from "../model/constants";
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
@@ -272,17 +273,6 @@ interface MoleculeStore {
    * whichever atom/bond, if either, was under the cursor when it opened. */
   contextMenu: { x: number; y: number; atomId: string | null; bondId: string | null } | null;
   showHydrogens: boolean;
-  /** Draws every carbon's implicit hydrogens as real bonds + "H" labels
-   * fanned out around it — a full "expanded structural formula" view, as
-   * opposed to showHydrogens which only adds compact "CH3"-style text to
-   * existing atom labels. Carbon-only: heteroatoms already spell out their
-   * own H count in their label ("OH", "NH2", ...) regardless of this
-   * toggle, so there's nothing more for it to add there — see
-   * engine/explicitHydrogens.ts. Purely a rendering toggle: never touches
-   * the actual Molecule, so it has no effect on undo/redo, valence checks,
-   * or any export format other than making the extra bonds/labels visible
-   * in it too. */
-  showExpandedFormula: boolean;
   monochromeAtoms: boolean;
   /** Whether the 3D structure panel is docked next to the 2D canvas. Off
    * by default (a secondary view most edits don't need open) and never
@@ -351,7 +341,19 @@ interface MoleculeStore {
    * copy-then-separately-paste. */
   duplicateSelection: () => void;
   toggleShowHydrogens: () => void;
-  toggleShowExpandedFormula: () => void;
+  /** Real structural edit, not a view toggle: on the atom count going up
+   * (i.e. hasExplicitHydrogens(molecule) is currently false), adds a real
+   * terminal H atom + bond for every implicit hydrogen on every carbon
+   * (engine/explicitHydrogens.ts's addExplicitHydrogens) -- otherwise
+   * strips them back down (model/molecule.ts's stripExplicitHydrogens).
+   * Either direction goes through commit(), so it's a normal undoable
+   * edit like drawing or deleting an atom by hand, and shows up in
+   * export/formula/valence exactly the same way. There's deliberately no
+   * separate boolean tracking "on/off" here -- which direction the next
+   * click goes is read straight from the molecule's own current content
+   * (see hasExplicitHydrogens), the same way the toggle itself no longer
+   * has a hidden state independent of what's actually drawn. */
+  toggleExplicitHydrogens: () => void;
   toggleMonochromeAtoms: () => void;
   toggle3DView: () => void;
   setEmbed3DMethod: (method: Embed3DMethod) => void;
@@ -687,7 +689,6 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     rotationSession: null,
     contextMenu: null,
     showHydrogens: false,
-    showExpandedFormula: false,
     monochromeAtoms: true,
     show3DView: false,
     embed3DMethod: "quick",
@@ -815,7 +816,14 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       });
     },
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
-    toggleShowExpandedFormula: () => set((s) => ({ showExpandedFormula: !s.showExpandedFormula })),
+    toggleExplicitHydrogens: () => {
+      const { molecule } = get();
+      if (M.hasExplicitHydrogens(molecule)) {
+        commit((mol) => M.stripExplicitHydrogens(mol));
+      } else {
+        commit((mol) => addExplicitHydrogens(mol));
+      }
+    },
     toggleMonochromeAtoms: () => set((s) => ({ monochromeAtoms: !s.monochromeAtoms })),
     toggle3DView: () => set((s) => ({ show3DView: !s.show3DView })),
     setEmbed3DMethod: (method) => set({ embed3DMethod: method }),

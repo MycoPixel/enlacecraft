@@ -14,7 +14,6 @@ import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
 import { ringBondIds, ringCircleGeometry } from "../../engine/aromaticRings";
 import { previewRingLoops } from "../../engine/ringPlacement";
 import { previewFunctionalGroupSegments } from "../../engine/functionalGroupPlacement";
-import { computeExplicitHydrogens } from "../../engine/explicitHydrogens";
 import { bracketPairLayout } from "../../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, RING_TEMPLATES } from "../../model/constants";
 import { FUNCTIONAL_GROUP_TEMPLATES } from "../../model/functionalGroupTemplates";
@@ -31,7 +30,6 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const lassoPath = useMoleculeStore((s) => s.lassoPath);
   const tool = useMoleculeStore((s) => s.tool);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
-  const showExpandedFormula = useMoleculeStore((s) => s.showExpandedFormula);
   const atomLabelRevealTargets = useMoleculeStore((s) => s.atomLabelRevealTargets);
   const setCanvasSize = useMoleculeStore((s) => s.setCanvasSize);
   const annotations = useMoleculeStore((s) => s.annotations);
@@ -55,11 +53,6 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
   const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu } = useCanvasInteractions(svgRef);
-
-  const explicitHydrogens = useMemo(
-    () => (showExpandedFormula ? computeExplicitHydrogens(molecule) : []),
-    [showExpandedFormula, molecule]
-  );
 
   // Aromatic ring circles the person has toggled on (see
   // AromaticRingDisplay's own doc comment) -- one memo for which bonds
@@ -248,34 +241,8 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
               r1={atomLabelRadius(molecule, hb.metalAtomId, showHydrogens, atomLabelRevealTargets.has(hb.metalAtomId))}
             />
           ))}
-          {explicitHydrogens.map((h, i) => (
-            <BondView
-              key={`h-bond-${i}`}
-              bond={{ id: `h-bond-${i}`, a1: "a", a2: "b", order: 1, stereo: "none", doubleSide: "center" }}
-              a1={molecule.atoms[h.atomId]}
-              a2={{ id: `h-atom-${i}`, x: h.x, y: h.y, element: "H", charge: 0 }}
-              r1={atomLabelRadius(molecule, h.atomId, showHydrogens, atomLabelRevealTargets.has(h.atomId))}
-              r2={10.6}
-            />
-          ))}
           {Object.values(molecule.atoms).map((a) => (
             <AtomView key={a.id} atom={a} mol={molecule} selected={selected.has(a.id)} overValent={isOverValent(molecule, a.id)} svgRef={svgRef} />
-          ))}
-          {explicitHydrogens.map((h, i) => (
-            <text
-              key={`h-label-${i}`}
-              x={h.x}
-              y={h.y}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fontSize="14.5"
-              fontWeight="500"
-              fill="var(--ink)"
-              className="atom-label"
-              pointerEvents="none"
-            >
-              H
-            </text>
           ))}
           {Object.values(annotations).map((ann) =>
             ann.kind === "arrow" ? (

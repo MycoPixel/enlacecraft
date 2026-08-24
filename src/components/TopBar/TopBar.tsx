@@ -13,6 +13,7 @@ import { MoleculeInfoButton } from "./MoleculeInfoButton";
 import { DesktopDownloadButton } from "./DesktopDownloadButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
+import { hasExplicitHydrogens } from "../../model/molecule";
 import { exportPNG, exportSVG } from "../../io/exportImage";
 import { exportMol } from "../../io/molfile";
 import { exportCdxml } from "../../io/cdxml";
@@ -44,8 +45,7 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
-  const showExpandedFormula = useMoleculeStore((s) => s.showExpandedFormula);
-  const toggleShowExpandedFormula = useMoleculeStore((s) => s.toggleShowExpandedFormula);
+  const toggleExplicitHydrogens = useMoleculeStore((s) => s.toggleExplicitHydrogens);
   const monochromeAtoms = useMoleculeStore((s) => s.monochromeAtoms);
   const toggleMonochromeAtoms = useMoleculeStore((s) => s.toggleMonochromeAtoms);
   const show3DView = useMoleculeStore((s) => s.show3DView);
@@ -218,8 +218,8 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
         <ViewOptionsMenu
           showHydrogens={showHydrogens}
           onToggleHydrogens={toggleShowHydrogens}
-          showExpandedFormula={showExpandedFormula}
-          onToggleExpandedFormula={toggleShowExpandedFormula}
+          hasExplicitHydrogens={hasExplicitHydrogens(molecule)}
+          onToggleExplicitHydrogens={toggleExplicitHydrogens}
           monochromeAtoms={monochromeAtoms}
           onToggleMonochromeAtoms={toggleMonochromeAtoms}
           showGrid={showGrid}
