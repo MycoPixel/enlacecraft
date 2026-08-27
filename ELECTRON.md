@@ -42,11 +42,12 @@ Linux (and vice versa) in many setups, but it's most reliable to build each
 target on its own OS, or use their CI action if you want both from one
 machine. If `dist:win` fails on Linux, run it on an actual Windows machine
 (or a Windows CI runner) instead. This is separate from, and stricter than,
-the two bundled Python backends below (NMR prediction, 3D structure) - those
-use PyInstaller, which genuinely cannot cross-compile at all (not just
-"unreliable") - so a Windows build always needs those two frozen on an
-actual Windows machine or VM, no way around it, regardless of whether
-`dist:win` itself happens to work via Wine from Linux.
+the three bundled Python backends below (NMR prediction, 3D structure,
+IUPAC-naming fallback) - those use PyInstaller, which genuinely cannot
+cross-compile at all (not just "unreliable") - so a Windows build always
+needs those three frozen on an actual Windows machine or VM, no way around
+it, regardless of whether `dist:win` itself happens to work via Wine from
+Linux.
 
 ## Bundling the NMR prediction server
 
@@ -130,6 +131,48 @@ no cross-compiling. Same dev-mode behavior too - `electron:dev` /
 `electron:preview` don't auto-start it; run
 `uvicorn main:app --port 8001 --reload` yourself while developing (see that
 folder's README). Console output is prefixed `[structure3d-server]`.
+
+## Bundling the IUPAC-naming fallback server
+
+The IUPAC name lookup normally goes straight to PubChem. When PubChem has no
+name for the exact structure drawn (see `src/io/iupacFallback.ts`'s doc
+comment for why that happens even for perfectly valid chemistry, and how
+common it is for less-common structures), it falls back to a small local
+service that generates a name and independently verifies it before ever
+returning it. Same overall pattern as the two backends above - source lives
+in this repo, at `python/iupac_fallback_server/` - with one added wrinkle:
+this one wraps OPSIN, a Java library, so the frozen build needs a JVM
+bundled alongside it too, not just Python.
+
+1. From `python/iupac_fallback_server/`, run the platform's build script:
+   ```
+   ./build_linux.sh          # on Linux
+   .\build_windows.ps1       # on Windows, in PowerShell
+   ```
+   Each one freezes the server with PyInstaller, downloads a pinned portable
+   JRE build (Eclipse Temurin, ~50MB compressed - cached in `jre-cache/`
+   after the first run so repeat builds don't re-download it) and copies it
+   in as `jre/` alongside the executable, runs a real smoke test against the
+   frozen binary (starts it, waits for `/health`, POSTs a molecule to
+   `/name`, confirms the response), and on success writes straight to
+   `../../resources/iupac_fallback_server/` - no manual copy step, unlike
+   the other two backends above.
+2. `npm run dist:win` / `dist:linux` picks it up the same way - see
+   `package.json`'s `build.extraResources` and
+   `electron/iupac_fallback_server.cjs` (spawns it as `iupac_fallback_server`
+   / `iupac_fallback_server.exe` on port 8002, alongside the other two on
+   8000/8001).
+
+Same platform-specific caveat as the other two backends: freeze it ON the
+target platform, no cross-compiling - `build_windows.ps1` genuinely cannot
+be run from this Linux checkout, only documented and individually verified
+piece-by-piece here (see that script's own header comment for exactly what
+was and wasn't tested before it was written). Same dev-mode behavior too -
+`electron:dev` / `electron:preview` don't auto-start it; run
+`uvicorn main:app --port 8002 --reload` yourself while developing (needs a
+plain system-installed Java 8+ in dev mode - see that folder's README for
+why a packaged build doesn't need one). Console output is prefixed
+`[iupac-fallback-server]`.
 
 ## Publishing a release
 

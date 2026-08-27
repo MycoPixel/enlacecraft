@@ -17,6 +17,14 @@ contextBridge.exposeInMainWorld("electron", {
   // Molecule3DView.tsx currently relies on xtbRefine.ts's own network-
   // error handling instead, same as the NMR button does today.
   getStructure3DServerStatus: () => ipcRenderer.invoke("structure3d-server:get-status"),
+  // Status of the bundled IUPAC-naming fallback server (only
+  // meaningful in a packaged build - see
+  // electron/iupac_fallback_server.cjs). Same shape as
+  // getNmrServerStatus above. Not consumed by the UI yet -
+  // io/iupacLookup.ts currently relies on io/iupacFallback.ts's own
+  // network-error handling instead, same as the other two backends do
+  // today.
+  getIupacFallbackServerStatus: () => ipcRenderer.invoke("iupac-fallback-server:get-status"),
   // Status of the auto-updater (only meaningful in a packaged build -
   // see electron/updater.cjs). Returns
   // { state: "idle" | "checking" | "downloading" | "downloaded" | "not-available" | "error",

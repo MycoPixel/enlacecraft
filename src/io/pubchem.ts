@@ -330,11 +330,22 @@ export async function searchCompoundsBySubstructure(smiles: string, maxResults =
 
 /**
  * Resolves the IUPAC name for a drawn structure (or selected fragment) via
- * PubChem's PUG REST property endpoint. The structure doesn't need to
- * already exist as a known PubChem compound — PubChem standardizes and
- * names arbitrary valid SMILES on the fly, which is what makes this work
- * for whatever's actually on the canvas rather than only for compounds
- * already in PubChem's database.
+ * PubChem's PUG REST property endpoint.
+ *
+ * Despite this being a "give me a property for this SMILES" endpoint
+ * rather than a "look up this known compound" one, it does NOT reliably
+ * name arbitrary valid structures on the fly. In practice it only
+ * reliably returns a name once the exact structure is already indexed
+ * as a Compound in PubChem's own ~120M-record database — for a SMILES
+ * that isn't already a known compound, PubChem can auto-generate a
+ * lightweight record with a few basic properties, but IUPAC naming
+ * specifically needs its full Lexichem/OEChem toolkit, which is too
+ * expensive to run on the fly for non-indexed structures, so this
+ * throws NOT_FOUND for those even though the SMILES itself is perfectly
+ * valid chemistry. See io/iupacLookup.ts's lookupIupacName, which is
+ * this function's only caller: it tries an optional local fallback
+ * service for exactly this case, rather than this function trying to
+ * work around it itself.
  *
  * POSTs the SMILES rather than GETs it, for the same reason as
  * fetchSDFRaw and searchCompoundsBySubstructure above: some SMILES

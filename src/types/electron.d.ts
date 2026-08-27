@@ -27,6 +27,7 @@ export interface ElectronBridge {
   isElectron: true;
   getNmrServerStatus: () => Promise<ServerStatus>;
   getStructure3DServerStatus: () => Promise<ServerStatus>;
+  getIupacFallbackServerStatus: () => Promise<ServerStatus>;
   getUpdaterStatus: () => Promise<UpdaterStatus>;
   quitAndInstallUpdate: () => Promise<boolean>;
   // Native "Save As" dialog for the project (.enlacecraft) format — see

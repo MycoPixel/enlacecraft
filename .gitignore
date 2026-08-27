@@ -20,6 +20,7 @@ release/
 # project's PyInstaller build output, not something to commit.
 resources/nmrgraph_server/
 resources/structure3d_server/
+resources/iupac_fallback_server/
 
 # Logs
 

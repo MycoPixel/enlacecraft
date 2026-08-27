@@ -11,13 +11,17 @@ import { useT } from "../../i18n/useT";
 type NameState =
   | { phase: "loading" }
   | { phase: "error"; message: string }
-  | { phase: "result"; english: string; spanish?: string; stereoOmitted?: boolean };
+  | { phase: "result"; english: string; spanish?: string; stereoOmitted?: boolean; localFallback?: boolean };
 
 /**
  * The naming counterpart to StructureSearchButton and CompoundSearch: those
  * two go name/structure -> structure (fetch or find a compound), this one
  * goes structure -> name, via the same PubChem PUG REST service (see
- * fetchIupacName's doc comment in io/pubchem.ts).
+ * fetchIupacName's doc comment in io/pubchem.ts). When PubChem has no name
+ * for the exact structure drawn — see io/iupacLookup.ts's doc comment for
+ * why that happens even for perfectly valid chemistry — lookupIupacName
+ * transparently tries the optional local fallback service before giving
+ * up, in which case the result carries `localFallback: true`.
  *
  * PubChem only names things in English. When the app's UI language is
  * Spanish, this also shows a best-effort Spanish transliteration
@@ -114,6 +118,7 @@ export function IupacNameButton() {
               <button type="button" className="iupac-result__name" onClick={() => copy(state.english)} title={t("iupac.copy")}>
                 {state.english}
               </button>
+              {state.localFallback && <p className="iupac-result__caveat">{t("iupac.localFallback")}</p>}
               {state.stereoOmitted && <p className="iupac-result__caveat">{t("iupac.stereoOmitted")}</p>}
               {state.spanish && (
                 <>
