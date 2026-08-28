@@ -11,6 +11,20 @@ export const angleOf = (a: Point, b: Point): number =>
 export const snapAngle = (rad: number, step: number = Math.PI / 6): number =>
   Math.round(rad / step) * step;
 
+/**
+ * Shortest signed angular difference `to - from`, normalized to
+ * (-π, π] — e.g. the "naive" `to - from` for angles just past 0 and just
+ * before 2π would come out close to a full turn instead of close to
+ * zero; this picks whichever direction is actually shorter around the
+ * circle. Used anywhere two angles need comparing by how close they
+ * are rather than by raw subtraction (choosing the zigzag side in
+ * cleanUpAtoms that best matches a chain's original drawn direction).
+ */
+export const angleDelta = (from: number, to: number): number => {
+  const twoPi = 2 * Math.PI;
+  return ((to - from + Math.PI) % twoPi + twoPi) % twoPi - Math.PI;
+};
+
 export const polar = (cx: number, cy: number, r: number, rad: number): Point => ({
   x: cx + r * Math.cos(rad),
   y: cy + r * Math.sin(rad),

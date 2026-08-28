@@ -1,7 +1,7 @@
 import type { Atom, AromaticRingDisplay, Bond, BondOrder, BondStereo, DoubleBondSide, Element, HapticBond, Molecule, Point } from "../types/chemistry";
 import { nextId } from "./id";
 import { BOND_LEN } from "./constants";
-import { angleOf, dist, polar, snapAngle } from "./geometry";
+import { angleDelta, angleOf, dist, polar, snapAngle } from "./geometry";
 import { isMetalLike } from "./valence";
 
 export function emptyMolecule(): Molecule {
@@ -1003,9 +1003,16 @@ function regularRingTargets(mol: Molecule, ringWalk: string[], fixed: Map<string
  * detectRings) as a proper regular polygon of its own size — a pentagon
  * stays a pentagon with 108° interior angles, a hexagon a hexagon, etc.,
  * each with every edge exactly the standard bond length — then relaxes
- * every remaining chain atom/substituent outward from there, normalizing
- * its bond length and snapping its direction to the nearest 30°, the same
- * snapping the drawing tools themselves use.
+ * every remaining chain atom/substituent outward from there. Each chain
+ * segment comes out as a proper zigzag: every bond is the standard bond
+ * length, and consecutive bonds alternate by exactly 60° (the usual
+ * ±30°-from-horizontal look of a drawn structure), rather than each bond
+ * just independently landing on the nearest 30° of wherever it happened
+ * to already point — a chain drawn (or dragged) into a wobbly, uneven
+ * shape comes out straight, not merely grid-aligned-but-still-uneven.
+ * See the ZigzagState type inside the loop below for exactly how a
+ * segment's axis and alternation are tracked, and how a branch point
+ * resets to a fresh axis for each of its own arms.
  *
  * Each connected fragment (see connectedComponents) is handled on its own,
  * anchored so it doesn't drift or detach in a way the user didn't ask for:
@@ -1069,19 +1076,83 @@ export function cleanUpAtoms(mol: Molecule, atomIds: string[]): Molecule {
       if (a) atoms[id] = { ...a, x: p.x, y: p.y };
     }
 
+    // Relaxes every remaining (non-ring, non-boundary) atom outward from
+    // `fixed`, one bond at a time, snapping each new bond to the nearest
+    // 30° grid direction the rest of the drawing tools already use — but
+    // a plain chain gets more than that: consecutive bonds *alternate*
+    // by a fixed 60° (see ZigzagState below), so a straightened chain
+    // comes out as a proper zigzag rather than a sequence of
+    // independently-snapped segments that each just happen to be
+    // grid-aligned. A ring or boundary atom always starts a brand new
+    // zigzag "segment" for whatever hangs off it (zigzag: null below),
+    // and so does a branch point mid-chain (degree ≥ 3 within this
+    // fragment) for each of its own children — each arm coming off a
+    // branch gets its own independent zigzag rather than trying to
+    // reconcile axes across the branch.
+    type ZigzagState = {
+      /** This segment's base direction (always a multiple of 30°) — the
+       * very first bond out of whatever anchored this segment (a ring/
+       * boundary atom, or a branch point) keeps this exact direction;
+       * every bond after that is offset from it by ±30°. */
+      axis: number;
+      /** This atom's own incoming bond's offset from `axis` — 0 for the
+       * segment's first atom (no offset yet: an unbroken continuation of
+       * axis), otherwise ±30°. */
+      deviation: number;
+      /** True only for the segment's first atom (the one whose incoming
+       * bond has deviation 0) — its outgoing bond is the one bond in the
+       * whole segment that isn't forced by alternation, since there's no
+       * established zigzag phase yet to alternate against. That one
+       * choice (+30° or −30°) is picked by whichever candidate is
+       * closer to how this bond was actually drawn, so a chain that's
+       * already roughly zigzagging keeps its original up/down sense
+       * rather than getting flipped arbitrarily; every bond after it
+       * strictly alternates with no further such comparisons, which is
+       * what actually guarantees a perfect zigzag regardless of how
+       * messy the rest of the original chain was. */
+      isSegmentStart: boolean;
+    };
+    const ZIGZAG_STEP = Math.PI / 6; // 30° — same grid snapAngle already snaps to
+
     const visited = new Set(fixed.keys());
-    const queue = [...visited];
+    const queue: { id: string; zigzag: ZigzagState | null }[] = [...visited].map((id) => ({ id, zigzag: null }));
     while (queue.length > 0) {
-      const cur = queue.shift()!;
-      for (const nb of neighborsWithin(cur)) {
+      const { id: cur, zigzag } = queue.shift()!;
+      const neighbors = neighborsWithin(cur);
+      for (const nb of neighbors) {
         if (visited.has(nb)) continue;
         visited.add(nb);
         const curAtom = atoms[cur];
         const nbAtom = atoms[nb];
-        const angle = snapAngle(angleOf(curAtom, nbAtom));
+        let angle: number;
+        let nextZigzag: ZigzagState;
+
+        if (zigzag === null || neighbors.length >= 3) {
+          // A ring/boundary anchor, or a branch point — this neighbor
+          // starts a brand new segment, axis taken from this bond's own
+          // current direction exactly as every bond was placed before
+          // zigzag alternation existed.
+          const axis = snapAngle(angleOf(curAtom, nbAtom));
+          angle = axis;
+          nextZigzag = { axis, deviation: 0, isSegmentStart: true };
+        } else if (zigzag.isSegmentStart) {
+          const original = angleOf(curAtom, nbAtom);
+          const plus = zigzag.axis + ZIGZAG_STEP;
+          const minus = zigzag.axis - ZIGZAG_STEP;
+          const deviation = Math.abs(angleDelta(plus, original)) <= Math.abs(angleDelta(minus, original)) ? ZIGZAG_STEP : -ZIGZAG_STEP;
+          angle = zigzag.axis + deviation;
+          nextZigzag = { axis: zigzag.axis, deviation, isSegmentStart: false };
+        } else {
+          // Strict alternation - flip the previous bond's deviation,
+          // no comparison against the original drawing here at all.
+          const deviation = -zigzag.deviation;
+          angle = zigzag.axis + deviation;
+          nextZigzag = { axis: zigzag.axis, deviation, isSegmentStart: false };
+        }
+
         const p = polar(curAtom.x, curAtom.y, BOND_LEN, angle);
         atoms[nb] = { ...nbAtom, x: p.x, y: p.y };
-        queue.push(nb);
+        queue.push({ id: nb, zigzag: nextZigzag });
       }
     }
 

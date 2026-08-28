@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
-  addAtom, addBond, addHapticBond, deleteAtom, emptyMolecule, extractFragment,
+  addAtom, addBond, addHapticBond, cleanUpAtoms, deleteAtom, emptyMolecule, extractFragment,
   findHapticBond, insertMolecule, resolveHapticSelection, stripExplicitHydrogens, subMolecule,
 } from "./molecule";
 import type { Molecule } from "../types/chemistry";
+import { BOND_LEN } from "./constants";
 
 /** A minimal ferrocene-shaped skeleton: an Fe atom, a 5-membered ring of
  * carbons (bonded to each other, no H's drawn), and one haptic bond
@@ -140,5 +141,186 @@ describe("insertMolecule with dative bonds and haptic bonds", () => {
     const incoming = ironCpSandwichHalf();
     const { mol } = insertMolecule(base, incoming, 200, 0);
     expect(Object.keys(mol.hapticBonds)).toHaveLength(2);
+  });
+});
+
+function bondAngleDeg(mol: Molecule, aId: string, bId: string): number {
+  const a = mol.atoms[aId];
+  const b = mol.atoms[bId];
+  return Math.round(((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI) * 100) / 100;
+}
+
+function bondLen(mol: Molecule, aId: string, bId: string): number {
+  const a = mol.atoms[aId];
+  const b = mol.atoms[bId];
+  return Math.round(Math.hypot(b.x - a.x, b.y - a.y) * 100) / 100;
+}
+
+/** A signed difference between two angles in degrees, wrapped to (-180, 180]
+ * - avoids the usual near-360°-vs-near-0° false positive a plain subtraction
+ * would give. */
+function angleDiffDeg(a: number, b: number): number {
+  let d = a - b;
+  while (d > 180) d -= 360;
+  while (d <= -180) d += 360;
+  return Math.round(d * 100) / 100;
+}
+
+describe("cleanUpAtoms", () => {
+  test("straightens a wobbly open chain into a proper alternating-60° zigzag", () => {
+    let mol = emptyMolecule();
+    // Deliberately NOT already a clean zigzag - each bond points in an
+    // arbitrary, inconsistent direction.
+    const pts = [
+      { x: 0, y: 0 }, { x: 40, y: 5 }, { x: 75, y: 30 },
+      { x: 120, y: 20 }, { x: 150, y: 55 }, { x: 200, y: 40 },
+    ];
+    const ids = pts.map((_, i) => `c${i}`);
+    pts.forEach((p, i) => { mol = addAtom(mol, ids[i], p, "C"); });
+    for (let i = 0; i < ids.length - 1; i++) mol = addBond(mol, `b${i}`, ids[i], ids[i + 1]);
+
+    const cleaned = cleanUpAtoms(mol, ids);
+
+    // Every bond is exactly the standard length.
+    for (let i = 0; i < ids.length - 1; i++) {
+      expect(bondLen(cleaned, ids[i], ids[i + 1])).toBe(BOND_LEN);
+    }
+    // The very first transition (bond0 -> bond1) is the one free choice
+    // that picks which side the zigzag starts on - it's ±30°, not a
+    // forced ±60° (see ZigzagState's isSegmentStart doc comment in
+    // cleanUpAtoms). Every transition after that is strictly forced by
+    // alternation, which is the actual "perfect zigzag" guarantee this
+    // test is after.
+    const angles = ids.slice(0, -1).map((id, i) => bondAngleDeg(cleaned, id, ids[i + 1]));
+    expect(Math.abs(angleDiffDeg(angles[1], angles[0]))).toBe(30);
+    for (let i = 2; i < angles.length; i++) {
+      expect(Math.abs(angleDiffDeg(angles[i], angles[i - 1]))).toBe(60);
+    }
+  });
+
+  test("preserves a chain's original up/down zigzag orientation instead of flipping it", () => {
+    let mol = emptyMolecule();
+    // Already roughly zigzagging DOWN first (second bond trends negative-y
+    // relative to the first) - cleanup should keep that sense, not flip to
+    // trending up first.
+    const pts = [{ x: 0, y: 0 }, { x: 36, y: 3 }, { x: 70, y: -20 }, { x: 108, y: -15 }];
+    const ids = pts.map((_, i) => `c${i}`);
+    pts.forEach((p, i) => { mol = addAtom(mol, ids[i], p, "C"); });
+    for (let i = 0; i < ids.length - 1; i++) mol = addBond(mol, `b${i}`, ids[i], ids[i + 1]);
+
+    const cleaned = cleanUpAtoms(mol, ids);
+    const angle1 = bondAngleDeg(cleaned, ids[1], ids[2]);
+    // The original second bond trends downward (toward negative y, i.e. a
+    // negative angle in screen coordinates) relative to the first - the
+    // cleaned-up version should keep that sense.
+    expect(angle1).toBeLessThan(0);
+  });
+
+  test("a branch point gives each of its arms its own independent zigzag", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "hub", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 40, y: -5 }, "C");
+    mol = addAtom(mol, "a2", { x: 78, y: 10 }, "C");
+    mol = addAtom(mol, "a3", { x: 122, y: 2 }, "C");
+    mol = addAtom(mol, "b1", { x: -35, y: 20 }, "C");
+    mol = addAtom(mol, "b2", { x: -70, y: 5 }, "C");
+    mol = addAtom(mol, "b3", { x: -112, y: 18 }, "C");
+    mol = addAtom(mol, "c1", { x: 5, y: -42 }, "C");
+    mol = addBond(mol, "hb1", "hub", "a1");
+    mol = addBond(mol, "hb2", "a1", "a2");
+    mol = addBond(mol, "hb2b", "a2", "a3");
+    mol = addBond(mol, "hb3", "hub", "b1");
+    mol = addBond(mol, "hb4", "b1", "b2");
+    mol = addBond(mol, "hb4b", "b2", "b3");
+    mol = addBond(mol, "hb5", "hub", "c1");
+    const ids = ["hub", "a1", "a2", "a3", "b1", "b2", "b3", "c1"];
+
+    const cleaned = cleanUpAtoms(mol, ids);
+
+    for (const [x, y] of [
+      ["hub", "a1"], ["a1", "a2"], ["a2", "a3"],
+      ["hub", "b1"], ["b1", "b2"], ["b2", "b3"],
+      ["hub", "c1"],
+    ]) {
+      expect(bondLen(cleaned, x, y)).toBe(BOND_LEN);
+    }
+    // Within each arm, the bond straight off the hub (bond 0) to the next
+    // one (bond 1) is that arm's own free ±30° pick; the bond after that
+    // (bond 2) is forced by alternation, so THAT transition is where the
+    // "each arm is its own proper zigzag" guarantee actually shows up.
+    const hubA1 = bondAngleDeg(cleaned, "hub", "a1");
+    const a1A2 = bondAngleDeg(cleaned, "a1", "a2");
+    const a2A3 = bondAngleDeg(cleaned, "a2", "a3");
+    expect(Math.abs(angleDiffDeg(a1A2, hubA1))).toBe(30);
+    expect(Math.abs(angleDiffDeg(a2A3, a1A2))).toBe(60);
+
+    const hubB1 = bondAngleDeg(cleaned, "hub", "b1");
+    const b1B2 = bondAngleDeg(cleaned, "b1", "b2");
+    const b2B3 = bondAngleDeg(cleaned, "b2", "b3");
+    expect(Math.abs(angleDiffDeg(b1B2, hubB1))).toBe(30);
+    expect(Math.abs(angleDiffDeg(b2B3, b1B2))).toBe(60);
+  });
+
+  test("a chain hanging off a ring zigzags without moving the ring or its attachment point", () => {
+    let mol = emptyMolecule();
+    // A hexagon, already regular, plus a wobbly 4-atom chain off one vertex.
+    const ringIds = ["r0", "r1", "r2", "r3", "r4", "r5"];
+    const n = 6;
+    const r = BOND_LEN / (2 * Math.sin(Math.PI / n));
+    ringIds.forEach((id, i) => {
+      const a = (i / n) * 2 * Math.PI;
+      mol = addAtom(mol, id, { x: r * Math.cos(a), y: r * Math.sin(a) }, "C");
+    });
+    for (let i = 0; i < n; i++) mol = addBond(mol, `rb${i}`, ringIds[i], ringIds[(i + 1) % n]);
+
+    const attachPoint = { ...mol.atoms["r0"] };
+    const s1Pos = { x: attachPoint.x + 50, y: attachPoint.y + 3 };
+    mol = addAtom(mol, "s1", s1Pos, "C");
+    mol = addAtom(mol, "s2", { x: attachPoint.x + 85, y: attachPoint.y + 30 }, "C");
+    mol = addAtom(mol, "s3", { x: attachPoint.x + 130, y: attachPoint.y + 20 }, "C");
+    mol = addAtom(mol, "s4", { x: attachPoint.x + 172, y: attachPoint.y + 38 }, "C");
+    mol = addBond(mol, "sb0", "r0", "s1");
+    mol = addBond(mol, "sb1", "s1", "s2");
+    mol = addBond(mol, "sb2", "s2", "s3");
+    mol = addBond(mol, "sb3", "s3", "s4");
+
+    // Clean up only the chain substituent. s1 is a boundary atom here
+    // (bonded to r0, which is outside the given ids) — same treatment as
+    // a ring atom bonded to something outside the selection: it's kept
+    // exactly where it was instead of being pulled into the zigzag, and
+    // the chain builds outward from it.
+    const cleaned = cleanUpAtoms(mol, ["s1", "s2", "s3", "s4"]);
+
+    // Neither the ring nor the attachment point moved.
+    expect(cleaned.atoms["r0"].x).toBeCloseTo(attachPoint.x, 6);
+    expect(cleaned.atoms["r0"].y).toBeCloseTo(attachPoint.y, 6);
+    expect(cleaned.atoms["s1"].x).toBeCloseTo(s1Pos.x, 6);
+    expect(cleaned.atoms["s1"].y).toBeCloseTo(s1Pos.y, 6);
+
+    // Every bond among the given atoms is normalized...
+    expect(bondLen(cleaned, "s1", "s2")).toBe(BOND_LEN);
+    expect(bondLen(cleaned, "s2", "s3")).toBe(BOND_LEN);
+    expect(bondLen(cleaned, "s3", "s4")).toBe(BOND_LEN);
+    // ...and s1-s2-s3-s4 zigzags exactly like a freestanding chain would:
+    // s1-s2 establishes the segment's axis (s1 is the fixed anchor, so
+    // this bond isn't part of the alternation itself), s2-s3 is the one
+    // free ±30° pick, and s3-s4 is forced to alternate 60° from it.
+    const bond1 = bondAngleDeg(cleaned, "s1", "s2");
+    const bond2 = bondAngleDeg(cleaned, "s2", "s3");
+    const bond3 = bondAngleDeg(cleaned, "s3", "s4");
+    expect(Math.abs(angleDiffDeg(bond2, bond1))).toBe(30);
+    expect(Math.abs(angleDiffDeg(bond3, bond2))).toBe(60);
+  });
+
+  test("a single bond just normalizes length and snaps to the nearest 30°, no alternation to speak of", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "b", { x: 50, y: 8 }, "C");
+    mol = addBond(mol, "bd", "a", "b");
+
+    const cleaned = cleanUpAtoms(mol, ["a", "b"]);
+    expect(bondLen(cleaned, "a", "b")).toBe(BOND_LEN);
+    // 50,8 is close to 0° - nearest 30° multiple is 0°.
+    expect(bondAngleDeg(cleaned, "a", "b")).toBe(0);
   });
 });
