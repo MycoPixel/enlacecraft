@@ -108,3 +108,24 @@ async function tryLocalFallback(
     }
   }
 }
+
+/**
+ * Renders whatever lookupIupacName can throw (a PubChemError, or some
+ * other Error) into user-facing text. Shared between every UI surface
+ * that calls lookupIupacName — IupacNameButton's dropdown and
+ * ContextMenu's "Get IUPAC name" shortcut, at least — so the wording,
+ * and which error code maps to which message, only has to be
+ * maintained in one place rather than re-duplicated per call site.
+ */
+export function iupacErrorMessage(err: unknown, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  if (err instanceof PubChemError) {
+    switch (err.code) {
+      case "EMPTY_QUERY": return t("iupac.errorEmpty");
+      case "NOT_FOUND":
+      case "NO_STRUCTURE": return t("iupac.errorNotFound");
+      case "NETWORK": return t("search.errorNetwork");
+      case "HTTP": return t("search.errorHttp", { status: String(err.params.status) });
+    }
+  }
+  return err instanceof Error ? err.message : "Lookup failed";
+}

@@ -23,7 +23,7 @@ const GROUPS: ShortcutGroup[] = [
     titleKey: "shortcuts.group.tools",
     items: [
       { keys: "V", descKey: "shortcuts.selectTool" },
-      { keys: "L", descKey: "shortcuts.lassoTool" },
+      { keys: "Q", descKey: "shortcuts.lassoTool" },
       { keys: "B / 1", descKey: "shortcuts.bondSingle" },
       { keys: "2", descKey: "shortcuts.bondDouble" },
       { keys: "3", descKey: "shortcuts.bondTriple" },
@@ -41,7 +41,7 @@ const GROUPS: ShortcutGroup[] = [
   {
     titleKey: "shortcuts.group.editing",
     items: [
-      { keys: "C, N, O, Cl...", descKey: "shortcuts.typeElement" },
+      { keys: "C, N, O, F, B (Br), L (Cl)...", descKey: "shortcuts.typeElement" },
       { keys: "Enter / middle-click / long-press", descKey: "shortcuts.labelEditor" },
       { keys: "Click a selected bond", descKey: "shortcuts.cycleBondOrder" },
       { keys: "Double-bond tool + click", descKey: "shortcuts.cycleDoubleBondSide" },

@@ -4,7 +4,7 @@ import type { Element } from "../types/chemistry";
 
 /**
  * Keyboard shortcuts (desktop):
- *   V = select   L = lasso select   B = bond   C = chain   R = ring   E = erase   W = wedge   H = show hydrogens
+ *   V = select   Q = lasso select   B = bond   C = chain   R = ring   E = erase   W = wedge   H = show hydrogens
  *   T = text box   A = reaction arrow   K = bracket ( [ {   + = "+" annotation
  *   1 / 2 / 3 = bond order   [ / ] = rotate selection left/right 30°
  *   Enter = open free-text label editor on a single targeted atom
@@ -23,6 +23,13 @@ import type { Element } from "../types/chemistry";
  * elsewhere (mouse-based ones like Shift+click, marquee-select, the
  * rotate handle — see useCanvasInteractions.ts). Keep both in sync when
  * changing a binding here.
+ *
+ * Lasso is on Q rather than L specifically so L can be a direct,
+ * immediate one-key shortcut for Cl (Chlorine) while hovering an atom —
+ * see elementBySymbol below for why B/L map to Br/Cl rather than their
+ * more literal-looking Boron/lasso-adjacent readings, and why this
+ * doesn't reduce to a two-letter "type the real symbol" scheme the way
+ * it might look like it should.
  */
 export function useKeyboardShortcuts() {
   const undo = useMoleculeStore((s) => s.undo);
@@ -51,15 +58,29 @@ export function useKeyboardShortcuts() {
     // Deliberately just this original set, not the full periodic table
     // (model/constants.ts's PERIODIC_TABLE) — every one of these single-
     // or double-letter symbols was chosen to never collide with a
-    // tool-shortcut letter (v/b/c/r/e/w/t/a/k) when typed while hovering
-    // an atom (an exact/prefix match here takes priority over the tool
-    // switch below). Most of the periodic table doesn't have that
-    // property (V is also Vanadium, K is also Potassium, ...), so
+    // tool-shortcut letter (v/c/r/e/w/t/a/k) when typed while hovering
+    // an atom, with one deliberate exception (b, below). Most of the
+    // periodic table doesn't have this non-collision property, so
     // widening this buffer would silently break existing tool shortcuts
     // for anyone with an atom under the cursor. The full table is still
     // reachable — the periodic table picker (Sidebar) and the free-text
     // label editor (Enter/double-click, model/atomLabelParser.ts) both
     // already support any element, no buffer-collision risk either way.
+    //
+    // b and l don't follow the "letter matches the symbol" pattern every
+    // other entry here does: b -> Br (not Boron) and l -> Cl, both
+    // direct one-key shortcuts rather than a "type c then l" two-letter
+    // sequence, since bromine and chlorine come up far more often when
+    // quickly editing a drawn structure than boron does. b is the one
+    // deliberate collision mentioned above — it's also the bond tool's
+    // shortcut — resolved the same way an atom/edit/selection target
+    // already takes priority over the tool switch below for every other
+    // entry here too: element wins whenever there's a target, tool wins
+    // when there isn't. l has no such collision (lasso moved to Q — see
+    // this file's top comment for why). Both fire on the very first
+    // keypress, same as every other entry: there's no b-then-r
+    // continuation to reach actual Boron or an actual two-letter "cl"
+    // sequence here, a single b or l is already a complete match.
     const elementBySymbol: Record<string, Element> = {
       c: "C",
       n: "N",
@@ -67,11 +88,10 @@ export function useKeyboardShortcuts() {
       s: "S",
       p: "P",
       f: "F",
-      cl: "Cl",
-      br: "Br",
       i: "I",
       h: "H",
-      b: "B",
+      b: "Br",
+      l: "Cl",
       si: "Si",
     };
 
@@ -166,7 +186,7 @@ export function useKeyboardShortcuts() {
       if (!(e.ctrlKey || e.metaKey)) {
         switch (e.key.toLowerCase()) {
           case "v": setTool("select"); break;
-          case "l": setTool("lasso"); break;
+          case "q": setTool("lasso"); break;
           case "h": toggleShowHydrogens(); break;
           case "b": setTool("bond-1"); break;
           case "c": setTool("chain"); break;

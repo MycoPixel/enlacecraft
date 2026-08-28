@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Trash2, Copy, ClipboardPaste, CopyPlus, Plus, Minus, Zap, Palette,
-  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit, Circle,
+  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit, Circle, Tag,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import type { BondOrder, BondStereo } from "../../types/chemistry";
-import { resolveHapticSelection, findHapticBond, findAromaticRingDisplay } from "../../model/molecule";
+import { resolveHapticSelection, findHapticBond, findAromaticRingDisplay, extractFragment } from "../../model/molecule";
 import { resolveEligibleRingForBond } from "../../engine/aromaticRings";
+import { hasIgnoredValenceAtoms, hasOrganometallicContent } from "../../model/valence";
+import { lookupIupacName, iupacErrorMessage } from "../../io/iupacLookup";
 
 interface ContextMenuProps {
   copySelection: () => boolean;
@@ -63,6 +65,8 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const toggleAromaticRingDisplay = useMoleculeStore((s) => s.toggleAromaticRingDisplay);
   const selectAll = useMoleculeStore((s) => s.selectAll);
   const resetView = useMoleculeStore((s) => s.resetView);
+  const language = useMoleculeStore((s) => s.language);
+  const setStatus = useMoleculeStore((s) => s.setStatus);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const [submenu, setSubmenu] = useState<"atom-highlight" | "bond-highlight" | "selection-highlight" | null>(null);
@@ -129,6 +133,46 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const doOrder = (order: BondOrder) => { if (bond) { setBondOrder(bond.id, order); close(); } };
   const doStereo = (stereo: BondStereo) => { if (bond) { setBondStereo(bond.id, stereo); close(); } };
   const doDative = () => { if (bond) { setBondDative(bond.id, !bond.dative); close(); } };
+
+  // Same targeting rule as IupacNameButton (the selection, or the whole
+  // canvas if nothing's selected) and the same two gates it uses to
+  // decide whether a lookup is even meaningful — see hasIgnoredValenceAtoms
+  // and hasOrganometallicContent's doc comments for why either one blocks
+  // naming outright. Unlike the topbar button, this doesn't show a
+  // disabled state with an explanatory tooltip for the blocked case; it
+  // just doesn't render the menu item at all, matching how everything
+  // else in this menu already prefers hiding an inapplicable action over
+  // showing it disabled (e.g. "Switch to Select tool" below).
+  const iupacTargetIds = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+  const canGetIupacName =
+    iupacTargetIds.length > 0 &&
+    !hasIgnoredValenceAtoms(extractFragment(molecule, iupacTargetIds)) &&
+    !hasOrganometallicContent(extractFragment(molecule, iupacTargetIds));
+
+  // "Just a shortcut" to the same lookup the topbar button runs — no
+  // dropdown of its own, since the menu is about to close anyway (an
+  // async lookup has no natural place to keep showing progress once
+  // that's happened). Feedback goes through the persistent status bar
+  // (setStatus) instead: a name it can find gets copied straight to the
+  // clipboard (there's nothing else to click once the menu's gone), an
+  // error gets the exact same message iupacErrorMessage would give the
+  // topbar button for the same failure.
+  const runIupacNameLookup = async () => {
+    if (iupacTargetIds.length === 0) return;
+    setStatus(t("iupac.loading"));
+    try {
+      const result = await lookupIupacName(molecule, iupacTargetIds, language);
+      try {
+        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(result.english);
+      } catch {
+        // Copying is a convenience on top of showing the name, not core
+        // to the feature - a failure here shouldn't hide the result.
+      }
+      setStatus(t("contextMenu.iupacCopied", { name: result.english }));
+    } catch (err) {
+      setStatus(iupacErrorMessage(err, t));
+    }
+  };
 
   // The actual menu content — built once, then rendered twice below: an
   // invisible first pass (so menuRef.offsetWidth/Height above are real
@@ -272,6 +316,11 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
           <button className="context-menu__item" onClick={() => { resetView(); close(); }}>
             <Maximize size={15} /> {t("contextMenu.zoomToFit")}
           </button>
+          {canGetIupacName && (
+            <button className="context-menu__item" onClick={() => { close(); void runIupacNameLookup(); }}>
+              <Tag size={15} /> {t("contextMenu.getIupacName")}
+            </button>
+          )}
           {tool !== "select" && (
             <button className="context-menu__item" onClick={() => { setTool("select"); close(); }}>
               <MousePointer2 size={15} /> {t("contextMenu.switchToSelect")}

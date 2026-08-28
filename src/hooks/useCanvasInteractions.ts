@@ -913,16 +913,33 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
    * what to show for it". */
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    // Guard on button === 2 specifically — some mobile browsers also
-    // dispatch a contextmenu event on a long-press (reported as button
-    // 0), which would otherwise collide with AtomView's own long-press
-    // handling (opens the label editor). Right mouse button is the only
-    // thing meant to open this menu.
-    if (e.button !== 2) return;
     const store = useMoleculeStore.getState();
     const pt = clientToWorld(e.clientX, e.clientY);
     const atomId = atomAt(store.molecule, pt);
     const bondId = atomId ? null : bondAt(store.molecule, pt);
+    // A genuine right-click (button === 2) always opens the menu. Some
+    // mobile/touchscreen browsers also dispatch a contextmenu event on a
+    // long-press, reported as button 0 — that's let through here too,
+    // but only for a long-press landing on a bond or empty canvas.
+    // Landing directly on an atom is deliberately excluded: AtomView's
+    // own long-press handling already claims that exact gesture there,
+    // to open the free-text label editor instead (see AtomView.tsx and
+    // ShortcutsOverlay.tsx's "middle-click / long-press" entry) — the
+    // existing rename gesture has first claim on a long-press-on-an-atom,
+    // so this menu only picks up the touch cases that gesture doesn't
+    // already cover.
+    //
+    // This still leaves genuine touch reliability gaps this doesn't try
+    // to solve: iOS Safari in particular has long been inconsistent
+    // about firing a native contextmenu event from a long-press on
+    // arbitrary (non-text/link/image) elements at all, so a bond or
+    // empty-canvas long-press may simply do nothing there rather than
+    // opening this menu. A fully reliable cross-platform version of this
+    // would need its own timer-based gesture detector, the same pattern
+    // AtomView already uses for its long-press rather than relying on
+    // the browser's native event — a bigger, separate change from this
+    // one.
+    if (e.button !== 2 && atomId) return;
     store.setContextMenu({ x: e.clientX, y: e.clientY, atomId, bondId });
   }, [clientToWorld]);
 

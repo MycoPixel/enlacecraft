@@ -3,8 +3,7 @@ import { Tag, Loader2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { extractFragment } from "../../model/molecule";
-import { PubChemError } from "../../io/pubchem";
-import { lookupIupacName } from "../../io/iupacLookup";
+import { lookupIupacName, iupacErrorMessage } from "../../io/iupacLookup";
 import { hasIgnoredValenceAtoms, hasOrganometallicContent } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 
@@ -60,19 +59,6 @@ export function IupacNameButton() {
   }, [molecule, selected]);
   const canRun = hasContent && !blockedByIgnoredValence && !blockedByOrganometallic;
 
-  const messageForError = (err: unknown): string => {
-    if (err instanceof PubChemError) {
-      switch (err.code) {
-        case "EMPTY_QUERY": return t("iupac.errorEmpty");
-        case "NOT_FOUND":
-        case "NO_STRUCTURE": return t("iupac.errorNotFound");
-        case "NETWORK": return t("search.errorNetwork");
-        case "HTTP": return t("search.errorHttp", { status: String(err.params.status) });
-      }
-    }
-    return err instanceof Error ? err.message : "Lookup failed";
-  };
-
   const runLookup = async () => {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     if (ids.length === 0) return;
@@ -81,7 +67,7 @@ export function IupacNameButton() {
       const result = await lookupIupacName(molecule, ids, language);
       setState({ phase: "result", ...result });
     } catch (err) {
-      setState({ phase: "error", message: messageForError(err) });
+      setState({ phase: "error", message: iupacErrorMessage(err, t) });
     }
   };
 
