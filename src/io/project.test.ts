@@ -1,6 +1,12 @@
+// @vitest-environment jsdom
+//
+// Needed because importProject() now sanitizes text-annotation html via
+// DOMPurify (see io/sanitizeHtml.ts), which requires a real DOM — see
+// cdxml.test.ts for the same override, for the same underlying reason.
 import { describe, expect, test } from "vitest";
 import { importProject, exportProject, ProjectParseError } from "./project";
 import { findConnectedFragments } from "../model/valence";
+import type { TextAnnotation } from "../types/chemistry";
 
 /**
  * Regression test for a real bug: a project file (or autosave snapshot)
@@ -69,6 +75,81 @@ describe("importProject migrates old saves missing hapticBonds", () => {
   test("still rejects genuinely malformed project files", () => {
     expect(() => importProject("not json")).toThrow(ProjectParseError);
     expect(() => importProject(JSON.stringify({ version: 2, tabs: [] }))).toThrow(ProjectParseError);
+  });
+});
+
+// Regression test for a real stored-XSS vulnerability: a text annotation's
+// `html` is rendered with a raw `div.innerHTML = annotation.html` write
+// (see TextAnnotationView.tsx). A hand-crafted or shared .enlacecraft file
+// could smuggle an executable payload through that field — importProject()
+// must sanitize it (see io/sanitizeHtml.ts) rather than passing it through
+// verbatim, for both the version-1 and version-2 file shapes.
+describe("importProject sanitizes text annotation html (stored-XSS regression)", () => {
+  test("strips a script/onerror payload from a version-2 file's text annotation", () => {
+    const malicious = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Tab 1",
+          molecule: { atoms: {}, bonds: {}, hapticBonds: {}, aromaticRingDisplays: {} },
+          annotations: {
+            ann1: {
+              id: "ann1",
+              kind: "text",
+              x: 0,
+              y: 0,
+              width: 100,
+              height: 20,
+              html: '<img src="x" onerror="alert(document.cookie)">still here',
+              fontSize: 14,
+            },
+          },
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const project = importProject(malicious);
+    const html = (project.tabs[0].annotations.ann1 as TextAnnotation).html;
+    expect(html).not.toContain("onerror");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("still here"); // legitimate text content survives
+  });
+
+  test("strips the same payload from a version-1 file's text annotation", () => {
+    const malicious = JSON.stringify({
+      version: 1,
+      molecule: { atoms: {}, bonds: {} },
+      annotations: {
+        ann1: { id: "ann1", kind: "text", x: 0, y: 0, width: 100, height: 20, html: '<script>alert(1)</script>', fontSize: 14 },
+      },
+      view: { scale: 1, tx: 0, ty: 0 },
+    });
+
+    const project = importProject(malicious);
+    expect((project.tabs[0].annotations.ann1 as TextAnnotation).html).not.toContain("<script");
+  });
+
+  test("leaves the toolbar's real output (bold/italic/sub/sup/font-size span) untouched", () => {
+    const html = '<b>bold</b> <sub>2</sub><span style="font-size: 18px">big</span>';
+    const clean = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Tab 1",
+          molecule: { atoms: {}, bonds: {}, hapticBonds: {}, aromaticRingDisplays: {} },
+          annotations: { ann1: { id: "ann1", kind: "text", x: 0, y: 0, width: 100, height: 20, html, fontSize: 14 } },
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const project = importProject(clean);
+    expect((project.tabs[0].annotations.ann1 as TextAnnotation).html).toBe(html);
   });
 });
 

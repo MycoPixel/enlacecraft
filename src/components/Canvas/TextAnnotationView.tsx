@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { Annotation, Molecule, TextAnnotation, Point } from "../../types/chemistry";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { sanitizeAnnotationHtml } from "../../io/sanitizeHtml";
 
 interface TextAnnotationViewProps {
   annotation: TextAnnotation;
@@ -40,10 +41,19 @@ export function TextAnnotationView({ annotation, selected, editing, viewScale }:
   // Keep the (uncontrolled, contentEditable) div's DOM content in sync with
   // the store — but only while this box isn't the one actively being typed
   // into, otherwise we'd blow away the caret position on every keystroke.
+  //
+  // sanitizeAnnotationHtml here is a defense-in-depth backstop, not the
+  // primary guard: annotation.html is already sanitized at every untrusted
+  // entry point (importProject, clipboard paste — see io/sanitizeHtml.ts's
+  // doc comment), but this is the actual innerHTML write those all exist
+  // to protect, so it re-sanitizes right before writing regardless of
+  // where the value came from. Cheap and idempotent on already-clean
+  // (typed-in-app) content.
   useEffect(() => {
     const div = divRef.current;
     if (!div || editing) return;
-    if (div.innerHTML !== annotation.html) div.innerHTML = annotation.html;
+    const safeHtml = sanitizeAnnotationHtml(annotation.html);
+    if (div.innerHTML !== safeHtml) div.innerHTML = safeHtml;
   }, [annotation.html, editing]);
 
   // Measure and persist the rendered size so the <foreignObject> and hit
@@ -66,6 +76,25 @@ export function TextAnnotationView({ annotation, selected, editing, viewScale }:
     if (!div) return;
     updateTextHtml(annotation.id, div.innerHTML);
   }, [annotation.id, updateTextHtml]);
+
+  // A native paste inserts the clipboard's HTML flavor straight into this
+  // live contentEditable *before* onInput ever runs — a raw `<img
+  // src=x onerror="...">` on the clipboard (e.g. copied from a malicious
+  // webpage) would fire its handler the instant it lands in the DOM,
+  // regardless of anything done afterward. Intercepting the paste itself,
+  // rather than only sanitizing on the way into the store, is what
+  // actually stops that: sanitize the HTML flavor (falling back to plain
+  // text when there isn't one) and insert only that.
+  const onPaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    if (html) {
+      document.execCommand("insertHTML", false, sanitizeAnnotationHtml(html));
+    } else {
+      document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+    }
+    onInput();
+  }, [onInput]);
 
   const beginEdit = useCallback(() => {
     const store = useMoleculeStore.getState();
@@ -190,6 +219,7 @@ export function TextAnnotationView({ annotation, selected, editing, viewScale }:
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
           onInput={onInput}
+          onPaste={onPaste}
           onBlur={onBlur}
           onKeyDown={onKeyDown}
           data-placeholder="Reaction conditions…"

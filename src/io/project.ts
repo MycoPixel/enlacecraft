@@ -1,5 +1,6 @@
 import type { Annotation, Molecule, ViewTransform } from "../types/chemistry";
 import { nextId } from "../model/id";
+import { sanitizeAnnotationsRecord } from "./sanitizeHtml";
 
 /**
  * The native "save project" format: unlike MOL/CDXML/SMILES (which only
@@ -63,6 +64,17 @@ function migrateMolecule(molecule: Molecule): Molecule {
   };
 }
 
+/**
+ * Parses a `.enlacecraft` file (or an autosave snapshot, which is the same
+ * shape — see io/autosave.ts). The file is untrusted input: it may have
+ * come from another machine, another person's Save, or a hand-edited/
+ * malicious source, not just this app's own last export. Every text
+ * annotation's `html` is run through sanitizeAnnotationHtml (see
+ * io/sanitizeHtml.ts) for exactly that reason — it's the one field in this
+ * format that ends up in a raw `div.innerHTML` write on render
+ * (components/Canvas/TextAnnotationView.tsx), so an unsanitized value here
+ * would be a stored-XSS vector via a shared project file.
+ */
 export function importProject(json: string): ProjectFile {
   let parsed: unknown;
   try {
@@ -82,7 +94,7 @@ export function importProject(json: string): ProjectFile {
       throw new ProjectParseError("Missing expected project fields");
     }
     const id = `tab-${nextId()}`;
-    return { version: 2, activeTabId: id, tabs: [{ id, title: "Tab 1", molecule: migrateMolecule(v1.molecule), annotations: v1.annotations, view: v1.view }] };
+    return { version: 2, activeTabId: id, tabs: [{ id, title: "Tab 1", molecule: migrateMolecule(v1.molecule), annotations: sanitizeAnnotationsRecord(v1.annotations), view: v1.view }] };
   }
 
   if (version === 2) {
@@ -95,7 +107,14 @@ export function importProject(json: string): ProjectFile {
         throw new ProjectParseError("Missing expected project fields");
       }
     }
-    return { ...v2, tabs: v2.tabs.map((tab) => ({ ...tab, molecule: migrateMolecule(tab.molecule) })) };
+    return {
+      ...v2,
+      tabs: v2.tabs.map((tab) => ({
+        ...tab,
+        molecule: migrateMolecule(tab.molecule),
+        annotations: sanitizeAnnotationsRecord(tab.annotations),
+      })),
+    };
   }
 
   throw new ProjectParseError(`Unrecognized project file version: ${String(version)}`);
