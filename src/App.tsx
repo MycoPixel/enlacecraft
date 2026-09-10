@@ -4,6 +4,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useClipboard } from "./hooks/useClipboard";
 import { useIsMobile } from "./hooks/useIsMobile";
 import { useAutosave } from "./hooks/useAutosave";
+import { useVersionHistory } from "./hooks/useVersionHistory";
 import { useFileImport } from "./hooks/useFileImport";
 import { useT } from "./i18n/useT";
 import { TopBar } from "./components/TopBar/TopBar";
@@ -14,6 +15,7 @@ import { LiveIupacPanel } from "./components/Canvas/LiveIupacPanel";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { MobileToolbar } from "./components/MobileToolbar/MobileToolbar";
 import { ShortcutsOverlay } from "./components/common/ShortcutsOverlay";
+import { VersionHistoryPanel } from "./components/TopBar/VersionHistoryPanel";
 import { OnboardingOverlay } from "./components/common/OnboardingOverlay";
 import { ContextMenu } from "./components/ContextMenu/ContextMenu";
 
@@ -37,6 +39,7 @@ export default function App() {
   const isMobile = useIsMobile();
   const svgRef = useRef<SVGSVGElement>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const t = useT();
   const importFileContent = useFileImport();
   // Tracks nesting depth of dragenter/dragleave rather than a plain
@@ -84,6 +87,7 @@ export default function App() {
   useKeyboardShortcuts();
   const { copySelection, pasteFromClipboard } = useClipboard(svgRef);
   useAutosave();
+  useVersionHistory(svgRef);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -163,7 +167,7 @@ export default function App() {
 
   return (
     <div className="app" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-      <TopBar svgRef={svgRef} onOpenShortcuts={() => setShortcutsOpen(true)} />
+      <TopBar svgRef={svgRef} onOpenShortcuts={() => setShortcutsOpen(true)} onOpenVersionHistory={() => setVersionHistoryOpen(true)} />
       <TabBar />
       <div className="body">
         {!isMobile && <Sidebar />}
@@ -198,6 +202,7 @@ export default function App() {
         onClose={() => setShortcutsOpen(false)}
         onReplayOnboarding={() => setOnboardingOpen(true)}
       />
+      <VersionHistoryPanel open={versionHistoryOpen} onClose={() => setVersionHistoryOpen(false)} svgRef={svgRef} />
       <OnboardingOverlay
         open={onboardingOpen}
         onClose={() => { setOnboardingOpen(false); markOnboardingSeen(); }}

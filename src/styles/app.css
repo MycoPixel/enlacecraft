@@ -483,7 +483,19 @@
 
 .confirm-popover {
   position: fixed;
-  z-index: 60;
+  /* Was 60 — enough to clear normal page chrome, which was the only
+   * context this existed in originally (TabBar's close-tab confirm,
+   * ClearDrawingButton). Now that VersionHistoryPanel triggers one from
+   * *inside* a z-index:100 modal overlay, 60 put it visually behind that
+   * overlay — same stacking-context level, so the explicit z-index alone
+   * decided paint order regardless of DOM/portal order, and the popover
+   * lost. A confirmation should always be able to sit on top of whatever
+   * triggered it, wherever that is, so this is set above every other
+   * z-index in the app (highest otherwise is 1100) rather than tuned to
+   * clear just today's known callers — the next thing that opens a
+   * ConfirmPopover from inside some other high-z-index context shouldn't
+   * have to rediscover this same bug. */
+  z-index: 1200;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 10px;
@@ -3392,4 +3404,180 @@
 
 .shortcuts-dialog__replay:hover {
   text-decoration: underline;
+}
+
+/*
+ * Printing the drawing itself (the export menu's "Print / Export PDF")
+ * never reaches this stylesheet at all — it writes a self-contained
+ * document into its own hidden iframe (see io/printExport.ts) with its
+ * own inline styles, precisely so the print output is just the molecule,
+ * not the app chrome around it. This rule only covers the *other* way a
+ * print can be triggered: the OS/browser's own Ctrl+P / Cmd+P shortcut,
+ * which can't be intercepted or redirected from JS, and which — without
+ * this — would otherwise print the sidebar, top bar, and whatever panel
+ * happens to be open, laid out for a screen, not a page.
+ */
+@media print {
+  .app {
+    display: none !important;
+  }
+  /* html[lang] mirrors App.tsx's own documentElement.setAttribute("lang", language)
+   * — the same attribute ErrorBoundary.tsx reads to pick copy outside the
+   * normal i18n hook's reach, for the same underlying reason (this text
+   * lives outside the React tree too). */
+  body::after {
+    content: "Use the export menu's \"Print / Export PDF\" option (in the app) to print a drawing.";
+    display: block;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    color: #444;
+    padding: 24px;
+  }
+  html[lang="es"] body::after {
+    content: "Usa la opción \"Imprimir / Exportar PDF\" del menú de exportar (dentro de la app) para imprimir un dibujo.";
+  }
+}
+
+.version-history-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+
+.version-history-dialog {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: min(460px, 100%);
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.version-history-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.version-history-dialog__header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.version-history-dialog__close {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+}
+
+.version-history-dialog__close:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.version-history-dialog__body {
+  overflow-y: auto;
+  padding: 12px 16px 16px;
+}
+
+.version-history-empty {
+  margin: 20px 8px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.version-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.version-history-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+}
+
+.version-history-row__thumb {
+  width: 56px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: #fff;
+  object-fit: contain;
+}
+
+.version-history-row__thumb--empty {
+  background: var(--bg);
+}
+
+.version-history-row__time {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.version-history-row__restore {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.version-history-row__restore:hover {
+  opacity: 0.85;
+}
+
+.version-history-row__restore:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.version-history-row__delete {
+  display: flex;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.version-history-row__delete:hover {
+  background: var(--danger);
+  color: #fff;
 }

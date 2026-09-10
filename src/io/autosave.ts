@@ -1,9 +1,7 @@
 import { exportProject, importProject, ProjectParseError, type ProjectTab } from "./project";
+import { openLocalDb, SNAPSHOTS_STORE } from "./localDb";
 
-const DB_NAME = "enlacecraft-autosave";
-const STORE_NAME = "snapshots";
 const RECORD_KEY = "current";
-const DB_VERSION = 1;
 
 /**
  * Silent, continuous backup of the whole session (every tab, exactly the
@@ -24,29 +22,19 @@ const DB_VERSION = 1;
  * error or interrupting anything — the explicit "Save project" export
  * remains the durable, user-controlled save; this is only a safety net on
  * top of it.
+ *
+ * This is the *single-slot* safety net — always just the most recent
+ * state, overwritten every time. For browsing/restoring further back than
+ * that, see io/versionHistory.ts, a separate, coarser-grained layer on top
+ * of the same database (see io/localDb.ts for why they share one opener).
  */
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (!("indexedDB" in window)) {
-      reject(new Error("IndexedDB unavailable"));
-      return;
-    }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(STORE_NAME);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
 export async function saveAutosaveSnapshot(data: { activeTabId: string; tabs: ProjectTab[] }): Promise<void> {
   try {
-    const db = await openDB();
+    const db = await openLocalDb();
     const json = exportProject(data);
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).put(json, RECORD_KEY);
+      const tx = db.transaction(SNAPSHOTS_STORE, "readwrite");
+      tx.objectStore(SNAPSHOTS_STORE).put(json, RECORD_KEY);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -58,10 +46,10 @@ export async function saveAutosaveSnapshot(data: { activeTabId: string; tabs: Pr
 
 export async function loadAutosaveSnapshot(): Promise<{ activeTabId: string; tabs: ProjectTab[] } | null> {
   try {
-    const db = await openDB();
+    const db = await openLocalDb();
     const json = await new Promise<string | undefined>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readonly");
-      const req = tx.objectStore(STORE_NAME).get(RECORD_KEY);
+      const tx = db.transaction(SNAPSHOTS_STORE, "readonly");
+      const req = tx.objectStore(SNAPSHOTS_STORE).get(RECORD_KEY);
       req.onsuccess = () => resolve(req.result as string | undefined);
       req.onerror = () => reject(req.error);
     });

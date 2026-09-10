@@ -17,7 +17,7 @@ const PIXELS_PER_UNIT = 8;
  * past browser canvas size limits. */
 const MAX_RASTER_DIMENSION = 8000;
 
-interface ExportBounds {
+export interface ExportBounds {
   x: number;
   y: number;
   width: number;
@@ -119,7 +119,7 @@ function inlineFonts(liveSvg: SVGSVGElement, clone: SVGSVGElement): void {
  *
  * `backgroundColor` of `null` means transparent (no background rect added).
  */
-function buildExportClone(
+export function buildExportClone(
   svg: SVGSVGElement,
   backgroundColor: string | null
 ): { clone: SVGSVGElement; bounds: ExportBounds } {
@@ -359,17 +359,30 @@ export function exportSelectionPNGBlob(
   });
 }
 
-export function exportPNG(
+/**
+ * Core rasterization shared by exportPNG (downloads the result) and
+ * exportPNGBlob (hands back the Blob instead — used for the version-history
+ * panel's checkpoint thumbnails, which obviously shouldn't trigger a file
+ * download every time one's generated). See exportPNG's original doc
+ * comments below for why the foreignObject-stripping/two-clone approach is
+ * necessary; this function is exactly that logic, just returning instead of
+ * downloading.
+ *
+ * `maxDimension` overrides MAX_RASTER_DIMENSION's ceiling — the version-
+ * history thumbnail call site passes a much smaller one, since a checkpoint
+ * preview has no reason to rasterize at full export resolution.
+ */
+function renderPNGBlob(
   svg: SVGSVGElement,
   backgroundColor: string | null,
-  filename = "molecule.png",
-  pixelsPerUnit = PIXELS_PER_UNIT
-): void {
+  pixelsPerUnit: number,
+  maxDimension = MAX_RASTER_DIMENSION
+): Promise<Blob | null> {
   const { clone: measureSvg, bounds } = buildExportClone(svg, backgroundColor);
 
   const rawWidth = Math.max(1, Math.round(bounds.width * pixelsPerUnit));
   const rawHeight = Math.max(1, Math.round(bounds.height * pixelsPerUnit));
-  const scaleDown = Math.min(1, MAX_RASTER_DIMENSION / rawWidth, MAX_RASTER_DIMENSION / rawHeight);
+  const scaleDown = Math.min(1, maxDimension / rawWidth, maxDimension / rawHeight);
   const finalWidth = Math.max(1, Math.round(rawWidth * scaleDown));
   const finalHeight = Math.max(1, Math.round(rawHeight * scaleDown));
 
@@ -414,21 +427,49 @@ export function exportPNG(
     measureSvg.remove();
   };
 
-  img.onload = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = finalWidth;
-    canvas.height = finalHeight;
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    // See drawAnnotationText's doc comment: font size (unlike position) needs
-    // to be scaled up by measureSvg's magnification ratio to match.
-    const textScaleFactor = finalWidth / bounds.width;
-    drawAnnotationText(ctx, measureSvg, measureSvg.getBoundingClientRect(), textScaleFactor);
-    canvas.toBlob((pngBlob) => {
-      if (pngBlob) downloadBlob(pngBlob, filename);
+  return new Promise((resolve) => {
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = finalWidth;
+      canvas.height = finalHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      // See drawAnnotationText's doc comment: font size (unlike position) needs
+      // to be scaled up by measureSvg's magnification ratio to match.
+      const textScaleFactor = finalWidth / bounds.width;
+      drawAnnotationText(ctx, measureSvg, measureSvg.getBoundingClientRect(), textScaleFactor);
+      canvas.toBlob((pngBlob) => {
+        cleanup();
+        resolve(pngBlob);
+      });
+    };
+    img.onerror = () => {
       cleanup();
-    });
-  };
-  img.onerror = cleanup;
-  img.src = url;
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
+export function exportPNG(
+  svg: SVGSVGElement,
+  backgroundColor: string | null,
+  filename = "molecule.png",
+  pixelsPerUnit = PIXELS_PER_UNIT
+): void {
+  renderPNGBlob(svg, backgroundColor, pixelsPerUnit).then((blob) => {
+    if (blob) downloadBlob(blob, filename);
+  });
+}
+
+/** Same rasterization as exportPNG, without the download — the caller gets
+ * the Blob directly. See renderPNGBlob's doc comment for why this exists
+ * (checkpoint thumbnails). */
+export function exportPNGBlob(
+  svg: SVGSVGElement,
+  backgroundColor: string | null,
+  pixelsPerUnit = PIXELS_PER_UNIT,
+  maxDimension = MAX_RASTER_DIMENSION
+): Promise<Blob | null> {
+  return renderPNGBlob(svg, backgroundColor, pixelsPerUnit, maxDimension);
 }

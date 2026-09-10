@@ -9,6 +9,7 @@ export type ExportBackground = "transparent" | "white" | "theme";
 interface ExportMenuProps {
   onPNG: (background: ExportBackground) => void;
   onSVG: (background: ExportBackground) => void;
+  onPrint: (background: ExportBackground) => void;
   onMOL: () => void;
   onCDXML: () => void;
   onSmiles: () => void;
@@ -26,7 +27,7 @@ interface ExportMenuProps {
  * button's own bounding rect sidesteps that entirely — it's never inside any
  * scrolling/clipping ancestor.
  */
-export function ExportMenu({ onPNG, onSVG, onMOL, onCDXML, onSmiles, onSaveProject }: ExportMenuProps) {
+export function ExportMenu({ onPNG, onSVG, onPrint, onMOL, onCDXML, onSmiles, onSaveProject }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [background, setBackground] = useState<ExportBackground>("transparent");
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
@@ -90,6 +91,7 @@ export function ExportMenu({ onPNG, onSVG, onMOL, onCDXML, onSmiles, onSaveProje
             </div>
             <button className="export-dropdown__item" onClick={() => { onPNG(background); setOpen(false); }}>{t("tool.exportPNG")}</button>
             <button className="export-dropdown__item" onClick={() => { onSVG(background); setOpen(false); }}>{t("tool.exportSVG")}</button>
+            <button className="export-dropdown__item" onClick={() => { onPrint(background); setOpen(false); }}>{t("tool.exportPrintPDF")}</button>
             <div className="export-dropdown__divider" />
             <button className="export-dropdown__item" onClick={() => { onMOL(); setOpen(false); }}>{t("tool.exportMOL")}</button>
             <button className="export-dropdown__item" onClick={() => { onCDXML(); setOpen(false); }}>{t("tool.exportCDXML")}</button>

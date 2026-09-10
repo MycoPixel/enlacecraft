@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Languages, AlertTriangle, HelpCircle, Box } from "lucide-react";
+import { Undo2, Redo2, Upload, Sun, Moon, Languages, AlertTriangle, HelpCircle, Box, History } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
@@ -15,6 +15,7 @@ import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
 import { hasExplicitHydrogens } from "../../model/molecule";
 import { exportPNG, exportSVG } from "../../io/exportImage";
+import { printMolecule } from "../../io/printExport";
 import { exportMol } from "../../io/molfile";
 import { exportCdxml } from "../../io/cdxml";
 import { exportSmiles } from "../../io/smiles";
@@ -26,9 +27,10 @@ import { useT } from "../../i18n/useT";
 interface TopBarProps {
   svgRef: React.RefObject<SVGSVGElement | null>;
   onOpenShortcuts: () => void;
+  onOpenVersionHistory: () => void;
 }
 
-export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
+export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBarProps) {
   const molecule = useMoleculeStore((s) => s.molecule);
   const theme = useMoleculeStore((s) => s.theme);
   const toggleTheme = useMoleculeStore((s) => s.toggleTheme);
@@ -50,6 +52,8 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const toggleMonochromeAtoms = useMoleculeStore((s) => s.toggleMonochromeAtoms);
   const show3DView = useMoleculeStore((s) => s.show3DView);
   const toggle3DView = useMoleculeStore((s) => s.toggle3DView);
+  const tabs = useMoleculeStore((s) => s.tabs);
+  const activeTabId = useMoleculeStore((s) => s.activeTabId);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = useT();
@@ -107,6 +111,15 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
   const doExportSVG = (bg: ExportBackground) => {
     if (!svgRef.current) return;
     withDeselected(() => exportSVG(svgRef.current!, resolveBackground(bg)));
+  };
+  const doExportPrint = (bg: ExportBackground) => {
+    if (!svgRef.current) return;
+    // "transparent" has no printed-page equivalent (paper has no
+    // transparency) — falls through to resolveBackground's own
+    // null-background handling, which prints on plain white the same as
+    // an explicit "white" choice.
+    const title = tabs.find((tb) => tb.id === activeTabId)?.title ?? "";
+    withDeselected(() => printMolecule(svgRef.current!, resolveBackground(bg), title));
   };
   const doExportMol = () => downloadBlob(new Blob([exportMol(molecule)], { type: "chemical/x-mdl-molfile" }), "molecule.mol");
   const doExportCdxml = () => downloadBlob(new Blob([exportCdxml(molecule)], { type: "chemical/x-cdxml" }), "molecule.cdxml");
@@ -204,7 +217,10 @@ export function TopBar({ svgRef, onOpenShortcuts }: TopBarProps) {
         <ToolButton title={t("tool.import")} onClick={doOpen}>
           <Upload size={18} />
         </ToolButton>
-        <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
+        <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onPrint={doExportPrint} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
+        <ToolButton title={t("tool.versionHistory")} onClick={onOpenVersionHistory}>
+          <History size={18} />
+        </ToolButton>
         <MoleculeInfoButton />
         <ToolButton
           title={blockedByIgnoredValence ? t("tool.view3dBlocked") : t("tool.view3d")}
