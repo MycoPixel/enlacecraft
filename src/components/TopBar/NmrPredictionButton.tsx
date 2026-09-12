@@ -14,6 +14,7 @@ import {
   equivalenceGroupLabel,
   type NmrIsomerResult,
 } from "../../io/nmrPredict";
+import { translateNmrWarning } from "../../io/nmrWarnings";
 import { hasIgnoredValenceAtoms, hasOrganometallicContent, totalHydrogenCount } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
@@ -72,6 +73,7 @@ type PredictState =
  */
 export function NmrPredictionButton() {
   const t = useT();
+  const language = useMoleculeStore((s) => s.language);
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
   const [state, setState] = useState<PredictState | null>(null);
@@ -233,7 +235,7 @@ export function NmrPredictionButton() {
             <div className="nmr-result">
               {state.warnings.map((warning, i) => (
                 <p key={i} className="nmr-result__warning">
-                  {warning}
+                  {translateNmrWarning(warning, language)}
                 </p>
               ))}
 

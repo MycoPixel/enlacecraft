@@ -210,6 +210,16 @@ function applyChemistryRules(input: string): string {
   // fenil, chloro -> cloro), so these run unconditionally before the
   // suffix rules above get a chance to touch what's left.
   s = s.replace(/cyclo/gi, "ciclo").replace(/ph/gi, "f").replace(/th/gi, "t").replace(/ch/gi, "c");
+  // Grammatical, not chemical: PubChem's name for a multi-component query
+  // (e.g. selecting two disconnected molecules and looking up one combined
+  // name — see lookupIupacName's doc comment) joins the pieces with the
+  // English word "and". Nothing above touches connective words, only
+  // chemical vocabulary, so without this "and" passed straight through
+  // into the "Spanish" result untranslated. Word-boundary-anchored so it
+  // can't misfire inside a chemical name that happens to contain "and" as
+  // a substring — "androstane" has no word boundary between the "d" and
+  // the "r", so \band\b doesn't match there.
+  s = s.replace(/\band\b/gi, "y");
   for (const [re, replacement] of SUFFIX_SUBS) s = s.replace(re, replacement);
   return s;
 }
@@ -235,23 +245,38 @@ function applyChemistryRules(input: string): string {
 export function approximateSpanishIupacName(englishName: string): string {
   const trimmed = englishName.trim();
 
-  // Simple esters: "<alkyl>yl <acyl>ate" -> "<acyl>ato de <alkyl>ilo"
-  // (e.g. "methyl acetate" -> "acetato de metilo", "ethyl butanoate" ->
-  // "butanoato de etilo" — note the stem doesn't always end in "o" before
-  // "ate": acetate = acet+ate, butanoate = butano+ate).
-  const esterMatch = /^(\S*yl)\s+(\S+)ate$/i.exec(trimmed);
-  if (esterMatch) {
-    const alkyl = applyChemistryRules(esterMatch[1]); // e.g. "methyl" -> "metil"
-    const acylStem = applyChemistryRules(esterMatch[2]);
-    return `${acylStem}ato de ${alkyl}o`;
-  }
+  // Multi-component names ("ethanol and propan-1-ol", from looking up two
+  // disconnected structures at once — see lookupIupacName's doc comment)
+  // skip the ester/acid pattern checks below entirely: both those regexes
+  // are anchored across the *whole* trimmed string, so on a multi-component
+  // name they can span right across the "and" and misfire — e.g. "ethanol
+  // and acetic acid" ends in " acid", which the acid regex would otherwise
+  // match with its entire "ethanol and acetic" prefix treated as if that
+  // were a single stem. Falling through to the plain applyChemistryRules
+  // case below (which now translates "and" -> "y" — see that function)
+  // isn't a perfect per-component translation, but it's never wrong in the
+  // way a misapplied ester/acid restructuring would be.
+  const isMultiComponent = /\band\b/i.test(trimmed);
 
-  // Carboxylic acids: "<stem>ic acid" -> "ácido <stem>ico"
-  const acidMatch = /^(.*)\s+acid$/i.exec(trimmed);
-  if (acidMatch) {
-    let stem = applyChemistryRules(acidMatch[1]);
-    stem = stem.replace(/ic$/i, "ico");
-    return `ácido ${stem}`;
+  if (!isMultiComponent) {
+    // Simple esters: "<alkyl>yl <acyl>ate" -> "<acyl>ato de <alkyl>ilo"
+    // (e.g. "methyl acetate" -> "acetato de metilo", "ethyl butanoate" ->
+    // "butanoato de etilo" — note the stem doesn't always end in "o" before
+    // "ate": acetate = acet+ate, butanoate = butano+ate).
+    const esterMatch = /^(\S*yl)\s+(\S+)ate$/i.exec(trimmed);
+    if (esterMatch) {
+      const alkyl = applyChemistryRules(esterMatch[1]); // e.g. "methyl" -> "metil"
+      const acylStem = applyChemistryRules(esterMatch[2]);
+      return `${acylStem}ato de ${alkyl}o`;
+    }
+
+    // Carboxylic acids: "<stem>ic acid" -> "ácido <stem>ico"
+    const acidMatch = /^(.*)\s+acid$/i.exec(trimmed);
+    if (acidMatch) {
+      let stem = applyChemistryRules(acidMatch[1]);
+      stem = stem.replace(/ic$/i, "ico");
+      return `ácido ${stem}`;
+    }
   }
 
   return applyChemistryRules(trimmed);
