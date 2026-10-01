@@ -61,7 +61,18 @@ describe("importProject migrates old saves missing hapticBonds", () => {
         {
           id: "tab-1",
           title: "Tab 1",
-          molecule: { atoms: {}, bonds: {}, hapticBonds: { hb0: { id: "hb0", metalAtomId: "a0", ringAtomIds: ["a1", "a2"] } }, aromaticRingDisplays: {} },
+          molecule: {
+            // The atoms the haptic bond refers to must exist, or the
+            // validator (rightly) drops it as a dangling reference.
+            atoms: {
+              a0: { id: "a0", x: 0, y: 0, element: "Fe", charge: 0 },
+              a1: { id: "a1", x: 10, y: 0, element: "C", charge: 0 },
+              a2: { id: "a2", x: 20, y: 0, element: "C", charge: 0 },
+            },
+            bonds: {},
+            hapticBonds: { hb0: { id: "hb0", metalAtomId: "a0", ringAtomIds: ["a1", "a2"] } },
+            aromaticRingDisplays: {},
+          },
           annotations: {},
           view: { scale: 1, tx: 0, ty: 0 },
         },
@@ -187,7 +198,9 @@ describe("importProject migrates old saves missing aromaticRingDisplays", () => 
           id: "tab-1",
           title: "Tab 1",
           molecule: {
-            atoms: {},
+            atoms: Object.fromEntries(
+              ["a1", "a2", "a3", "a4", "a5", "a6"].map((id, i) => [id, { id, x: i * 10, y: 0, element: "C", charge: 0 }]),
+            ),
             bonds: {},
             hapticBonds: {},
             aromaticRingDisplays: { r0: { id: "r0", atomIds: ["a1", "a2", "a3", "a4", "a5", "a6"] } },

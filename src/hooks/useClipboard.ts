@@ -3,7 +3,7 @@ import { useMoleculeStore } from "../store/useMoleculeStore";
 import { useT } from "../i18n/useT";
 import * as M from "../model/molecule";
 import { exportSelectionPNGBlob } from "../io/exportImage";
-import { sanitizeAnnotationList } from "../io/sanitizeHtml";
+import { LIMITS, sanitizeFragment } from "../io/validate";
 import type { Annotation, Molecule } from "../types/chemistry";
 
 /**
@@ -177,15 +177,15 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement | null>) {
       if (!item.types.includes(CUSTOM_FORMAT)) continue;
       try {
         const blob = await item.getType(CUSTOM_FORMAT);
+        if (blob.size > LIMITS.maxFileChars) throw new Error("Clipboard fragment is too large");
         const text = await blob.text();
-        const fragment = JSON.parse(text) as ClipboardFragment;
         // The OS clipboard is a shared, system-wide resource — anything
         // else running on the machine (another app, another browser tab)
         // could have written this exact custom MIME type, so treat its
-        // contents as untrusted the same way importProject() does for a
-        // file. See io/sanitizeHtml.ts's doc comment for what this guards
-        // against.
-        fragment.annotations = sanitizeAnnotationList(fragment.annotations);
+        // contents as untrusted, exactly like an imported file: the whole
+        // fragment (atoms, bonds, annotations, html) is rebuilt through
+        // io/validate.ts rather than cast and trusted.
+        const fragment: ClipboardFragment = sanitizeFragment(JSON.parse(text));
         pasteFragment(fragment);
       } catch (err) {
         if (tryInternalFallback()) return;

@@ -1,17 +1,68 @@
 // Electron main process. Kept as plain CommonJS (.cjs) regardless of the
 // rest of the project being ESM ("type": "module" in package.json), since
 // Electron's main process is simplest and most compatible as CJS.
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const nmrServer = require("./server.cjs");
 const structure3dServer = require("./structure3d_server.cjs");
 const iupacFallbackServer = require("./iupac_fallback_server.cjs");
 const updater = require("./updater.cjs");
+const security = require("./security.cjs");
+const logger = require("./logger.cjs");
 
 // Set by `npm run electron:dev` to point at the Vite dev server instead of
 // the built dist/ files, so you get hot reload while working on the app.
 const devServerUrl = process.env.ELECTRON_START_URL;
+
+// "Is this URL part of our app?" — the dev server origin, or a file inside
+// the built dist/. Gates IPC, permissions and navigation (see security.cjs).
+const isTrustedUrl = security.createTrustedUrlChecker({ devServerUrl, distDir: path.join(__dirname, "../dist") });
+
+// Only one running copy: a second launch would try to start a second set of
+// backend servers on the same fixed ports (8000-8002) and fight the first.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const [win] = BrowserWindow.getAllWindows();
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+}
+
+// Registers an IPC handler that refuses to run unless the caller is the
+// top-level frame of one of OUR pages. Without this, anything that ever got
+// script running in the window (or a navigation that slipped through) could
+// call the same file-dialog/updater APIs the app itself uses.
+function handleTrusted(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!security.isTrustedSender(event, isTrustedUrl)) {
+      logger.log(`[ipc] Rejected "${channel}" from an untrusted sender (${event.senderFrame ? event.senderFrame.url : "no frame"})`);
+      throw new Error("Untrusted IPC sender");
+    }
+    return handler(event, ...args);
+  });
+}
+
+// Applies to every WebContents this app ever creates, not just the main window.
+app.on("web-contents-created", (_event, contents) => {
+  // <webview> would let a page embed another with its own privileges.
+  contents.on("will-attach-webview", (event) => event.preventDefault());
+
+  // The window must never navigate away from the app. A link click to an
+  // http(s) page opens in the real browser instead; anything else is dropped.
+  contents.on("will-navigate", (event, url) => {
+    if (isTrustedUrl(url)) return;
+    event.preventDefault();
+    if (security.isSafeExternalUrl(url)) shell.openExternal(url);
+  });
+  contents.on("will-redirect", (event, url) => {
+    if (!isTrustedUrl(url)) event.preventDefault();
+  });
+});
 
 // How long to wait for a response to the "you have unsaved changes"
 // prompt before giving up and closing anyway. This app autosaves a
@@ -36,13 +87,21 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+      safeDialogs: true, // a page can't spam alert()/confirm() dialogs
     },
   });
 
   // Any link the app tries to open in a new window/tab (e.g. target="_blank")
   // opens in the user's real OS browser instead of a second Electron window.
+  // Only https: and mailto: are ever handed to the OS (see security.cjs);
+  // file:, smb:, custom-protocol handlers etc. are refused.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (security.isSafeExternalUrl(url)) shell.openExternal(url);
+    else logger.log(`[security] Blocked window.open to ${String(url).slice(0, 200)}`);
     return { action: "deny" };
   });
 
@@ -104,6 +163,15 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return; // this is the losing second instance; app.quit() is already underway
+
+  // Deny every permission request (camera, microphone, geolocation,
+  // notifications, ...) except the two clipboard ones the app really uses,
+  // and only for our own pages.
+  const permissions = security.createPermissionHandlers(isTrustedUrl);
+  session.defaultSession.setPermissionRequestHandler(permissions.request);
+  session.defaultSession.setPermissionCheckHandler(permissions.check);
+
   // Don't use Menu.setApplicationMenu(null) here. On Windows/Linux, the
   // OS doesn't supply copy/paste/cut/select-all/undo/redo keyboard
   // shortcuts on its own - those only exist in Electron because they're
@@ -135,24 +203,24 @@ app.whenReady().then(() => {
 // into the UI yet - this is the plumbing for that, ready to use
 // whenever NmrPredictionButton.tsx wants it via
 // window.electron.getNmrServerStatus().
-ipcMain.handle("nmr-server:get-status", () => nmrServer.getStatus());
+handleTrusted("nmr-server:get-status", () => nmrServer.getStatus());
 // Same idea as the NMR server's status IPC above, for the GFN2-xTB 3D
 // refinement backend - see structure3d_server.cjs and, on the renderer
 // side, preload.cjs's getStructure3DServerStatus().
-ipcMain.handle("structure3d-server:get-status", () => structure3dServer.getStatus());
+handleTrusted("structure3d-server:get-status", () => structure3dServer.getStatus());
 // Same idea again, for the IUPAC-naming fallback backend - see
 // iupac_fallback_server.cjs and preload.cjs's
 // getIupacFallbackServerStatus(). Not wired into the UI yet either -
 // see io/iupacLookup.ts's own network-error handling, which covers
 // this the same way NmrPredictionButton.tsx's does today.
-ipcMain.handle("iupac-fallback-server:get-status", () => iupacFallbackServer.getStatus());
+handleTrusted("iupac-fallback-server:get-status", () => iupacFallbackServer.getStatus());
 // Lets the renderer show its own "checking for updates / downloading /
 // restart to update" UI - see updater.cjs. quit-and-install triggers
 // the same before-quit sequence below (server shutdown, then
 // autoUpdater's own quit-and-relaunch-installer flow), so it's just as
 // safe to call as a normal window close.
-ipcMain.handle("updater:get-status", () => updater.getStatus());
-ipcMain.handle("updater:quit-and-install", () => updater.quitAndInstall());
+handleTrusted("updater:get-status", () => updater.getStatus());
+handleTrusted("updater:quit-and-install", () => updater.quitAndInstall());
 
 // Native "Save As" for the project format (see src/io/project.ts /
 // PROJECT_FILE_EXTENSION) — the renderer already has the fully serialized
@@ -162,17 +230,25 @@ ipcMain.handle("updater:quit-and-install", () => updater.quitAndInstall());
 // write (permissions, full disk, a removable drive pulled mid-save) is an
 // expected-enough outcome that the renderer should show a normal status
 // message for it, not treat it as an IPC-layer failure.
-ipcMain.handle("dialog:save-project", async (event, { defaultName, content }) => {
+//
+// Hardened: the payload is validated (string content, size cap, file name
+// stripped of path parts), the chosen path always ends in .enlacecraft, and
+// the write goes through a temp file + rename so a crash mid-save can't
+// leave a truncated project where the previous good one was.
+handleTrusted("dialog:save-project", async (event, payload) => {
+  const request = security.validateSaveRequest(payload);
+  if (!request.ok) return { canceled: false, error: request.error };
   const win = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     title: "Save project",
-    defaultPath: defaultName,
+    defaultPath: request.defaultName,
     filters: [{ name: "EnlaceCraft project", extensions: ["enlacecraft"] }],
   });
   if (canceled || !filePath) return { canceled: true };
+  const target = security.ensureProjectExtension(filePath);
   try {
-    await fs.writeFile(filePath, content, "utf-8");
-    return { canceled: false, filePath };
+    await security.writeFileAtomic(fs, target, request.content);
+    return { canceled: false, filePath: target };
   } catch (err) {
     return { canceled: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -185,7 +261,10 @@ ipcMain.handle("dialog:save-project", async (event, { defaultName, content }) =>
 // text straight back — the renderer's useFileImport() hook then parses it
 // exactly the same way it would a browser-read File's content, so the
 // two paths share all their actual import logic.
-ipcMain.handle("dialog:open-file", async (event) => {
+//
+// Hardened: only .enlacecraft/.mol/.cdxml, only regular files, and nothing
+// over 25 MB is read into memory (see security.readOpenableFile).
+handleTrusted("dialog:open-file", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     title: "Open",
@@ -199,8 +278,8 @@ ipcMain.handle("dialog:open-file", async (event) => {
   });
   if (canceled || filePaths.length === 0) return { canceled: true };
   try {
-    const content = await fs.readFile(filePaths[0], "utf-8");
-    return { canceled: false, fileName: path.basename(filePaths[0]), content };
+    const { fileName, content } = await security.readOpenableFile(fs, filePaths[0]);
+    return { canceled: false, fileName, content };
   } catch (err) {
     return { canceled: false, error: err instanceof Error ? err.message : String(err) };
   }

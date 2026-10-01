@@ -3,6 +3,7 @@ import { emptyMolecule } from "../model/molecule";
 import { BOND_LEN, PERIODIC_TABLE } from "../model/constants";
 import { calibrateImportScale } from "./importScale";
 import { nextId } from "../model/id";
+import { finalizeImportedMolecule, LIMITS } from "./validate";
 
 /**
  * CDXML (ChemDraw's XML interchange format) reader/writer.
@@ -154,11 +155,16 @@ export function importCdxml(text: string): Molecule {
   const rawX = new Map<string, number>();
   const rawY = new Map<string, number>();
 
-  for (const n of Array.from(doc.querySelectorAll("n"))) {
+  const nodes = Array.from(doc.querySelectorAll("n"));
+  if (nodes.length > LIMITS.maxAtoms) {
+    throw new Error(`CDXML has too many atoms (${nodes.length} > ${LIMITS.maxAtoms})`);
+  }
+  for (const n of nodes) {
     const cdxId = n.getAttribute("id");
     if (!cdxId) continue;
     const p = (n.getAttribute("p") || "0 0").trim().split(/\s+/).map(Number);
     const [x, y] = p.length >= 2 ? p : [0, 0];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("CDXML atom has invalid coordinates");
     const atomicNumber = n.getAttribute("Element") ? parseInt(n.getAttribute("Element")!, 10) : 6;
     const element = ATOMIC_NUMBER_TO_ELEMENT[atomicNumber] ?? "C";
     const charge = parseInt(n.getAttribute("Charge") || "0", 10) || 0;
@@ -215,5 +221,5 @@ export function importCdxml(text: string): Molecule {
     mol.bonds[id] = { id, a1, a2, order: stereo === "none" ? order : 1, stereo, doubleSide: "auto" };
   }
 
-  return mol;
+  return finalizeImportedMolecule(mol);
 }

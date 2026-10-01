@@ -39,7 +39,7 @@
     "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^10.0.4",
     "cross-env": "^10.1.0",
-    "electron": "^43.2.0",
+    "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
     "fake-indexeddb": "^6.2.5",
     "gh-pages": "^6.3.0",
@@ -47,12 +47,19 @@
     "typescript": "^7.0.2",
     "vite": "^8.2.0",
     "vite-plugin-pwa": "^1.3.0",
-    "vitest": "^4.1.11",
+    "vitest": "^5.0.3",
     "wait-on": "^9.1.0"
   },
   "build": {
     "appId": "com.mycopixel.enlacecraft",
     "productName": "EnlaceCraft",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableCookieEncryption": true,
+      "onlyLoadAppFromAsar": true
+    },
     "publish": {
       "provider": "github",
       "owner": "MycoPixel",

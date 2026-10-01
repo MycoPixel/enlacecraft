@@ -100,17 +100,33 @@ export function hSuffixPlacement(mol: Molecule, atomId: string): HSuffixPlacemen
 
 /**
  * Effective valence given charge. This is a simplified organic-chemistry
- * approximation, not a full valence-electron model:
- *  - heteroatoms with lone pairs (N, O, S, P) gain bonding capacity when
- *    positively charged and lose it when negatively charged
- *    (e.g. ammonium N+ -> 4, alkoxide O- -> 1)
- *  - carbon-like atoms (C, Si, B) lose one bonding site per unit of charge
- *    in either direction (e.g. carbocation / carbanion -> 3)
+ * approximation, not a full valence-electron model. Elements fall into
+ * three groups by how a formal charge changes their bonding capacity:
+ *
+ *  - Group 15-17 heteroatoms with lone pairs (N, O, S, P, halogens...)
+ *    gain capacity when positive and lose it when negative
+ *    (ammonium N+ -> 4, alkoxide O- -> 1, chloride Cl- -> 0).
+ *  - Group 13 (B, Al, Ga, In, Tl) is the mirror image: these are
+ *    electron-deficient, so a NEGATIVE charge fills the empty p orbital
+ *    and adds a bonding site (BH4-, AlH4-, BF4- -> 4), while a positive
+ *    charge removes one (borenium R2B+ -> 2, Al3+ -> 0).
+ *  - Everything that behaves like a bare "core" - group 14 (C, Si, Ge,
+ *    Sn, Pb: carbocation/carbanion both -> 3), hydrogen (H+ and hydride
+ *    both -> 0) and the group 1/2 metals (Na+ -> 0, Mg2+ -> 0) - loses
+ *    one bonding site per unit of charge in either direction. Without
+ *    this, a plain Na+ or Mg2+ got 2 or 4 phantom implicit hydrogens.
  */
+const GROUP_13: ReadonlySet<string> = new Set(["B", "Al", "Ga", "In", "Tl"]);
+const LOSES_SITES_EITHER_WAY: ReadonlySet<string> = new Set([
+  "H",
+  "C", "Si", "Ge", "Sn", "Pb",
+  "Li", "Na", "K", "Rb", "Cs", "Fr",
+  "Be", "Mg", "Ca", "Sr", "Ba", "Ra",
+]);
+
 function applyChargeToBase(base: number, el: keyof typeof VALENCE, charge: number): number {
-  if (el === "C" || el === "Si" || el === "B") {
-    return Math.max(0, base - Math.abs(charge));
-  }
+  if (GROUP_13.has(el)) return Math.max(0, base - charge);
+  if (LOSES_SITES_EITHER_WAY.has(el)) return Math.max(0, base - Math.abs(charge));
   return Math.max(0, base + charge);
 }
 
@@ -132,11 +148,12 @@ export function effectiveValence(el: keyof typeof VALENCE, charge: number): numb
 }
 
 /**
- * A few elements routinely appear at more than one standard valence
+ * Elements that routinely appear at more than one standard valence
  * depending on oxidation state, not just VALENCE's single (lowest, most
  * common) number: sulfur as a plain thioether/thiol (2), a sulfoxide (4),
  * or a sulfone/sulfonyl/sulfonate (6); phosphorus as a phosphine (3) or a
- * phosphate/phosphonium-like pentavalent center (5). Order matters here —
+ * phosphate/phosphonium-like pentavalent center (5); and the heavier
+ * halogens and xenon in their hypervalent compounds. Order matters here —
  * resolvedValence below picks the *smallest* candidate that still covers
  * however many bonds are actually drawn, so a plain -S- still reads as
  * divalent (matching VALENCE.S) while the same element with two S=O
@@ -144,9 +161,32 @@ export function effectiveValence(el: keyof typeof VALENCE, charge: number): numb
  * structure.
  */
 const EXPANDED_VALENCES: Partial<Record<Element, number[]>> = {
+  // Chalcogens: thioether/sulfoxide/sulfone, selenoxide/SeO2, tellurium.
   S: [2, 4, 6],
+  Se: [2, 4, 6],
+  Te: [2, 4, 6],
+  // Pnictogens: phosphine -> phosphate/phosphorane; arsenic/antimony likewise.
   P: [3, 5],
+  As: [3, 5],
+  Sb: [3, 5],
+  // Hypervalent halogens: chlorate/perchlorate, hypervalent iodine reagents
+  // (PIDA/PIFA = I(III), IBX/DMP = I(V)), periodate, BrF3/BrF5, ClF3.
+  Cl: [1, 3, 5, 7],
+  Br: [1, 3, 5, 7],
+  I: [1, 3, 5, 7],
+  // Xenon fluorides (XeF2, XeF4, XeF6) and xenon oxides/oxofluorides.
+  Xe: [0, 2, 4, 6, 8],
 };
+
+/**
+ * Halogens and xenon only reach their higher valences in *pairs* (the
+ * lone pairs on the central atom unpair two electrons at a time), so for
+ * them an in-between bond count is not a valid state: a chlorine or
+ * bromine bridging two carbons (C-Br-C, a very common student mistake)
+ * must stay flagged as over-valent rather than quietly resolving to
+ * valence 3 with a phantom implicit hydrogen. See resolvedValence.
+ */
+const PAIRED_LADDER: ReadonlySet<string> = new Set(["Cl", "Br", "I", "Xe"]);
 
 /** Like effectiveValence, but for EXPANDED_VALENCES elements picks
  * whichever charge-adjusted candidate valence actually fits `used` (the
@@ -154,11 +194,23 @@ const EXPANDED_VALENCES: Partial<Record<Element, number[]>> = {
  * other element falls straight through to the ordinary single-valence
  * effectiveValence. If `used` exceeds even the largest candidate, returns
  * that largest one anyway — a genuinely over-valent atom (e.g. a 7-bonded
- * sulfur) still gets flagged, just against the right ceiling. */
+ * sulfur) still gets flagged, just against the right ceiling.
+ *
+ * S, Se, Te, P, As and Sb take the *smallest* candidate that covers
+ * `used`. The paired-ladder elements (PAIRED_LADDER) instead accept only
+ * an exact candidate once past their lowest one: any in-between count
+ * resolves to the candidate *below* it, so `used > resolved` and the atom
+ * is reported over-valent (with no implicit H). */
 function resolvedValence(el: Element, charge: number, used: number): number {
   const candidates = EXPANDED_VALENCES[el];
   if (!candidates) return effectiveValence(el, charge);
   const adjusted = candidates.map((base) => applyChargeToBase(base, el, charge));
+  if (PAIRED_LADDER.has(el)) {
+    if (used <= adjusted[0]) return adjusted[0];
+    if (adjusted.includes(used)) return used;
+    const below = adjusted.filter((v) => v < used);
+    return below[below.length - 1];
+  }
   return adjusted.find((v) => v >= used) ?? adjusted[adjusted.length - 1];
 }
 

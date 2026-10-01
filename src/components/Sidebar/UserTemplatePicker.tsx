@@ -3,6 +3,7 @@ import { X, Download, Upload } from "lucide-react";
 import type { UserTemplate } from "../../model/userTemplates";
 import { exportBookmarks, importBookmarks, BOOKMARKS_FILE_EXTENSION, BookmarksParseError } from "../../io/templateBookmarks";
 import { downloadBlob } from "../../io/exportImage";
+import { LIMITS } from "../../io/validate";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 
@@ -50,6 +51,10 @@ export function UserTemplatePicker({ templates, onChoose, onDelete }: UserTempla
   };
 
   const doImportFile = (file: File) => {
+    if (file.size > LIMITS.maxFileChars) {
+      setStatus(t("status.fileTooLarge", { name: file.name }));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {

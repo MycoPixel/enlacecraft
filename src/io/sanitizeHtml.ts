@@ -85,7 +85,11 @@ export function sanitizeAnnotation<T extends Annotation>(annotation: T): T {
  * annotations record (the shape project files / store state use). */
 export function sanitizeAnnotationsRecord(annotations: Record<string, Annotation>): Record<string, Annotation> {
   const out: Record<string, Annotation> = {};
-  for (const [id, ann] of Object.entries(annotations)) out[id] = sanitizeAnnotation(ann);
+  for (const [id, ann] of Object.entries(annotations)) {
+    // `out["__proto__"] = x` would rewire out's prototype instead of adding a key.
+    if (id === "__proto__" || id === "constructor" || id === "prototype") continue;
+    out[id] = sanitizeAnnotation(ann);
+  }
   return out;
 }
 

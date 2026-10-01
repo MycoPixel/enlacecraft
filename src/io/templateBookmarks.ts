@@ -1,4 +1,5 @@
 import type { UserTemplate } from "../model/userTemplates";
+import { LIMITS, sanitizeUserTemplates } from "./validate";
 
 /**
  * The saved-templates ("bookmarks" — the star/bookmark icon in the
@@ -40,11 +41,15 @@ export function importBookmarks(json: string): UserTemplate[] {
   if (!Array.isArray(templates) || templates.length === 0) {
     throw new BookmarksParseError("Missing expected bookmarks fields");
   }
-  for (const t of templates) {
-    const tmpl = t as Partial<UserTemplate>;
-    if (!tmpl || typeof tmpl !== "object" || !tmpl.label || !tmpl.molecule || !tmpl.annotations) {
-      throw new BookmarksParseError("Missing expected bookmarks fields");
-    }
+  if (templates.length > LIMITS.maxTemplates) {
+    throw new BookmarksParseError(`Too many bookmarks (${templates.length} > ${LIMITS.maxTemplates})`);
   }
-  return templates as UserTemplate[];
+  // Rebuild every template through the shared validator (bad molecules and
+  // annotations are dropped or repaired, text html is sanitized). A file
+  // where NOTHING survives is treated as not being a bookmarks file at all.
+  const clean = sanitizeUserTemplates(templates);
+  if (clean.length === 0) {
+    throw new BookmarksParseError("Missing expected bookmarks fields");
+  }
+  return clean;
 }

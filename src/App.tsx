@@ -6,6 +6,7 @@ import { useIsMobile } from "./hooks/useIsMobile";
 import { useAutosave } from "./hooks/useAutosave";
 import { useVersionHistory } from "./hooks/useVersionHistory";
 import { useFileImport } from "./hooks/useFileImport";
+import { LIMITS } from "./io/validate";
 import { useT } from "./i18n/useT";
 import { TopBar } from "./components/TopBar/TopBar";
 import { TabBar } from "./components/TabBar/TabBar";
@@ -141,6 +142,10 @@ export default function App() {
     if (files.length === 0) return;
     if (files.length > 1) setStatus(t("status.droppedMultipleFiles"));
     const file = files[0];
+    if (file.size > LIMITS.maxFileChars) {
+      setStatus(t("status.fileTooLarge", { name: file.name }));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => importFileContent(file.name, String(reader.result));
     reader.readAsText(file);

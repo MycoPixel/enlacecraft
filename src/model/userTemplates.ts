@@ -1,4 +1,5 @@
 import type { Annotation, Molecule } from "../types/chemistry";
+import { sanitizeUserTemplates } from "../io/validate";
 
 /**
  * A structure the user saved from their own drawing — same shape as a
@@ -31,7 +32,9 @@ export function loadUserTemplates(): UserTemplate[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    // localStorage is writable by anything running in this origin (and by
+    // hand in devtools), so it gets the same treatment as an imported file.
+    return sanitizeUserTemplates(parsed);
   } catch {
     // Unreadable/corrupt storage, or localStorage unavailable (e.g.
     // privacy mode) — behave as if there are simply no saved templates

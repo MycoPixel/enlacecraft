@@ -22,6 +22,11 @@ const { autoUpdater } = require("electron-updater");
 // the next time they quit on their own, via autoInstallOnAppQuit.
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+// Never install an older or pre-release build over a stable one, even if a
+// release feed is tampered with or mis-tagged. (These are the defaults;
+// spelled out so a future edit has to change them on purpose.)
+autoUpdater.allowDowngrade = false;
+autoUpdater.allowPrerelease = false;
 
 const status = {
   state: "idle", // "idle" | "checking" | "downloading" | "downloaded" | "not-available" | "error"

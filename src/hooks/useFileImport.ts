@@ -2,6 +2,7 @@ import { useMoleculeStore } from "../store/useMoleculeStore";
 import { importMol } from "../io/molfile";
 import { importCdxml } from "../io/cdxml";
 import { importProject, PROJECT_FILE_EXTENSION, ProjectParseError } from "../io/project";
+import { LIMITS, newRepairReport, totalDropped } from "../io/validate";
 import { useT } from "../i18n/useT";
 
 /**
@@ -22,12 +23,24 @@ export function useFileImport() {
   return (name: string, content: string) => {
     const isCdxml = /\.cdxml$/i.test(name);
     const isProject = name.toLowerCase().endsWith(PROJECT_FILE_EXTENSION);
+    // Belt and braces: the pickers/drop handler check File.size before
+    // reading, but the desktop "Open" dialog hands over already-read text.
+    if (content.length > LIMITS.maxFileChars) {
+      setStatus(t("status.fileTooLarge", { name }));
+      return;
+    }
     try {
       if (isProject) {
-        const project = importProject(content);
+        const report = newRepairReport();
+        const project = importProject(content, report);
         importProjectAsNewTabs(project);
         const atomCount = project.tabs.reduce((sum, tb) => sum + Object.keys(tb.molecule.atoms).length, 0);
-        setStatus(t("status.imported", { count: atomCount }));
+        const skipped = totalDropped(report);
+        setStatus(
+          skipped > 0
+            ? t("status.importedWithSkips", { count: atomCount, skipped })
+            : t("status.imported", { count: atomCount }),
+        );
         return;
       }
       const parsed = isCdxml ? importCdxml(content) : importMol(content);

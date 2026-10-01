@@ -9,6 +9,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}"],
+    // electron/*.test.mjs covers the Electron main-process helpers (electron/security.cjs)
+    // and main.cjs itself against a fake "electron" module — plain Node, no Electron binary needed.
+    include: ["src/**/*.test.{ts,tsx}", "electron/**/*.test.mjs"],
   },
 });

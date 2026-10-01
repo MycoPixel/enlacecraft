@@ -7,7 +7,7 @@
 // kicks in for a real `npm run dist:*` build, where there's no
 // developer around to start a server by hand.
 const { app } = require("electron");
-const { spawn, exec } = require("node:child_process");
+const { spawn, execFile } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -185,7 +185,7 @@ function stopServer() {
     if (process.platform === "win32") {
       // child.kill() is unreliable for console executables on Windows -
       // taskkill is the standard, actually-works fix.
-      exec(`taskkill /pid ${pid} /f /t`);
+      execFile("taskkill", ["/pid", String(pid), "/f", "/t"], () => {}); // argv array, no shell
     } else {
       proc.kill("SIGTERM");
     }

@@ -116,6 +116,136 @@ describe("effectiveValence (charge adjustment)", () => {
   test("valence never goes negative for a large charge", () => {
     expect(effectiveValence("O", -5)).toBe(0);
   });
+
+  test("group 13 is the mirror of carbon: B-/Al- gain a site, B+/Al3+ lose them", () => {
+    expect(effectiveValence("B", -1)).toBe(4); // BH4-, BF4-
+    expect(effectiveValence("Al", -1)).toBe(4); // AlH4-
+    expect(effectiveValence("B", 1)).toBe(2); // borenium
+    expect(effectiveValence("Al", 3)).toBe(0); // bare Al3+
+  });
+
+  test("simple cations and hydride/proton have no bonding sites", () => {
+    expect(effectiveValence("Na", 1)).toBe(0);
+    expect(effectiveValence("Li", 1)).toBe(0);
+    expect(effectiveValence("Mg", 2)).toBe(0);
+    expect(effectiveValence("Ca", 2)).toBe(0);
+    expect(effectiveValence("H", 1)).toBe(0);
+    expect(effectiveValence("H", -1)).toBe(0);
+  });
+
+  test("heavier group 14 behaves like carbon", () => {
+    expect(effectiveValence("Sn", 4)).toBe(0);
+    expect(effectiveValence("Ge", -1)).toBe(3);
+    expect(effectiveValence("Pb", 2)).toBe(2);
+  });
+});
+
+/** Single atom with a formal charge, for ion tests. */
+function ion(element: string, charge: number): Molecule {
+  const mol = addAtom(emptyMolecule(), "a", { x: 0, y: 0 }, element as never);
+  mol.atoms["a"] = { ...mol.atoms["a"], charge };
+  return mol;
+}
+
+describe("simple ions get no phantom hydrogens", () => {
+  test.each([
+    ["Na", 1, "Na"],
+    ["K", 1, "K"],
+    ["Mg", 2, "Mg"],
+    ["Ca", 2, "Ca"],
+    ["Al", 3, "Al"],
+    ["H", 1, "H"],
+    ["Cl", -1, "Cl"],
+  ])("%s with charge %i has no implicit H", (el, charge, formula) => {
+    const mol = ion(el, charge);
+    expect(implicitH(mol, "a")).toBe(0);
+    expect(computeFormula(mol)).toBe(formula);
+  });
+
+  test("hydride borate BH4- fills to four hydrogens", () => {
+    expect(implicitH(ion("B", -1), "a")).toBe(4);
+    expect(implicitH(ion("Al", -1), "a")).toBe(4);
+  });
+
+  test("ammonium and hydronium still work", () => {
+    expect(implicitH(ion("N", 1), "a")).toBe(4);
+    expect(implicitH(ion("O", 1), "a")).toBe(3);
+  });
+});
+
+/** Central atom bonded to `arms` terminal atoms; `orders[i]` is the bond
+ * order to arm i (defaults to single). */
+function star(center: string, arms: string[], orders: number[] = [], charge = 0): Molecule {
+  let mol = addAtom(emptyMolecule(), "c", { x: 0, y: 0 }, center as never);
+  mol.atoms["c"] = { ...mol.atoms["c"], charge };
+  arms.forEach((el, i) => {
+    mol = addAtom(mol, `x${i}`, { x: 20 * (i + 1), y: 10 * i }, el as never);
+    mol = addBond(mol, `b${i}`, "c", `x${i}`, (orders[i] ?? 1) as never);
+  });
+  return mol;
+}
+
+describe("boron/aluminium anions and hypervalent main-group centers", () => {
+  test("BF4- is not over-valent", () => {
+    const mol = star("B", ["F", "F", "F", "F"], [], -1);
+    expect(isOverValent(mol, "c")).toBe(false);
+    expect(implicitH(mol, "c")).toBe(0);
+  });
+
+  test("BF5 2- style over-bonding on boron is still flagged", () => {
+    expect(isOverValent(star("B", ["F", "F", "F", "F", "F"], [], -1), "c")).toBe(true);
+  });
+
+  test("perchlorate: Cl with three S=O-type double bonds and one single is valence 7", () => {
+    const mol = star("Cl", ["O", "O", "O", "O"], [2, 2, 2, 1]);
+    expect(isOverValent(mol, "c")).toBe(false);
+    expect(implicitH(mol, "c")).toBe(0);
+  });
+
+  test("hypervalent iodine(III), e.g. PhI(OAc)2, is fine with three bonds", () => {
+    const mol = star("I", ["C", "O", "O"]);
+    expect(isOverValent(mol, "c")).toBe(false);
+    expect(implicitH(mol, "c")).toBe(0);
+  });
+
+  test("iodine(V), e.g. IBX/DMP-like, is fine with five bonds", () => {
+    const mol = star("I", ["C", "O", "O", "O"], [1, 2, 1, 1]);
+    expect(isOverValent(mol, "c")).toBe(false);
+  });
+
+  test("xenon difluoride and tetrafluoride are valid; a lone Xe gets no H", () => {
+    expect(isOverValent(star("Xe", ["F", "F"]), "c")).toBe(false);
+    expect(isOverValent(star("Xe", ["F", "F", "F", "F"]), "c")).toBe(false);
+    expect(implicitH(star("Xe", []), "c")).toBe(0);
+  });
+
+  test("selenium dioxide (Se=O x2) is fine", () => {
+    expect(isOverValent(star("Se", ["O", "O"], [2, 2]), "c")).toBe(false);
+  });
+
+  test("a halogen bridging two atoms (C-Br-C) is STILL flagged, with no phantom H", () => {
+    // The classic student error. Halogens only go up in pairs, so 2 bonds on a
+    // neutral Cl/Br/I is not a valid state and must not resolve to valence 3.
+    for (const hal of ["Cl", "Br", "I"]) {
+      const mol = star(hal, ["C", "C"]);
+      expect(isOverValent(mol, "c")).toBe(true);
+      expect(implicitH(mol, "c")).toBe(0);
+    }
+  });
+
+  test("bromonium / iodonium cations (X+ with two bonds) are valid", () => {
+    expect(isOverValent(star("Br", ["C", "C"], [], 1), "c")).toBe(false);
+    expect(isOverValent(star("I", ["C", "C"], [], 1), "c")).toBe(false);
+  });
+
+  test("a plain terminal halogen still gets one implicit H when alone (HCl)", () => {
+    expect(implicitH(ion("Cl", 0), "a")).toBe(1);
+    expect(implicitH(star("Cl", ["C"]), "c")).toBe(0);
+  });
+
+  test("halogens above the highest candidate are flagged", () => {
+    expect(isOverValent(star("Cl", ["O", "O", "O", "O", "O"], [2, 2, 2, 2, 2]), "c")).toBe(true);
+  });
 });
 
 describe("isOverValent", () => {

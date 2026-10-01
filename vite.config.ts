@@ -1,13 +1,69 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
+
+/**
+ * Content-Security-Policy, injected as a <meta> tag into the BUILT index.html
+ * only (the dev server needs inline scripts for React Fast Refresh and a
+ * websocket for HMR, so `apply: "build"` leaves `npm run dev` untouched).
+ * A <meta> CSP is used rather than an HTTP header because it also covers the
+ * packaged Electron app, which loads dist/ from file:// where no headers exist.
+ *
+ * Derived from what the built app actually does (checked against dist/):
+ *  - script-src 'self': index.html has no inline scripts (module entry +
+ *    registerSW.js). No 'unsafe-eval': the one `eval` in the bundle is
+ *    3Dmol's makeFunction(), reached only for string callbacks, which the
+ *    app never passes.
+ *  - style-src 'unsafe-inline': React style="" attributes, sanitized
+ *    annotation styles, and the inline <style> the print export writes
+ *    into its iframe.
+ *  - worker-src blob:: 3Dmol builds its surface worker from a Blob URL.
+ *  - img-src data: blob:: PNG/SVG export and canvas snapshots.
+ *  - connect-src: exactly the origins in src/io (PubChem, GitHub releases
+ *    API, MyMemory translation) plus the three bundled localhost backends.
+ * NOT expressible in a meta tag: frame-ancestors (clickjacking) — set that
+ * one as an HTTP header on the web host (see README notes / vercel.json).
+ *
+ * Escape hatch if a host or integration needs it off: VITE_DISABLE_CSP=1.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://pubchem.ncbi.nlm.nih.gov https://api.github.com https://api.mymemory.translated.net http://localhost:8000 http://localhost:8001 http://localhost:8002",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join("; ");
+
+function contentSecurityPolicy(): Plugin {
+  return {
+    name: "enlacecraft-content-security-policy",
+    apply: "build",
+    transformIndexHtml() {
+      if (process.env.VITE_DISABLE_CSP === "1") return [];
+      return [
+        {
+          tag: "meta",
+          attrs: { "http-equiv": "Content-Security-Policy", content: CONTENT_SECURITY_POLICY },
+          injectTo: "head-prepend",
+        },
+      ];
+    },
+  };
+}
 
 // Using a relative base so the build works when hosted at any sub-path
 // (GitHub Pages project sites, Vercel, a plain static file server, etc).
 export default defineConfig({
   plugins: [
     react(),
+    contentSecurityPolicy(),
     VitePWA({
       // "autoUpdate" silently swaps in a new service worker (and its
       // freshly-cached assets) the moment a new build is deployed and the

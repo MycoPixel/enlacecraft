@@ -1,6 +1,14 @@
 import type { Annotation, Molecule, ViewTransform } from "../types/chemistry";
 import { nextId } from "../model/id";
-import { sanitizeAnnotationsRecord } from "./sanitizeHtml";
+import {
+  ImportValidationError,
+  LIMITS,
+  newRepairReport,
+  sanitizeAnnotationRecord,
+  sanitizeMolecule,
+  sanitizeView,
+  type RepairReport,
+} from "./validate";
 
 /**
  * The native "save project" format: unlike MOL/CDXML/SMILES (which only
@@ -42,79 +50,103 @@ export function exportProject(data: { activeTabId: string; tabs: ProjectTab[] })
 export class ProjectParseError extends Error {}
 
 /**
- * Backfills fields that didn't exist yet when older project files/
- * autosave snapshots were written -- `hapticBonds` and
- * `aromaticRingDisplays` so far, each added well after this format
- * already had files and autosaved sessions in the wild. Without this, an
- * old save loads with one of those fields simply absent, and the first
- * thing that calls Object.values() on it (e.g. findConnectedFragments,
- * for the formula/MW display) throws immediately on open -- exactly what
- * happened for hapticBonds before this function existed at all;
- * aromaticRingDisplays got its own default added here from day one
- * instead of waiting to hit the same bug again. Mutates nothing --
- * returns a fresh Molecule with every gap filled in, leaving everything
- * else as it was. Any future field on Molecule that isn't guaranteed
- * present on every historical save should get the same treatment here.
- */
-function migrateMolecule(molecule: Molecule): Molecule {
-  return {
-    ...molecule,
-    hapticBonds: molecule.hapticBonds ?? {},
-    aromaticRingDisplays: molecule.aromaticRingDisplays ?? {},
-  };
-}
-
-/**
  * Parses a `.enlacecraft` file (or an autosave snapshot, which is the same
  * shape — see io/autosave.ts). The file is untrusted input: it may have
  * come from another machine, another person's Save, or a hand-edited/
- * malicious source, not just this app's own last export. Every text
- * annotation's `html` is run through sanitizeAnnotationHtml (see
- * io/sanitizeHtml.ts) for exactly that reason — it's the one field in this
- * format that ends up in a raw `div.innerHTML` write on render
- * (components/Canvas/TextAnnotationView.tsx), so an unsanitized value here
- * would be a stored-XSS vector via a shared project file.
+ * malicious source, not just this app's own last export.
+ *
+ * Everything is rebuilt through io/validate.ts rather than trusted:
+ *  - molecules: unknown fields dropped, bad atoms/bonds dropped (a bond
+ *    to a missing atom used to make exportSmiles throw), old saves
+ *    missing `hapticBonds`/`aromaticRingDisplays` backfilled (what the
+ *    old migrateMolecule() did), size limits enforced;
+ *  - annotations: `__proto__`-style keys refused, text `html` run through
+ *    DOMPurify (the one field that reaches a raw innerHTML write on
+ *    render — see components/Canvas/TextAnnotationView.tsx);
+ *  - view: non-finite/zero scale falls back to the default view;
+ *  - tabs: duplicate ids dropped, `activeTabId` guaranteed to exist.
+ *
+ * Structure that can't be repaired (not an object, limits exceeded) throws
+ * ProjectParseError. Anything merely skipped is counted in `report` (pass
+ * one in, then check totalDropped(report) to tell the user).
  */
-export function importProject(json: string): ProjectFile {
+export function importProject(json: string, report: RepairReport = newRepairReport()): ProjectFile {
+  if (typeof json !== "string" || json.length > LIMITS.maxFileChars) {
+    throw new ProjectParseError("File is too large");
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch {
     throw new ProjectParseError("Not valid JSON");
   }
-  if (!parsed || typeof parsed !== "object") {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new ProjectParseError("Missing expected project fields");
   }
 
-  const version = (parsed as { version?: unknown }).version;
+  try {
+    return importParsedProject(parsed as Record<string, unknown>, report);
+  } catch (err) {
+    if (err instanceof ImportValidationError) throw new ProjectParseError(err.message);
+    throw err;
+  }
+}
+
+function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, report: RepairReport): ProjectTab {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ProjectParseError("Missing expected project fields");
+  }
+  const tab = raw as Record<string, unknown>;
+  if (!tab.molecule || !tab.annotations || !tab.view) {
+    throw new ProjectParseError("Missing expected project fields");
+  }
+  const id = typeof tab.id === "string" && tab.id.length > 0 && tab.id.length <= LIMITS.maxIdChars ? tab.id : fallbackId;
+  const title = typeof tab.title === "string" ? tab.title.slice(0, LIMITS.maxTitleChars) : fallbackTitle;
+  return {
+    id,
+    title,
+    molecule: sanitizeMolecule(tab.molecule, report),
+    annotations: sanitizeAnnotationRecord(tab.annotations, report),
+    view: sanitizeView(tab.view),
+  };
+}
+
+function importParsedProject(parsed: Record<string, unknown>, report: RepairReport): ProjectFile {
+  const version = parsed.version;
 
   if (version === 1) {
-    const v1 = parsed as { molecule?: Molecule; annotations?: Record<string, Annotation>; view?: ViewTransform };
-    if (!v1.molecule || !v1.annotations || !v1.view) {
+    if (!parsed.molecule || !parsed.annotations || !parsed.view) {
       throw new ProjectParseError("Missing expected project fields");
     }
     const id = `tab-${nextId()}`;
-    return { version: 2, activeTabId: id, tabs: [{ id, title: "Tab 1", molecule: migrateMolecule(v1.molecule), annotations: sanitizeAnnotationsRecord(v1.annotations), view: v1.view }] };
+    return { version: 2, activeTabId: id, tabs: [sanitizeTab({ ...parsed, id, title: "Tab 1" }, id, "Tab 1", report)] };
   }
 
   if (version === 2) {
-    const v2 = parsed as ProjectFile;
-    if (!Array.isArray(v2.tabs) || v2.tabs.length === 0 || typeof v2.activeTabId !== "string") {
+    const rawTabs = parsed.tabs;
+    if (!Array.isArray(rawTabs) || rawTabs.length === 0 || typeof parsed.activeTabId !== "string") {
       throw new ProjectParseError("Missing expected project fields");
     }
-    for (const tab of v2.tabs) {
-      if (!tab.id || !tab.molecule || !tab.annotations || !tab.view) {
+    if (rawTabs.length > LIMITS.maxTabs) {
+      throw new ProjectParseError(`Too many tabs (${rawTabs.length} > ${LIMITS.maxTabs})`);
+    }
+    const tabs: ProjectTab[] = [];
+    const seen = new Set<string>();
+    rawTabs.forEach((raw, i) => {
+      // Same requirement the old code had: a tab must carry its own id.
+      if (!raw || typeof raw !== "object" || typeof (raw as { id?: unknown }).id !== "string" || !(raw as { id: string }).id) {
         throw new ProjectParseError("Missing expected project fields");
       }
-    }
-    return {
-      ...v2,
-      tabs: v2.tabs.map((tab) => ({
-        ...tab,
-        molecule: migrateMolecule(tab.molecule),
-        annotations: sanitizeAnnotationsRecord(tab.annotations),
-      })),
-    };
+      const tab = sanitizeTab(raw, `tab-${nextId()}`, `Tab ${i + 1}`, report);
+      if (seen.has(tab.id)) {
+        report.droppedOther++;
+        return;
+      }
+      seen.add(tab.id);
+      tabs.push(tab);
+    });
+    const activeTabId = seen.has(parsed.activeTabId) ? parsed.activeTabId : tabs[0].id;
+    return { version: 2, activeTabId, tabs };
   }
 
   throw new ProjectParseError(`Unrecognized project file version: ${String(version)}`);

@@ -22,6 +22,7 @@ import { exportSmiles } from "../../io/smiles";
 import { exportProject, PROJECT_FILE_EXTENSION } from "../../io/project";
 import { downloadBlob } from "../../io/exportImage";
 import { useFileImport } from "../../hooks/useFileImport";
+import { LIMITS } from "../../io/validate";
 import { useT } from "../../i18n/useT";
 
 interface TopBarProps {
@@ -159,6 +160,10 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   };
 
   const doImportFile = (file: File) => {
+    if (file.size > LIMITS.maxFileChars) {
+      setStatus(t("status.fileTooLarge", { name: file.name }));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => importFileContent(file.name, String(reader.result));
     reader.readAsText(file);

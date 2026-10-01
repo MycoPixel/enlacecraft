@@ -16,7 +16,7 @@
 // it's why this backend's resources/iupac_fallback_server/ folder is
 // larger than you'd expect from the Python code alone.
 const { app } = require("electron");
-const { spawn, exec } = require("node:child_process");
+const { spawn, execFile } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -157,7 +157,7 @@ function stopServer() {
     proc.once("exit", finish);
 
     if (process.platform === "win32") {
-      exec(`taskkill /pid ${pid} /f /t`);
+      execFile("taskkill", ["/pid", String(pid), "/f", "/t"], () => {}); // argv array, no shell
     } else {
       proc.kill("SIGTERM");
     }

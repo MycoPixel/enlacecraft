@@ -3,6 +3,7 @@ import { emptyMolecule, stripExplicitHydrogens } from "../model/molecule";
 import { BOND_LEN, ABBREVIATED_GROUPS, STANDARD_MASS_NUMBER } from "../model/constants";
 import { calibrateImportScale } from "./importScale";
 import { nextId } from "../model/id";
+import { finalizeImportedMolecule, isKnownElement } from "./validate";
 
 const GROUP_BY_ID = Object.fromEntries(ABBREVIATED_GROUPS.map((g) => [g.id, g]));
 const GROUP_BY_LABEL = Object.fromEntries(ABBREVIATED_GROUPS.map((g) => [g.label, g.id]));
@@ -142,6 +143,12 @@ export function importMol(text: string): Molecule {
     const symbol = (rest[0] || "C").trim();
     const massDiff = parseInt(rest[1], 10) || 0;
     const chgCode = parseInt(rest[2], 10) || 0;
+    // A truncated file (fewer atom lines than the counts line promised) or
+    // garbage coordinates used to produce NaN atoms that broke rendering
+    // and export later; refuse it up front instead.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error(`Invalid or missing coordinates for atom ${i + 1}`);
+    }
     const id = nextId();
     ids.push(id);
     rawX.push(x);
@@ -150,8 +157,18 @@ export function importMol(text: string): Molecule {
     const groupId = GROUP_BY_LABEL[symbol];
     if (groupId) {
       mol.atoms[id] = { id, x: 0, y: 0, element: "C", charge: molCodeToCharge(chgCode), group: groupId };
+    } else if (symbol === "D" || symbol === "T") {
+      // Some writers use D/T for hydrogen isotopes instead of a mass-diff.
+      mol.atoms[id] = { id, x: 0, y: 0, element: "H", charge: molCodeToCharge(chgCode), isotope: symbol === "D" ? 2 : 3 };
+    } else if (!isKnownElement(symbol)) {
+      // Query/R-group/pseudo atoms ("R", "R#", "A", "*", "Xx"...) aren't
+      // elements. Keep them as visible placeholder labels (the same
+      // representation the app uses for an unrecognized abbreviation)
+      // rather than smuggling a non-element string into `element`, which
+      // has no valence/weight entry and breaks formula and MW math.
+      mol.atoms[id] = { id, x: 0, y: 0, element: "C", charge: molCodeToCharge(chgCode), group: symbol.slice(0, 64) };
     } else {
-      const element = (symbol || "C") as Element;
+      const element: Element = symbol;
       const isotope = massDiff !== 0 && STANDARD_MASS_NUMBER[element] ? STANDARD_MASS_NUMBER[element] + massDiff : undefined;
       mol.atoms[id] = {
         id,
@@ -248,5 +265,5 @@ export function importMol(text: string): Molecule {
   // Hydrogens" toggle), so strip simple terminal hydrogens back out here;
   // implicitH() will correctly re-derive the same H count from valence for
   // display, without needing real atom/bond nodes for each one.
-  return stripExplicitHydrogens(mol);
+  return stripExplicitHydrogens(finalizeImportedMolecule(mol));
 }

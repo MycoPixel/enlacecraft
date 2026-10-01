@@ -12,10 +12,16 @@
 const { app } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
+const { rotateLogIfNeeded } = require("./security.cjs");
 
 function getLogPath() {
   return path.join(app.getPath("userData"), "logs", "app.log");
 }
+
+// The log used to grow forever. Once per launch, move an oversized one
+// aside (app.log -> app.old.log; one generation is plenty for diagnosing
+// "why didn't the server start").
+let rotationChecked = false;
 
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}`;
@@ -23,6 +29,10 @@ function log(message) {
   try {
     const logPath = getLogPath();
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    if (!rotationChecked) {
+      rotationChecked = true;
+      rotateLogIfNeeded(fs, logPath);
+    }
     fs.appendFileSync(logPath, line + "\n");
   } catch {
     // Logging is a diagnostic nicety, not something that should ever
