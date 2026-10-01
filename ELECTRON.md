@@ -83,6 +83,16 @@ automated yet:
    `electron/server.cjs` spawns it (as `nmrgraph_server` on Linux,
    `nmrgraph_server.exe` on Windows) when the packaged app launches.
 
+**Important: freeze the server inside the pinned container on Linux.**
+`python/NMRGraph/packaging/build_linux_container.sh` does step 1, step 2,
+the checkpoint copy, and the copy into `resources/` in one go - use it
+instead of the manual steps above. PyInstaller doesn't bundle glibc, so a
+host-side freeze on a recent distro yields an executable that demands a
+glibc almost no user has, and it fails at startup on their machine rather
+than at build time on yours. That's not hypothetical: all three backends
+in the 1.7.1 release died exactly that way (`GLIBC_2.44 not found` on a
+glibc-2.43 machine). `python/freeze_in_container.sh` documents the pinning.
+
 **Important: the frozen server is platform-specific.** A Linux build of
 `nmrgraph_server` only runs on Linux - repeat step 1 ON a Windows machine to
 get a Windows-compatible one before running `dist:win`. There's no

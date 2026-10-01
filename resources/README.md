@@ -1,5 +1,29 @@
 # resources/
 
+## Always build these with the container scripts
+
+Each of the three backends below has a `build_linux_container.sh` that
+freezes it inside a pinned old-glibc container and copies the verified
+result straight into this folder:
+
+    python/NMRGraph/packaging/build_linux_container.sh
+    python/structure3d_server/build_linux_container.sh
+    python/iupac_fallback_server/build_linux_container.sh
+
+**Don't freeze these by hand for a release build.** PyInstaller does not
+bundle glibc — the frozen executable resolves it from whatever machine
+runs it — so freezing on a recent distro produces a bundle that demands a
+glibc almost no user has, and it fails at startup rather than at build
+time. That is how all three backends in the released 1.7.1 AppImage
+broke: they died with ``version `GLIBC_2.44' not found`` on a machine
+running glibc 2.43. See `../python/freeze_in_container.sh` for the full
+rationale and the image pinning.
+
+The host-side freeze (`pyinstaller` directly) is still fine for debugging
+a build failure itself; just don't ship it.
+
+## nmrgraph_server/
+
 `nmrgraph_server/` (gitignored, not present until you create it) is where
 the frozen NMR prediction backend goes before running `npm run dist:*`.
 
