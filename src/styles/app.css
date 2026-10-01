@@ -291,6 +291,16 @@
   z-index: 20;
 }
 
+.compound-search__privacy {
+  font-size: 10.5px;
+  color: var(--text-secondary, #888);
+  padding: 2px 0;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .compound-search__suggestions {
   position: absolute;
   top: 38px;

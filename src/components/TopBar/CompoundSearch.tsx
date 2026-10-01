@@ -106,6 +106,7 @@ export function CompoundSearch() {
   const showDropdown = mode === "name" && suggestionsOpen && suggestions.length > 0 && !loading;
 
   return (
+    <div className="compound-search-wrapper">
     <form
       className="compound-search"
       onSubmit={(e) => {
@@ -176,5 +177,7 @@ export function CompoundSearch() {
         </ul>
       )}
     </form>
+    <div className="compound-search__privacy">{t("search.privacyNotice")}</div>
+    </div>
   );
 }
