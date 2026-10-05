@@ -60,7 +60,7 @@ mkdir -p "$SRC/dist"
 docker run --rm \
     -v "$(pwd)/$SRC/dist:/src/dist" \
     "$IMAGE" \
-    /opt/micromamba/bin/micromamba run -n build \
+    /opt/bin/micromamba run -n build \
         pyinstaller --noconfirm packaging/nmrgraph_server.spec
 
 if [ ! -x "$SRC/dist/nmrgraph_server/nmrgraph_server" ]; then

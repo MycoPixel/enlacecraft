@@ -34,7 +34,11 @@
 FROM ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Where micromamba keeps its envs and package cache.
 ENV MAMBA_ROOT_PREFIX=/opt/micromamba
+# The micromamba tarball carries bin/micromamba at its root, so extracting
+# it to /opt puts the binary at /opt/bin/micromamba (NOT /opt/micromamba/bin).
+ENV MICROMAMBA=/opt/bin/micromamba
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl bzip2 \
@@ -43,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # micromamba gives us conda-forge's rdkit/torch without a full conda install.
 RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest \
         | tar -xj -C /opt bin/micromamba \
-    && /opt/micromamba/bin/micromamba --version
+    && "$MICROMAMBA" --version
 
 # The NMRGraph source. The build context is the repo root (see
 # .dockerignore), so this pulls the submodule's tree in. Only source gets
@@ -60,7 +64,7 @@ WORKDIR /src
 # conda-forge CPU build is functionally identical and far smaller - which
 # matters because CI runners have ~14GB of disk and the frozen output is
 # another ~1.1GB on top of the env.
-RUN /opt/micromamba/bin/micromamba create -y -n build -c conda-forge \
+RUN "$MICROMAMBA" create -y -n build -c conda-forge \
         python=3.12 rdkit torch fastapi uvicorn uvloop httptools \
-    && /opt/micromamba/bin/micromamba run -n build \
+    && "$MICROMAMBA" run -n build \
         pip install --no-cache-dir pyinstaller
