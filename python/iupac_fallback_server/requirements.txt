@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+rdkit
+nispo
+py2opsin
+JPype1

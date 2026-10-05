@@ -1,0 +1,7 @@
+-r requirements.txt
+pyinstaller>=6.10
+# Provides the PyInstaller hook that correctly bundles rdkit's data
+# files and shared libraries — without it, a naive freeze typically
+# fails at import time in the frozen build even though it works fine
+# from source.
+pyinstaller-hooks-contrib>=2024.7
