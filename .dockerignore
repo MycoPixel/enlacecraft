@@ -1,0 +1,22 @@
+# Docker build context for python/Dockerfile.nmrgraph.
+#
+# The build context is the repo root (the Dockerfile COPYs python/NMRGraph
+# out of it), so this has to keep the large generated trees out of the
+# context Docker ships to the daemon - resources/ alone is ~1.5GB of
+# frozen backends that have no business being in a build context.
+
+node_modules/
+dist/
+release/
+resources/
+.venv/
+
+# NMRGraph's own generated stuff - only its source goes into the image.
+python/NMRGraph/.git
+python/NMRGraph/venv/
+python/NMRGraph/.venv/
+python/NMRGraph/dist/
+python/NMRGraph/build/
+python/NMRGraph/logs/
+python/NMRGraph/notebooks/
+python/NMRGraph/**/__pycache__/

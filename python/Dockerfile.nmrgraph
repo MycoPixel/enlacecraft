@@ -1,0 +1,66 @@
+# Pinned build environment for the NMRGraph frozen server.
+#
+# WHY THIS EXISTS
+# ---------------
+# PyInstaller does not bundle glibc. Whatever glibc the *build* machine has
+# becomes the minimum glibc every end user needs, and it fails silently at
+# build time - the binary just dies at startup on the user's machine with
+# "GLIBC_2.XX not found".
+#
+# That is exactly what shipped in 1.7.1. The server was frozen with the
+# system Python 3.14 on a glibc-2.44 host, so the bundle demanded GLIBC_2.44
+# and refused to start on essentially every real user's Linux. Measured on
+# that bundle: 4 files require GLIBC_2.44, 31 require 2.38, 111 require 2.34.
+#
+# The fix is to freeze inside a container pinned to an old, widely-available
+# glibc, using conda-forge's Python (built against a glibc-2.17 baseline)
+# instead of the host's system Python. Two birds: the glibc floor drops to
+# 2.31, and the Python version matches environment.yml's 3.12 pin rather
+# than whatever the dev machine happened to have installed.
+#
+# This image holds the build ENVIRONMENT only - the freeze itself runs at
+# `docker run` time (see python/freeze_in_container.sh), so the image stays
+# reusable and the output lands directly on the host.
+#
+# BASE IMAGE
+# ----------
+# ubuntu:20.04 = glibc 2.31. That covers Ubuntu 20.04+, Debian 11+, Fedora
+# 32+, RHEL 9+, and every rolling distro from the last several years. Going
+# older (debian:buster, glibc 2.28) buys almost no real-world coverage and
+# costs working apt repos, so 2.31 is the floor.
+#
+# Keep in sync with MAX_GLIBC in python/freeze_in_container.sh - the script
+# verifies the output against it, and a mismatch means a broken release.
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MAMBA_ROOT_PREFIX=/opt/micromamba
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl bzip2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# micromamba gives us conda-forge's rdkit/torch without a full conda install.
+RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest \
+        | tar -xj -C /opt bin/micromamba \
+    && /opt/micromamba/bin/micromamba --version
+
+# The NMRGraph source. The build context is the repo root (see
+# .dockerignore), so this pulls the submodule's tree in. Only source gets
+# copied - venv/, dist/, build/, logs/, notebooks/ and the .git file are
+# excluded by .dockerignore.
+COPY python/NMRGraph /src
+WORKDIR /src
+
+# Build env: conda-forge's Python 3.12 + rdkit + CPU torch.
+#
+# Deliberately not environment.yml: that file is the *dev* environment and
+# pulls torch from PyPI, whose default Linux build is the CUDA flavour
+# (~3GB of nvidia wheels). This server does GNN inference on CPU, so the
+# conda-forge CPU build is functionally identical and far smaller - which
+# matters because CI runners have ~14GB of disk and the frozen output is
+# another ~1.1GB on top of the env.
+RUN /opt/micromamba/bin/micromamba create -y -n build -c conda-forge \
+        python=3.12 rdkit torch fastapi uvicorn uvloop httptools \
+    && /opt/micromamba/bin/micromamba run -n build \
+        pip install --no-cache-dir pyinstaller

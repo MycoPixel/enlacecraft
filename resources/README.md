@@ -1,26 +1,29 @@
 # resources/
 
-## Always build these with the container scripts
+## The NMR backend must be built with the container script
 
-Each of the three backends below has a `build_linux_container.sh` that
-freezes it inside a pinned old-glibc container and copies the verified
-result straight into this folder:
+`python/freeze_in_container.sh` freezes the NMR prediction backend inside a
+pinned old-glibc container and copies the verified result straight into
+this folder:
 
-    python/NMRGraph/packaging/build_linux_container.sh
-    python/structure3d_server/build_linux_container.sh
-    python/iupac_fallback_server/build_linux_container.sh
+    ./python/freeze_in_container.sh
 
-**Don't freeze these by hand for a release build.** PyInstaller does not
-bundle glibc — the frozen executable resolves it from whatever machine
-runs it — so freezing on a recent distro produces a bundle that demands a
-glibc almost no user has, and it fails at startup rather than at build
-time. That is how all three backends in the released 1.7.1 AppImage
-broke: they died with ``version `GLIBC_2.44' not found`` on a machine
-running glibc 2.43. See `../python/freeze_in_container.sh` for the full
-rationale and the image pinning.
+**Don't freeze it by hand for a release build.** PyInstaller does not bundle
+glibc — the frozen executable resolves it from whatever machine runs it —
+so freezing on a recent distro produces a bundle that demands a glibc
+almost no user has, and it fails at startup rather than at build time. That
+is how all three backends in the released 1.7.1 AppImage broke: they died
+with ``version `GLIBC_2.44' not found`` on a machine running glibc 2.43.
+See `../python/Dockerfile.nmrgraph` for the image pinning, and
+`../python/freeze_in_container.sh` for the glibc check it runs on the
+result.
 
 The host-side freeze (`pyinstaller` directly) is still fine for debugging
 a build failure itself; just don't ship it.
+
+The other two backends don't have a container script yet — see each
+folder's own README.md. They have the same glibc exposure, so the same
+pinning applies when they get one.
 
 ## nmrgraph_server/
 
@@ -37,8 +40,10 @@ checkpoints, placed here as:
     resources/nmrgraph_server/data/models/*.pt
     resources/nmrgraph_server/... (all of PyInstaller's other output files)
 
-Rebuild and re-copy this whenever the model or backend code changes -
-nothing here is auto-synced from the NMRGraph project.
+Rebuild and re-copy this whenever the model or backend code changes.
+NMRGraph is a git submodule (see `../.gitmodules`), so `git submodule
+update` pulls in upstream changes - but nothing here is auto-synced, and
+the submodule pointer only moves when you commit it.
 
 ## structure3d_server/
 
