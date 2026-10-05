@@ -73,4 +73,29 @@ temp/
 # Misc
 
 *.local
-python/
+
+# Python backends
+#
+# structure3d_server/ and iupac_fallback_server/ are in-repo source and
+# ARE tracked - CI needs them, because PyInstaller can't cross-compile:
+# each OS's frozen binaries have to be built on a runner of that OS.
+# Only their generated artifacts are ignored here.
+#
+# python/NMRGraph is a separate project tracked as a git submodule
+# (see .gitmodules) - it carries its own .gitignore for venv/, logs/,
+# dist/, build/ and its model checkpoints.
+python/structure3d_server/dist/
+python/structure3d_server/build/
+python/structure3d_server/xtb-dist/
+python/structure3d_server/*.tar.xz
+python/structure3d_server/venv/
+python/structure3d_server/.venv/
+python/structure3d_server/.build-venv/
+python/structure3d_server/__pycache__/
+python/iupac_fallback_server/dist/
+python/iupac_fallback_server/build/
+python/iupac_fallback_server/venv/
+python/iupac_fallback_server/.venv/
+python/iupac_fallback_server/.build-venv/
+python/iupac_fallback_server/__pycache__/
+python/iupac_fallback_server/jre-cache/
