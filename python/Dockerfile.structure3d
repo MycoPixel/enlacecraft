@@ -1,0 +1,75 @@
+# Pinned build environment for the structure3d_server frozen backend.
+#
+# WHY THIS EXISTS
+# ---------------
+# Same reason as Dockerfile.nmrgraph: PyInstaller does not bundle glibc, so
+# the build machine's glibc becomes every end user's minimum, and it fails
+# at startup on their machine rather than at build time on yours. All three
+# backends in the released 1.7.1 AppImage died exactly that way
+# (GLIBC_2.44 not found on a glibc-2.43 machine). See freeze_lib.sh for the
+# shared MAX_GLIBC constant and the verification every freeze runs.
+#
+# This image holds the build ENVIRONMENT only - the freeze runs at
+# `docker run` time (see python/freeze_structure3d.sh).
+#
+# BASE IMAGE
+# ----------
+# ubuntu:20.04 = glibc 2.31, matching Dockerfile.nmrgraph. Keep in sync
+# with MAX_GLIBC in python/freeze_lib.sh.
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MAMBA_ROOT_PREFIX=/opt/micromamba
+# The micromamba tarball carries bin/micromamba at its root, so extracting
+# it to /opt puts the binary at /opt/bin/micromamba (NOT /opt/micromamba/bin).
+ENV MICROMAMBA=/opt/bin/micromamba
+
+# binutils is a hard requirement of PyInstaller on Linux, not a nicety: its
+# analysis step shells out to objdump to walk each binary's dependencies and
+# aborts with "On Linux, objdump is required" if the package is missing.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl bzip2 binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest \
+        | tar -xj -C /opt bin/micromamba \
+    && "$MICROMAMBA" --version
+
+# The xtb release binary this service shells out to. Pinned to a version
+# rather than "latest" so a rebuild months from now doesn't silently pick up
+# a new one - the energy values a given xtb version reports are part of what
+# this feature produces.
+#
+# Downloaded here (rather than COPY'd from the source tree) because the
+# archive is ~26MB and is gitignored; this way a fresh clone can build
+# without it having to be committed. The linux binary is statically linked,
+# so bin/xtb alone is all that gets bundled into the output - no lib/, no
+# LD_LIBRARY_PATH. main.py's find_xtb_binary() looks for exactly
+# <exe_dir>/xtb/bin/xtb, which the freeze step creates.
+ARG XTB_VERSION=6.7.1
+RUN curl -fL -o /tmp/xtb.tar.xz \
+        "https://github.com/grimme-lab/xtb/releases/download/v${XTB_VERSION}/xtb-${XTB_VERSION}-linux-x86_64.tar.xz" \
+    && mkdir -p /opt/xtb \
+    && tar -xJf /tmp/xtb.tar.xz -C /opt/xtb --strip-components=1 \
+    && rm -f /tmp/xtb.tar.xz \
+    && /opt/xtb/bin/xtb --version
+
+COPY python/structure3d_server /src
+WORKDIR /src
+
+# Build env: conda-forge's Python 3.12 + rdkit.
+#
+# rdkit matters here specifically - main.py shells out to xtb but uses rdkit
+# to build the starting XYZ, and rdkit is the single biggest binary
+# dependency in this bundle. Pinning it via conda-forge (rather than PyPI's
+# wheels) is what keeps its own glibc requirement at the 2.17 baseline
+# instead of following the newest toolchain.
+#
+# pyinstaller-hooks-contrib is required, not optional: without it PyInstaller's
+# rdkit hook doesn't run, and the frozen build fails at import time on a
+# missing rdkit data file even though it works fine from source.
+RUN "$MICROMAMBA" create -y -n build -c conda-forge \
+        python=3.12 rdkit \
+    && "$MICROMAMBA" run -n build \
+        pip install --no-cache-dir fastapi "uvicorn[standard]" pydantic \
+            pyinstaller pyinstaller-hooks-contrib

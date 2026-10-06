@@ -1,0 +1,80 @@
+# Pinned build environment for the iupac_fallback_server frozen backend.
+#
+# WHY THIS EXISTS
+# ---------------
+# Same glibc reason as Dockerfile.nmrgraph (see that file's header, and
+# freeze_lib.sh for the shared MAX_GLIBC constant + verification): PyInstaller
+# doesn't bundle glibc, so a host-side freeze against a modern distro ships a
+# binary that dies on user machines. All three backends in 1.7.1 did exactly
+# that.
+#
+# This backend has one extra dependency the others don't: it wraps OPSIN, a
+# Java library, so the frozen build needs a JVM at runtime. PyInstaller only
+# freezes Python - it has no idea a JVM is involved. The JRE is downloaded and
+# unpacked below and copied next to the executable by the freeze step, because
+# a packaged end user has no system Java to fall back on.
+#
+# This image holds the build ENVIRONMENT only - the freeze runs at
+# `docker run` time (see python/freeze_iupac.sh).
+#
+# BASE IMAGE
+# ----------
+# ubuntu:20.04 = glibc 2.31, matching Dockerfile.nmrgraph.
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MAMBA_ROOT_PREFIX=/opt/micromamba
+ENV MICROMAMBA=/opt/bin/micromamba
+
+# binutils is a hard PyInstaller requirement on Linux (its analysis step calls
+# objdump); without it the freeze aborts.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl bzip2 binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest \
+        | tar -xj -C /opt bin/micromamba \
+    && "$MICROMAMBA" --version
+
+# The portable JRE that gets bundled next to the frozen executable.
+#
+# Pinned to a specific Temurin build rather than "latest" so a rebuild months
+# from now bundles the exact same JRE - bump this deliberately. Temurin 21 is
+# a Temurin LTS release, so it receives security updates; the version pin is
+# about build reproducibility, not about freezing an unpatched JRE.
+#
+# The test at the end matters: naming.py's _bundled_jre_jvm_path() looks for
+# exactly <exe_dir>/jre/lib/server/libjvm.so (the Linux layout), so if a
+# future archive layout changes this fails the image build instead of
+# silently producing a bundle with no working JVM.
+ARG JRE_VERSION="21.0.9+10"
+ARG JRE_URL="https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.9+10/OpenJDK21U-jre_x64_linux_hotspot_21.0.9_10.tar.gz"
+RUN curl -fL -o /tmp/jre.tar.gz "$JRE_URL" \
+    && mkdir -p /opt/jre \
+    && tar -xzf /tmp/jre.tar.gz -C /opt/jre --strip-components=1 \
+    && rm -f /tmp/jre.tar.gz \
+    && test -f /opt/jre/lib/server/libjvm.so \
+    && /opt/jre/bin/java -version
+
+COPY python/iupac_fallback_server /src
+WORKDIR /src
+
+# Build env: conda-forge's Python 3.12 + rdkit.
+#
+# rdkit is pinned via conda-forge rather than PyPI wheels so its own glibc
+# requirement stays at the 2.17 baseline instead of tracking the newest
+# toolchain. JPype1 likewise - it's a compiled extension bridging into the
+# JVM, so it's one of the few things here that actually carries a version
+# requirement.
+#
+# nispo and py2opsin are pure-Python (py3-none-any wheels), so pip is
+# correct for them. nispo ships its own template/resource files that it loads
+# by path rather than by import; the spec's collect_all("nispo") handles that.
+#
+# pyinstaller-hooks-contrib is required for rdkit's data files - without it
+# the frozen build fails at import time on a missing rdkit data file.
+RUN "$MICROMAMBA" create -y -n build -c conda-forge \
+        python=3.12 rdkit jpype1 \
+    && "$MICROMAMBA" run -n build \
+        pip install --no-cache-dir fastapi "uvicorn[standard]" nispo py2opsin \
+            pyinstaller pyinstaller-hooks-contrib
