@@ -87,12 +87,39 @@ jobs:
       ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
 
     steps:
+      # Fail loudly and specifically if the secret is missing. Without it,
+      # checkout's submodule clone just dies with "remote: Repository not
+      # found", which looks like a permissions problem in a repo that has
+      # none - see the comment on the checkout step below for the real cause.
+      - name: Check the submodule token is configured
+        shell: bash
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$SUBMODULE_TOKEN" ]; then
+            echo "ERROR: the SUBMODULE_TOKEN secret is not set." >&2
+            echo >&2
+            echo "python/NMRGraph is a PRIVATE repo, so Actions' default" >&2
+            echo "GITHUB_TOKEN cannot clone it - that token is scoped to" >&2
+            echo "enlacecraft alone, and the submodule clone fails with a" >&2
+            echo "misleading 'Repository not found'." >&2
+            echo >&2
+            echo "Create a fine-grained PAT with Contents:read on" >&2
+            echo "MycoPixel/NMRGraph only, and add it as the repository" >&2
+            echo "secret SUBMODULE_TOKEN (Settings > Secrets and variables" >&2
+            echo "> Actions)." >&2
+            exit 1
+          fi
+          echo "SUBMODULE_TOKEN is set"
+
       - uses: actions/checkout@v4
         with:
           # NMRGraph is a submodule, and the build needs it: without this the
           # backend source and the model checkpoints are simply absent and the
-          # freeze has nothing to freeze.
+          # freeze has nothing to freeze. The token is required because that
+          # repo is private and the default GITHUB_TOKEN can't reach it.
           submodules: recursive
+          token: ${{ secrets.SUBMODULE_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
