@@ -64,6 +64,24 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_MAX_REQUESTS = 30
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Starts the embedded JVM once, at process startup, rather than per
+    # request -- see naming.py's start_jvm doc comment for why a
+    # per-request JVM startup would make this service far too slow to
+    # use from a live UI.
+    start_jvm()
+    yield
+
+
+# Must come BEFORE security_middleware below. `@app.middleware` is a
+# decorator, so the name `app` is looked up when the module is imported -
+# if this line sat after the decorator, the frozen server would die at
+# startup with "NameError: name 'app' is not defined" before uvicorn ever
+# got a chance to bind a port.
+app = FastAPI(lifespan=lifespan)
+
+
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     origin = request.headers.get("origin", "")
@@ -84,19 +102,6 @@ async def security_middleware(request: Request, call_next):
     _rate_limit_log[client_ip].append(now)
 
     return await call_next(request)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Starts the embedded JVM once, at process startup, rather than per
-    # request -- see naming.py's start_jvm doc comment for why a
-    # per-request JVM startup would make this service far too slow to
-    # use from a live UI.
-    start_jvm()
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
 
 
 class NameRequest(BaseModel):
