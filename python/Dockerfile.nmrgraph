@@ -40,8 +40,11 @@ ENV MAMBA_ROOT_PREFIX=/opt/micromamba
 # it to /opt puts the binary at /opt/bin/micromamba (NOT /opt/micromamba/bin).
 ENV MICROMAMBA=/opt/bin/micromamba
 
+# binutils is a hard requirement of PyInstaller on Linux, not a nicety: its
+# analysis step shells out to objdump to walk each binary's dependencies, and
+# aborts with "On Linux, objdump is required" if the package is missing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl bzip2 \
+        ca-certificates curl bzip2 binutils \
     && rm -rf /var/lib/apt/lists/*
 
 # micromamba gives us conda-forge's rdkit/torch without a full conda install.
