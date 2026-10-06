@@ -83,23 +83,41 @@ automated yet:
    `electron/server.cjs` spawns it (as `nmrgraph_server` on Linux,
    `nmrgraph_server.exe` on Windows) when the packaged app launches.
 
-**Important: freeze the server inside the pinned container on Linux.**
-`python/freeze_in_container.sh` does step 1, step 2, the checkpoint copy,
-and the copy into `resources/` in one go - use it instead of the manual
-steps above. It builds `python/Dockerfile.nmrgraph` (ubuntu:20.04 = glibc
-2.31, conda-forge's Python 3.12) and runs the freeze inside it, because
-PyInstaller doesn't bundle glibc: a host-side freeze on a recent distro
-yields an executable that demands a glibc almost no user has, and it fails
-at startup on their machine rather than at build time on yours. That's not
-hypothetical - all three backends in the 1.7.1 release died exactly that
-way (`GLIBC_2.44 not found` on a glibc-2.43 machine), because 1.7.1 was
-frozen with the system Python 3.14 on a glibc-2.44 host rather than in the
-pinned container.
+**Important: freeze all three backends inside their pinned containers on
+Linux.** One script per backend, each doing the freeze, the extra bundled
+binary, the verification and the copy into `resources/` in one go — use them
+instead of the manual steps above:
 
-The script also verifies the result rather than trusting it: it scans every
-ELF file in the output for the highest `GLIBC_*` symbol it requires and
-fails the build if that's above the target. That turns "works on the build
-machine, broken on every user's" into a hard, immediate failure.
+    ./python/freeze_in_container.sh      # nmrgraph_server   (Dockerfile.nmrgraph)
+    ./python/freeze_structure3d.sh       # structure3d_server(Dockerfile.structure3d)
+    ./python/freeze_iupac.sh             # iupac_fallback_server (Dockerfile.iupac)
+
+All three build on `ubuntu:20.04` (glibc 2.31) with conda-forge's Python
+3.12, because PyInstaller doesn't bundle glibc: a host-side freeze on a
+recent distro yields an executable that demands a glibc almost no user has,
+and it fails at startup on their machine rather than at build time on yours.
+That's not hypothetical — all three backends in the 1.7.1 release died
+exactly that way (`GLIBC_2.44 not found` on a glibc-2.43 machine), because
+1.7.1 was frozen with the system Python 3.14 on a glibc-2.44 host rather than
+in the pinned containers. Pinned as built, all three land at `GLIBC_2.17`.
+
+Each backend's freeze logic and its container-specific extras live in its own
+`Dockerfile.*`; the shared freeze/verify/smoke helpers are in
+`python/freeze_lib.sh`, which also holds the single `MAX_GLIBC` constant
+that the verification runs against.
+
+The scripts verify the result rather than trusting it: each scans every ELF
+file in the output for the highest `GLIBC_*` symbol it requires and fails the
+build if that's above the target. That turns "works on the build machine,
+broken on every user's" into a hard, immediate failure. Each also
+smoke-tests the frozen binary against a *real* request, not just `/health`
+— because `/health` returns 200 even when the backend's extra binary is
+missing, so it can't detect the "builds fine, 503s on every real request"
+failure mode on its own.
+
+**Docker is required for the Linux freeze.** If it isn't installed, use the
+host-side freeze in each folder's README for debugging a build failure — just
+don't ship what it produces.
 
 **Important: the frozen server is platform-specific.** A Linux build of
 `nmrgraph_server` only runs on Linux - repeat step 1 ON a Windows machine to
@@ -139,10 +157,18 @@ NMRGraph, its source lives **in this repo**, at `python/structure3d_server/`
    `resources/structure3d_server/` is gitignored, same reasoning as
    `resources/nmrgraph_server/`.
 
-2. `npm run dist:win` / `dist:linux` picks it up the same way - see
-   `package.json`'s `build.extraResources` and
-   `electron/structure3d_server.cjs` (spawns it as `structure3d_server` /
-   `structure3d_server.exe` on port 8001, alongside the NMR server on 8000).
+On Linux, use `./python/freeze_structure3d.sh` (see "freeze all three
+backends inside their pinned containers" above) — it freezes inside
+`python/Dockerfile.structure3d`, downloads the pinned xtb release binary
+into the bundle, and copies the verified result to
+`resources/structure3d_server/`. The old manual steps (freezing with
+`pyinstaller` on the host, then `cp -r dist/... resources/`) are still
+accurate for Windows, which must freeze on a Windows machine/VM.
+
+`npm run dist:win` / `dist:linux` then picks it up automatically — see
+`package.json`'s `build.extraResources` and `electron/structure3d_server.cjs`
+(spawns it as `structure3d_server` / `structure3d_server.exe` on port 8001,
+alongside the NMR server on 8000).
 
 Same platform-specific caveat as NMRGraph: freeze it ON the target platform,
 no cross-compiling. Same dev-mode behavior too - `electron:dev` /
@@ -162,30 +188,36 @@ in this repo, at `python/iupac_fallback_server/` - with one added wrinkle:
 this one wraps OPSIN, a Java library, so the frozen build needs a JVM
 bundled alongside it too, not just Python.
 
-1. From `python/iupac_fallback_server/`, run the platform's build script:
+1. On **Linux**, run `./python/freeze_iupac.sh` (see "freeze all three
+   backends inside their pinned containers" above). It freezes inside
+   `python/Dockerfile.iupac`, bundles a pinned Eclipse Temurin JRE (21.0.9+10,
+   downloaded in the image) in as `jre/` alongside the executable, asserts
+   the JRE is at the exact path `naming.py`'s `_bundled_jre_jvm_path()`
+   looks for, smoke-tests `/name` (a real OPSIN round-trip, which needs the
+   JVM), and copies the verified result to
+   `resources/iupac_fallback_server/`.
+   On **Windows**, run the platform build script from
+   `python/iupac_fallback_server/`:
    ```
-   ./build_linux.sh          # on Linux
-   .\build_windows.ps1       # on Windows, in PowerShell
+   .\build_windows.ps1
    ```
-   Each one freezes the server with PyInstaller, downloads a pinned portable
-   JRE build (Eclipse Temurin, ~50MB compressed - cached in `jre-cache/`
-   after the first run so repeat builds don't re-download it) and copies it
-   in as `jre/` alongside the executable, runs a real smoke test against the
-   frozen binary (starts it, waits for `/health`, POSTs a molecule to
-   `/name`, confirms the response), and on success writes straight to
-   `../../resources/iupac_fallback_server/` - no manual copy step, unlike
-   the other two backends above.
+   which does the equivalent (freeze, pinned JRE, smoke test, copy to
+   `resources/iupac_fallback_server/`).
 2. `npm run dist:win` / `dist:linux` picks it up the same way - see
    `package.json`'s `build.extraResources` and
    `electron/iupac_fallback_server.cjs` (spawns it as `iupac_fallback_server`
    / `iupac_fallback_server.exe` on port 8002, alongside the other two on
    8000/8001).
 
+**The bundled JRE is not optional.** A packaged end user has no system Java,
+so if `jre/` is missing from the bundle the server starts (its `/health`
+doesn't touch the JVM) but every `/name` call fails — OPSIN naming is simply
+dead in the shipped app. `freeze_iupac.sh` checks for this specifically,
+because it's exactly the kind of thing that "builds fine" and "breaks for
+every user".
+
 Same platform-specific caveat as the other two backends: freeze it ON the
-target platform, no cross-compiling - `build_windows.ps1` genuinely cannot
-be run from this Linux checkout, only documented and individually verified
-piece-by-piece here (see that script's own header comment for exactly what
-was and wasn't tested before it was written). Same dev-mode behavior too -
+target platform, no cross-compiling. Same dev-mode behavior too -
 `electron:dev` / `electron:preview` don't auto-start it; run
 `uvicorn main:app --port 8002 --reload` yourself while developing (needs a
 plain system-installed Java 8+ in dev mode - see that folder's README for

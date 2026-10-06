@@ -1,29 +1,33 @@
 # resources/
 
-## The NMR backend must be built with the container script
+## Always build these with the container scripts
 
-`python/freeze_in_container.sh` freezes the NMR prediction backend inside a
-pinned old-glibc container and copies the verified result straight into
-this folder:
+Each of the three backends below has a freeze script that builds it inside a
+pinned old-glibc container and copies the verified result straight into this
+folder. Run them from the repo root:
 
-    ./python/freeze_in_container.sh
+    ./python/freeze_in_container.sh      # nmrgraph_server
+    ./python/freeze_structure3d.sh       # structure3d_server
+    ./python/freeze_iupac.sh             # iupac_fallback_server
 
-**Don't freeze it by hand for a release build.** PyInstaller does not bundle
+**Don't freeze these by hand for a release build.** PyInstaller does not bundle
 glibc — the frozen executable resolves it from whatever machine runs it —
 so freezing on a recent distro produces a bundle that demands a glibc
 almost no user has, and it fails at startup rather than at build time. That
 is how all three backends in the released 1.7.1 AppImage broke: they died
 with ``version `GLIBC_2.44' not found`` on a machine running glibc 2.43.
-See `../python/Dockerfile.nmrgraph` for the image pinning, and
-`../python/freeze_in_container.sh` for the glibc check it runs on the
-result.
+See `../python/Dockerfile.*` for the image pinning and `../python/freeze_lib.sh`
+for the shared glibc check the scripts run on each result.
+
+Each script also smoke-tests the frozen binary against a real request, not
+just `/health` — `/health` returns 200 even when a backend's extra runtime
+binary is missing, so it can't catch "builds fine, every real request fails".
+The iupac one specifically checks the bundled JRE is present, because a
+bundle missing `jre/` starts fine and then fails every `/name` call.
 
 The host-side freeze (`pyinstaller` directly) is still fine for debugging
-a build failure itself; just don't ship it.
-
-The other two backends don't have a container script yet — see each
-folder's own README.md. They have the same glibc exposure, so the same
-pinning applies when they get one.
+a build failure itself; just don't ship it. See each backend folder's
+README.md for the Windows equivalents.
 
 ## nmrgraph_server/
 
