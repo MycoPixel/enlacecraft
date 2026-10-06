@@ -74,6 +74,12 @@ temp/
 
 *.local
 
+# Build caches created by the freeze scripts and CI
+# (python/freeze_windows.ps1's micromamba download + JRE zip, and the
+# Electron download cache that .github/workflows/build.yml points at
+# ELECTRON_CACHE).
+.cache/
+
 # Python backends
 #
 # structure3d_server/ and iupac_fallback_server/ are in-repo source and

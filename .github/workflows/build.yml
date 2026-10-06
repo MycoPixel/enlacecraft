@@ -1,0 +1,166 @@
+# Builds the desktop installers for Linux and Windows.
+#
+# WHY THIS EXISTS
+# ---------------
+# All three bundled Python backends are frozen with PyInstaller, which cannot
+# cross-compile - a Linux build has to happen on Linux and a Windows build on
+# Windows. That used to mean freezing three backends by hand on two machines,
+# hand-copying ~1.5GB of generated output into resources/, keeping two package
+# .json versions in sync by hand, then publishing each platform's installer
+# separately. This does all of it from one push.
+#
+# IT BUILDS, IT DOESN'T PUBLISH
+# -----------------------------
+# The installers are uploaded as workflow artifacts. Publishing to
+# MycoPixel/enlacecraft-releases is left as a deliberate manual step, so no
+# token with write access to a second repository is needed in CI, and nothing
+# can ship without a human deciding to. To release: download the artifacts,
+# create the release at the package.json version, attach the installer *and*
+# its latest*.yml manifest, then publish the (draft) release - electron-updater
+# reads the .yml, not the installer, so an installer with no manifest silently
+# never registers as an update.
+#
+# TRIGGERS
+# --------
+# workflow_dispatch for an on-demand run, or a push to main that touches
+# something that changes the *output* (the Python backends, the Electron
+# layer, the version, packaging config). Renderer-only changes under src/ are
+# deliberately NOT a trigger: each run freezes three backends and downloads
+# several GB, which is a lot of runner time to burn for a tweak that only
+# changes the JS bundle. Ask for a run manually when you want one.
+name: build installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - package-lock.json
+      - electron/**
+      - python/**
+      - build/**
+      - .gitmodules
+      - .github/workflows/build.yml
+
+# Don't let a broken push queue up a dozen expensive runs - cancel the older
+# one for the same ref instead.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Cheap gate before the expensive matrix below: a red unit test should
+      # fail in two minutes, not after two platforms have each spent half an
+      # hour freezing Python backends.
+      - run: npm test
+
+  package:
+    name: ${{ matrix.platform }} installer
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing shouldn't cancel the other - you want to know
+      # about both in one run, not discover the second problem later.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win
+
+    env:
+      # Point the Electron download cache at a workspace path so one cache
+      # entry works on both operating systems (the default locations are
+      # ~/.cache/... on Linux and %LOCALAPPDATA% on Windows).
+      ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # NMRGraph is a submodule, and the build needs it: without this the
+          # backend source and the model checkpoints are simply absent and the
+          # freeze has nothing to freeze.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.ELECTRON_CACHE }}
+          key: electron-${{ matrix.platform }}-${{ hashFiles('package-lock.json') }}
+
+      # --- Freeze the three backends -------------------------------------
+      # Each script freezes, verifies and copies into resources/. They fail the
+      # build on a glibc floor above MAX_GLIBC, or on a smoke test that doesn't
+      # exercise a real request - which is how 1.7.1 shipped three backends
+      # that couldn't start on any real user's Linux.
+      - name: Freeze backends (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          ./python/freeze_in_container.sh
+          ./python/freeze_structure3d.sh
+          ./python/freeze_iupac.sh
+
+      - name: Freeze backends (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./python/freeze_windows.ps1
+
+      - run: npm ci
+
+      - name: Build Linux AppImage
+        if: runner.os == 'Linux'
+        # --publish never is explicit on purpose: electron-builder will
+        # otherwise try to publish whenever it detects a CI environment, and
+        # this job has no token for the separate releases repo.
+        run: npm run dist:linux -- --publish never
+
+      - name: Build Windows NSIS installer
+        if: runner.os == 'Windows'
+        run: npm run dist:win -- --publish never
+
+      - name: Verify the updater manifest exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=$(ls release/latest*.yml 2>/dev/null | head -1 || true)
+          if [ -z "$manifest" ]; then
+            echo "ERROR: no latest*.yml in release/ - electron-updater reads the" >&2
+            echo "       manifest, not the installer, so a release without one" >&2
+            echo "       would silently never register as an update." >&2
+            ls -la release/ >&2
+            exit 1
+          fi
+          echo "found updater manifest: $manifest"
+
+      # Artifacts, not a release. Download both platforms' outputs from the
+      # run summary and attach them to a release by hand.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enlacecraft-${{ matrix.platform }}-${{ github.run_number }}
+          if-no-files-found: error
+          # Both the installer and its manifest; the .yml is the small file
+          # that's easy to forget and fatal to leave behind.
+          path: |
+            release/*.AppImage
+            release/*.exe
+            release/latest*.yml
+            release/builder-effective-config.yaml
+
+      # The frozen backends are ~2.5GB across the three of them and are already
+      # inside the installer, so they aren't uploaded separately.
