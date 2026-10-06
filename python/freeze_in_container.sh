@@ -55,13 +55,24 @@ docker build -f python/Dockerfile.nmrgraph -t "$IMAGE" .
 echo "==> Freezing inside the container"
 # Bind-mount the output dir instead of `docker cp`, so the container writes
 # straight to the host path and there's no copy step to go wrong.
-rm -rf "$SRC/dist"
+#
+# The rm happens *inside* the container too, not just before it: a previous
+# run's output is root-owned (the container runs as root), so a host-side
+# `rm -rf` fails with "Permission denied" and can't clean up its own mess.
+# Doing the cleanup as root inside the container avoids needing sudo on the
+# host for a self-inflicted problem.
+#
+# The trailing chmod fixes the ownership problem at the source - without it
+# this script couldn't write the checkpoints next to the executable, because
+# the freeze left them root-owned.
 mkdir -p "$SRC/dist"
 docker run --rm \
     -v "$(pwd)/$SRC/dist:/src/dist" \
     "$IMAGE" \
-    /opt/bin/micromamba run -n build \
-        pyinstaller --noconfirm packaging/nmrgraph_server.spec
+    sh -c 'rm -rf /src/dist/* /src/dist/.[!.]* 2>/dev/null || true
+           /opt/bin/micromamba run -n build \
+               pyinstaller --noconfirm packaging/nmrgraph_server.spec \
+        && chmod -R a+rwX /src/dist'
 
 if [ ! -x "$SRC/dist/nmrgraph_server/nmrgraph_server" ]; then
     echo "ERROR: freeze produced no executable at $SRC/dist/nmrgraph_server/" >&2
