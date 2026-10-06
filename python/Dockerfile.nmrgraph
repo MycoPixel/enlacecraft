@@ -64,7 +64,12 @@ WORKDIR /src
 # conda-forge CPU build is functionally identical and far smaller - which
 # matters because CI runners have ~14GB of disk and the frozen output is
 # another ~1.1GB on top of the env.
+#
+# Note the package is `pytorch`, not `torch` - `torch` is the PyPI name and
+# does not exist on conda-forge (the solve fails with "torch does not
+# exist"). Plain `pytorch` on conda-forge is the CPU build; the CUDA
+# variants are separate packages.
 RUN "$MICROMAMBA" create -y -n build -c conda-forge \
-        python=3.12 rdkit torch fastapi uvicorn uvloop httptools \
+        python=3.12 rdkit pytorch fastapi uvicorn uvloop httptools \
     && "$MICROMAMBA" run -n build \
         pip install --no-cache-dir pyinstaller
