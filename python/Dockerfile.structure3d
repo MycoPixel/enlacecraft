@@ -27,8 +27,10 @@ ENV MICROMAMBA=/opt/bin/micromamba
 # binutils is a hard requirement of PyInstaller on Linux, not a nicety: its
 # analysis step shells out to objdump to walk each binary's dependencies and
 # aborts with "On Linux, objdump is required" if the package is missing.
+# xz-utils is needed because the xtb release ships as .tar.xz and `tar -xJf`
+# shells out to xz rather than decompressing it itself.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl bzip2 binutils \
+        ca-certificates curl bzip2 binutils xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest \
