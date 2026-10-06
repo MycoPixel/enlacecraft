@@ -91,10 +91,26 @@ if ! command -v objdump >/dev/null 2>&1; then
     exit 1
 fi
 
-max_glibc=$(find "$SRC/dist/nmrgraph_server" -type f \( -name '*.so*' -o -perm -u+x \) -print0 \
-    | xargs -0 -r objdump -T 2>/dev/null \
+# Scan file-by-file rather than piping one big `objdump` through xargs: the
+# executable-bit filter below also matches a few non-ELF files (checkpoints,
+# data files), and `xargs` reports "some invocation exited 123" for those -
+# which, under `set -e` + `pipefail`, kills the script before it can even
+# report a result. Skipping a non-ELF file is correct, not an error; only an
+# empty *result* is a failure.
+#
+# glibc requirements can also come from non-executable shared objects, so
+# `*.so*` is matched regardless of its mode bits.
+max_glibc=$(find "$SRC/dist/nmrgraph_server" -type f -name '*.so*' -print0 \
+    | xargs -0 -r objdump -T 2>/dev/null || true)
+
+# The frozen bootloader itself is usually not named *.so*, so include the
+# top-level executable explicitly.
+max_glibc="$max_glibc
+$(objdump -T "$SRC/dist/nmrgraph_server/nmrgraph_server" 2>/dev/null || true)"
+
+max_glibc=$(printf '%s' "$max_glibc" \
     | grep -o 'GLIBC_[0-9][0-9.]*' \
-    | sort -V | uniq | tail -1)
+    | sort -V | uniq | tail -1 || true)
 
 if [ -z "$max_glibc" ]; then
     echo "ERROR: couldn't determine the glibc requirement of the bundle." >&2
