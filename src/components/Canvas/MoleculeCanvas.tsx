@@ -52,7 +52,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const functionalGroupDesiredAngle = useMoleculeStore((s) => s.functionalGroupDesiredAngle);
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
-  const { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu } = useCanvasInteractions(svgRef);
+  const { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu } = useCanvasInteractions(svgRef);
 
   // Aromatic ring circles the person has toggled on (see
   // AromaticRingDisplay's own doc comment) -- one memo for which bonds
@@ -156,7 +156,11 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      // NOT onPointerUp: a cancel means the gesture was torn down (OS system
+      // gesture, palm rejection, window blur), not finished. Reusing onPointerUp
+      // made an interrupted bond/arrow/bracket drag commit anyway — see
+      // onPointerCancel's doc comment in useCanvasInteractions.ts.
+      onPointerCancel={onPointerCancel}
       onPointerLeave={onPointerLeave}
       onDoubleClick={onDoubleClick}
       onWheel={onWheel}

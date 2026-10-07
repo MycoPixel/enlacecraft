@@ -51,14 +51,75 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     };
   }, [svgRef]);
 
+  /**
+   * Aborts whatever single-pointer gesture is in flight, without losing the
+   * work it already did.
+   *
+   * This exists because several tools mutate the molecule on *pointerdown*
+   * and only push their undo checkpoint in onPointerUp:
+   *
+   *   - erase   deletes the hit atom/bond immediately, checkpoints on release
+   *   - move    repositions atoms as you drag, checkpoints on release
+   *   - bond    creates a carbon at the press point if you missed an atom,
+   *             then draws the bond on release
+   *   - atom    creates the atom immediately, then draws a bond on drag
+   *
+   * A second finger landing (starting a pinch) or a cancelled pointer
+   * abandons that drag without ever reaching onPointerUp — so before this
+   * existed the mutations stayed but the undo entry never got pushed, and
+   * the user lost the ability to undo their own edit. Worse for erase, where
+   * the change is destructive by definition.
+   *
+   * Rather than roll the edit back, this commits it: the user had already
+   * seen the erase happen on screen, so silently restoring those atoms would
+   * be the more surprising outcome. Committing keeps the model consistent
+   * with what was drawn and makes the whole gesture a single undo step.
+   *
+   * Modes that only ever preview (bond/chain/arrow/bracket/marquee/lasso/
+   * functional-group/ring) have nothing to save, so this is a no-op for them
+   * beyond clearing the preview state.
+   */
+  const abortDrag = useCallback(() => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!drag) return;
+
+    // Clear any preview the in-flight gesture was drawing, so it doesn't stay
+    // frozen on the canvas after the gesture is gone.
+    const store = useMoleculeStore.getState();
+    store.setBondPreview(null);
+    store.setChainPreview(null);
+    store.setArrowPreview(null);
+    store.setBracketPairPreview(null);
+    store.setAtomMoveAnchor(null);
+
+    // Only these three modes mutate the molecule before release, and each
+    // already carries the pre-mutation snapshot its own release path uses.
+    if (drag.mode === "erase") {
+      if (store.molecule !== drag.before.molecule) store.commitCheckpoint(drag.before);
+    } else if (drag.mode === "move") {
+      store.commitCheckpoint(drag.before);
+    } else if (drag.mode === "rotate") {
+      store.commitCheckpoint(drag.before);
+    }
+    // "bond" and "atom-bond" create their origin atom on pointerdown. There is
+    // no snapshot to commit for those (they're single additive actions), and
+    // an abandoned pinch mid-bond-draw legitimately leaves the carbon placed
+    // — the same result as tapping with the bond tool, which is the gesture
+    // the press actually was.
+    store.setStatus("status.ready");
+  }, []);
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.pointerType === "touch") {
       touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touchPointersRef.current.size === 2) {
         // Second finger just landed — hand off from whatever single-finger
         // gesture the first finger may have already started (a drag, a
-        // bond draw, ...) to a pinch-zoom gesture instead.
-        dragRef.current = null;
+        // bond draw, ...) to a pinch-zoom gesture instead. abortDrag (not a
+        // bare `dragRef.current = null`) so whatever that gesture already
+        // changed still lands as one undoable step.
+        abortDrag();
         const pts = [...touchPointersRef.current.values()];
         const svg = svgRef.current;
         if (svg) {
@@ -616,7 +677,27 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "bracket-draw") {
       store.setBracketPairPreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
     }
-  }, [clientToWorld]);
+  }, [clientToWorld, abortDrag]);
+
+  /**
+   * A cancelled pointer must NOT be treated as a successful release.
+   *
+   * MoleculeCanvas wires `onPointerCancel={onPointerUp}`, so a cancelled touch
+   * used to run the entire commit path: an interrupted bond-drag still created
+   * its bond and endpoint atom, an interrupted bracket-draw still placed its
+   * bracket pair, an interrupted arrow still placed its arrow. A cancel means
+   * the gesture was torn down by the browser or the OS (a system gesture
+   * stealing the pointer, a palm rejection, the window losing focus) — not that
+   * the user finished drawing. abortDrag keeps what was already committed to
+   * the molecule and just refuses to invent the part that never happened.
+   */
+  const onPointerCancel = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      touchPointersRef.current.delete(e.pointerId);
+      if (touchPointersRef.current.size < 2) pinchRef.current = null;
+    }
+    abortDrag();
+  }, [abortDrag]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     if (e.pointerType === "touch") {
@@ -626,8 +707,9 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         // A pinch just ended (or one of 2+ fingers lifted) — the
         // remaining finger(s) never went through onPointerDown's tool
         // dispatch for where they currently are, so don't let this fall
-        // through into resuming/starting some other gesture.
-        dragRef.current = null;
+        // through into resuming/starting some other gesture. abortDrag for the
+        // same reason onPointerDown's pinch handoff uses it.
+        abortDrag();
         return;
       }
     }
@@ -943,5 +1025,5 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     store.setContextMenu({ x: e.clientX, y: e.clientY, atomId, bondId });
   }, [clientToWorld]);
 
-  return { onPointerDown, onPointerMove, onPointerUp, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu };
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu };
 }
