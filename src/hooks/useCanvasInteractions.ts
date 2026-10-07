@@ -1,7 +1,7 @@
 import { useCallback, useRef, type RefObject } from "react";
 import type { Annotation, Molecule, Point, RingAttachment, RingTemplate, FunctionalGroupAttachment, FunctionalGroupTemplate } from "../types/chemistry";
 import { useMoleculeStore } from "../store/useMoleculeStore";
-import { atomAt, atomsInRect, bondAt, annotationsInRect, atomsInPolygon, annotationsInPolygon } from "../engine/hitTest";
+import { atomAt, atomsInRect, bondAt, annotationsInRect, atomsInPolygon, annotationsInPolygon, MIN_HIT_PX_PRECISE, MIN_HIT_PX_TOUCH } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
 import { neighborIds } from "../model/valence";
 import { computeChainPoints } from "../engine/chainPlacement";
@@ -50,6 +50,31 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       y: (clientY - rect.top - view.ty) / view.scale,
     };
   }, [svgRef]);
+
+  /**
+   * Hit-testing wrappers that keep target sizes usable at every zoom level.
+   *
+   * The raw radii in hitTest.ts are world units, so they shrink on screen as
+   * the view zooms out: at the minimum zoom an atom is a 4px target and a bond
+   * line 2px, which a fingertip cannot hit. These pass the live zoom through
+   * so the target keeps an on-screen floor instead (see hitTest.ts's
+   * hitRadius), and raise that floor for touch, where a finger is far blunter
+   * than a mouse pointer.
+   *
+   * The touch flag is tracked from pointerdown rather than passed per call so
+   * that the plain `atomAt(mol, pt)` call sites keep their existing shape.
+   */
+  const touchInputRef = useRef(false);
+
+  const pickAtom = useCallback((mol: Molecule, pt: Point, excludeId: string | null = null, worldRadius = 16): string | null => {
+    const { view } = useMoleculeStore.getState();
+    return atomAt(mol, pt, worldRadius, excludeId, view.scale, touchInputRef.current ? MIN_HIT_PX_TOUCH : MIN_HIT_PX_PRECISE);
+  }, []);
+
+  const pickBond = useCallback((mol: Molecule, pt: Point, worldTolerance = 8): string | null => {
+    const { view } = useMoleculeStore.getState();
+    return bondAt(mol, pt, worldTolerance, view.scale, touchInputRef.current ? MIN_HIT_PX_TOUCH : MIN_HIT_PX_PRECISE);
+  }, []);
 
   /**
    * Aborts whatever single-pointer gesture is in flight, without losing the
@@ -111,6 +136,9 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // Tracked so hit targets get a finger-sized floor for the rest of the
+    // gesture (see hitAtom/hitBond). Set before any hit-testing below.
+    touchInputRef.current = e.pointerType === "touch";
     if (e.pointerType === "touch") {
       touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touchPointersRef.current.size === 2) {
@@ -162,7 +190,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const svg = svgRef.current;
       svg?.setPointerCapture?.(e.pointerId);
       const pt = clientToWorld(e.clientX, e.clientY);
-      const hit = atomAt(molecule, pt) || bondAt(molecule, pt);
+      const hit = pickAtom(molecule, pt) || pickBond(molecule, pt);
       dragRef.current = {
         mode: "pan",
         startClient: { x: e.clientX, y: e.clientY },
@@ -176,8 +204,8 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     svg?.setPointerCapture?.(e.pointerId);
 
     const pt = clientToWorld(e.clientX, e.clientY);
-    const hitAtom = atomAt(molecule, pt);
-    const hitBond = !hitAtom ? bondAt(molecule, pt) : null;
+    const hitAtom = pickAtom(molecule, pt);
+    const hitBond = !hitAtom ? pickBond(molecule, pt) : null;
     store.setBondPreview(null);
     store.setChainPreview(null);
 
@@ -442,7 +470,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       dragRef.current = { mode: "bond", from: startAtom };
       return;
     }
-  }, [clientToWorld]);
+  }, [clientToWorld, pickAtom, pickBond]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (e.pointerType === "touch" && touchPointersRef.current.has(e.pointerId)) {
@@ -468,9 +496,9 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
     const store = useMoleculeStore.getState();
     const pt = clientToWorld(e.clientX, e.clientY);
-    const hitAtom = atomAt(store.molecule, pt);
+    const hitAtom = pickAtom(store.molecule, pt);
     store.setHoverAtomId(hitAtom);
-    store.setHoverBondId(hitAtom ? null : bondAt(store.molecule, pt));
+    store.setHoverBondId(hitAtom ? null : pickBond(store.molecule, pt));
     store.setHoverPoint(pt);
 
     const drag = dragRef.current;
@@ -486,7 +514,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "erase") {
       if (hitAtom) store.deleteAtomTransient(hitAtom);
       else {
-        const hitBond = bondAt(store.molecule, pt);
+        const hitBond = pickBond(store.molecule, pt);
         if (hitBond) store.deleteBondTransient(hitBond);
       }
       return;
@@ -597,7 +625,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const fromAtom = store.molecule.atoms[drag.from];
       if (fromAtom) {
         const movedEnough = dist(fromAtom, pt) > 12;
-        const hit = atomAt(store.molecule, pt, 16, drag.from);
+        const hit = pickAtom(store.molecule, pt, drag.from, 16);
         let previewPoint: Point;
         let targetAtomId: string | null = null;
         let targetBondId: string | null = null;
@@ -622,7 +650,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
           // angle grid would otherwise put it, so a new atom doesn't
           // land squarely on top of unrelated geometry - and surface
           // which bond it snapped to for MoleculeCanvas to highlight.
-          const nearBond = bondAt(store.molecule, pt, 10);
+          const nearBond = pickBond(store.molecule, pt, 10);
           const nb = nearBond ? store.molecule.bonds[nearBond] : null;
           if (nb && nb.a1 !== drag.from && nb.a2 !== drag.from) {
             const ba1 = store.molecule.atoms[nb.a1];
@@ -677,7 +705,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "bracket-draw") {
       store.setBracketPairPreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
     }
-  }, [clientToWorld, abortDrag]);
+  }, [clientToWorld, abortDrag, pickAtom, pickBond]);
 
   /**
    * A cancelled pointer must NOT be treated as a successful release.
@@ -776,8 +804,8 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       // every other drag-commit branch in this function does.
       const pt = clientToWorld(e.clientX, e.clientY);
       const { molecule } = store;
-      const hitAtom = atomAt(molecule, pt);
-      const hitBond = !hitAtom ? bondAt(molecule, pt) : null;
+      const hitAtom = pickAtom(molecule, pt);
+      const hitBond = !hitAtom ? pickBond(molecule, pt) : null;
       const attachment: RingAttachment = hitAtom
         ? { type: "atom", atomId: hitAtom }
         : hitBond
@@ -795,7 +823,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const fromAtom = molecule.atoms[from];
       if (!fromAtom) return;
       const movedEnough = dist(fromAtom, pt) > 12;
-      const hitAtom = atomAt(molecule, pt);
+      const hitAtom = pickAtom(molecule, pt);
 
       let toAtom: string;
       if (hitAtom && hitAtom !== from) {
@@ -832,7 +860,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         store.setStatus("status.ready");
         return;
       }
-      const hitAtom = atomAt(molecule, pt, 16, from);
+      const hitAtom = pickAtom(molecule, pt, from, 16);
       const toAtom = hitAtom ?? store.addAtom(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), e.shiftKey)), "C");
       store.addBond(from, toAtom, 1, "none");
       store.setStatus("status.ready");
@@ -885,22 +913,22 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       store.setSelectedAnnotationIds(new Set([openId, closeId]));
       store.setTool("select");
     }
-  }, [clientToWorld]);
+  }, [clientToWorld, pickAtom, pickBond]);
 
   const onDoubleClick = useCallback((e: React.MouseEvent) => {
     const store = useMoleculeStore.getState();
     if (store.tool !== "select" && store.tool !== "lasso") return;
     const { molecule } = store;
     const pt = clientToWorld(e.clientX, e.clientY);
-    const hitAtom = atomAt(molecule, pt);
-    const hitBond = !hitAtom ? bondAt(molecule, pt) : null;
+    const hitAtom = pickAtom(molecule, pt);
+    const hitBond = !hitAtom ? pickBond(molecule, pt) : null;
 
     if (hitAtom) {
       store.setSelected(fragmentOf(molecule, hitAtom));
     } else if (hitBond) {
       store.setSelected(fragmentOf(molecule, molecule.bonds[hitBond].a1));
     }
-  }, [clientToWorld]);
+  }, [clientToWorld, pickAtom, pickBond]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -974,7 +1002,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       origPositions: ids.map((id) => ({ id, x: store.molecule.atoms[id].x, y: store.molecule.atoms[id].y })),
       before: { molecule: store.molecule, annotations: store.annotations },
     };
-  }, [clientToWorld, svgRef]);
+  }, [clientToWorld, svgRef, pickAtom, pickBond]);
 
   const onPointerLeave = useCallback(() => {
     const store = useMoleculeStore.getState();
@@ -997,8 +1025,8 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     e.preventDefault();
     const store = useMoleculeStore.getState();
     const pt = clientToWorld(e.clientX, e.clientY);
-    const atomId = atomAt(store.molecule, pt);
-    const bondId = atomId ? null : bondAt(store.molecule, pt);
+    const atomId = pickAtom(store.molecule, pt);
+    const bondId = atomId ? null : pickBond(store.molecule, pt);
     // A genuine right-click (button === 2) always opens the menu. Some
     // mobile/touchscreen browsers also dispatch a contextmenu event on a
     // long-press, reported as button 0 — that's let through here too,
@@ -1023,7 +1051,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     // one.
     if (e.button !== 2 && atomId) return;
     store.setContextMenu({ x: e.clientX, y: e.clientY, atomId, bondId });
-  }, [clientToWorld]);
+  }, [clientToWorld, pickAtom, pickBond]);
 
   return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu };
 }

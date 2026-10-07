@@ -1,14 +1,58 @@
 import type { Annotation, Molecule, Point } from "../types/chemistry";
 import { dist } from "../model/geometry";
 
-export function atomAt(mol: Molecule, pt: Point, radius = 16, excludeId: string | null = null): string | null {
+/**
+ * Hit radii are stored in *world* units, so they shrink on screen as you zoom
+ * out — which is backwards for touch. At the minimum zoom (0.25) the default
+ * 16-unit atom radius is 4 screen px and the 8-unit bond tolerance is 2px,
+ * both far below anything a fingertip can reliably hit, and precisely when
+ * the structure is largest and hardest to work with.
+ *
+ * `hitRadius` converts a world-space radius into one that never renders
+ * smaller than `minScreenPx` on screen, by dividing the pixel floor by the
+ * current zoom. At normal zoom the world radius wins and nothing changes; zoom
+ * out and the floor takes over, growing the target to stay finger-sized.
+ */
+
+/** Floor for a mouse/trackpad pointer — a generous target, but the pointer is
+ *  precise enough that a huge radius would start stealing neighbouring atoms. */
+export const MIN_HIT_PX_PRECISE = 10;
+
+/** Floor for touch. Sized against the ~44px accessibility guideline but not
+ *  all the way there: this is a *radius*, so the target is twice this across,
+ *  and going the full 44 would make small rings unclickable in crowded
+ *  structures. */
+export const MIN_HIT_PX_TOUCH = 22;
+
+/**
+ * Converts a world-space hit radius to one with an on-screen size floor.
+ *
+ * `scale` is view.scale (1 = 100%). `minScreenPx` is the smallest acceptable
+ * on-screen radius.
+ */
+export function hitRadius(worldRadius: number, scale: number, minScreenPx: number): number {
+  // Guard the division: scale is clamped to >= 0.1 in the viewport, but a
+  // zero/NaN would otherwise produce Infinity and match every atom.
+  const s = Number.isFinite(scale) && scale > 0.001 ? scale : 1;
+  return Math.max(worldRadius, minScreenPx / s);
+}
+
+export function atomAt(
+  mol: Molecule,
+  pt: Point,
+  radius = 16,
+  excludeId: string | null = null,
+  scale = 1,
+  minScreenPx = MIN_HIT_PX_PRECISE,
+): string | null {
+  const r = hitRadius(radius, scale, minScreenPx);
   let best: string | null = null;
   let bestD = Infinity;
   for (const id in mol.atoms) {
     if (id === excludeId) continue;
     const a = mol.atoms[id];
     const d = dist(a, pt);
-    if (d < radius && d < bestD) {
+    if (d < r && d < bestD) {
       best = id;
       bestD = d;
     }
@@ -16,7 +60,14 @@ export function atomAt(mol: Molecule, pt: Point, radius = 16, excludeId: string 
   return best;
 }
 
-export function bondAt(mol: Molecule, pt: Point, tolerance = 8): string | null {
+export function bondAt(
+  mol: Molecule,
+  pt: Point,
+  tolerance = 8,
+  scale = 1,
+  minScreenPx = MIN_HIT_PX_PRECISE,
+): string | null {
+  const tol = hitRadius(tolerance, scale, minScreenPx);
   for (const id in mol.bonds) {
     const b = mol.bonds[id];
     const a1 = mol.atoms[b.a1];
@@ -29,7 +80,7 @@ export function bondAt(mol: Molecule, pt: Point, tolerance = 8): string | null {
       Math.min(1, ((pt.x - a1.x) * (a2.x - a1.x) + (pt.y - a1.y) * (a2.y - a1.y)) / (len * len))
     );
     const proj = { x: a1.x + t * (a2.x - a1.x), y: a1.y + t * (a2.y - a1.y) };
-    if (dist(pt, proj) < tolerance) return id;
+    if (dist(pt, proj) < tol) return id;
   }
   return null;
 }
