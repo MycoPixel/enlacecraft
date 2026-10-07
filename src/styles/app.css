@@ -3814,3 +3814,64 @@
 .nmr-report-table__mult-cell--hasdetail {
   cursor: pointer;
 }
+
+/* --- Measured-spectrum overlay, and the export/comparison controls ------
+   The overlay lines are deliberately a different hue AND dashed: a measured
+   spectrum must never be mistaken for the predicted one, and at a glance
+   (or in a screenshot) colour alone is not a reliable enough distinction. */
+
+/* Equal height, dashed - presence markers, not an intensity series. See the
+   comment at the render site: a pasted peak list's integrals aren't comparable
+   to the simulated absolute intensity, so varying the height would overstate
+   what the overlay can actually claim. */
+.nmr-spectrum-plot__experimental {
+  stroke: #17a2b8;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.85;
+}
+
+.nmr-spectrum-view__data-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.nmr-spectrum-view__compare-summary,
+.nmr-spectrum-view__compare-notice {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.nmr-spectrum-view__compare-notice {
+  color: #b26a00;
+}
+
+.nmr-spectrum-view__paste {
+  margin-top: 8px;
+}
+
+.nmr-spectrum-view__paste-label {
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.nmr-spectrum-view__paste-text {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  resize: vertical;
+}
+
+.nmr-spectrum-view__paste-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}

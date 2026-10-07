@@ -2,6 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useT } from "../../i18n/useT";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import type { Nucleus, PeakListRow } from "../../io/nmrExport";
+import {
+  buildPeakList,
+  peakListToCsv,
+  peakListToJcamp,
+  peakListFilename,
+  parsePeakList,
+  describeExperimentalSpread,
+} from "../../io/nmrExport";
+import { downloadBlob } from "../../io/exportImage";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import {
   simulateH1Spectrum,
@@ -32,7 +42,7 @@ const INTEGRAL_BASE_Y = TOTAL_PLOT_HEIGHT - 6;
 const CURVE_SAMPLES = 480;
 
 type PlotMode = "curve" | "sticks";
-type Nucleus = "h1" | "c13";
+
 
 const MIN_VERTICAL_ZOOM = 1;
 const MAX_VERTICAL_ZOOM = 60;
@@ -150,6 +160,7 @@ function SpectrumPlot({
   nucleus,
   linewidthPpm,
   onSelectGroup,
+  experimental,
 }: {
   peakGroups: SimulatedPeakGroup[];
   nucleus: Nucleus;
@@ -157,6 +168,8 @@ function SpectrumPlot({
   /** Called with the group whose peak/label was clicked - lets the plot act
    *  as a peak picker rather than a purely decorative graph. */
   onSelectGroup: ((group: SimulatedPeakGroup) => void) | undefined;
+  /** Measured peaks to overlay, or null when no comparison is loaded. */
+  experimental: PeakListRow[] | null;
 }) {
   const t = useT();
   const [mode, setMode] = useState<PlotMode>("curve");
@@ -764,6 +777,28 @@ function SpectrumPlot({
             )
           )}
 
+          {/* Measured peaks, as presence markers only.
+              Deliberately EQUAL height rather than scaled by their integral or
+              any intensity. A pasted peak list reports positions, and its
+              integrals are only comparable to each other, not to the simulated
+              absolute intensity on the same axis - drawing them at varying
+              heights would imply a quantitative agreement that doesn't exist.
+              Uniform full-height lines say exactly what they mean: a signal was
+              reported at this shift. */}
+          {experimental &&
+            experimental
+              .filter((r) => r.shiftPpm >= minPpm && r.shiftPpm <= maxPpm)
+              .map((r, i) => (
+                <line
+                  key={`exp-${i}-${r.shiftPpm}`}
+                  x1={ppmToX(r.shiftPpm)}
+                  y1={AXIS_Y}
+                  x2={ppmToX(r.shiftPpm)}
+                  y2={2}
+                  className="nmr-spectrum-plot__experimental"
+                />
+              ))}
+
           {labelPlacements.map((placement, gi) => (
             <g key={gi}>
               {placement.lane > 0 && (
@@ -866,9 +901,73 @@ export function NmrSpectrumView({
   atomOrder: string[];
   atomLabels: Map<string, string>;
 }) {
-  const t = useT();
+    const t = useT();
   const [activeNucleus, setActiveNucleus] = useState<Nucleus>("h1");
   const setSelected = useMoleculeStore((s) => s.setSelected);
+  const activeTabTitle = useMoleculeStore(
+    (s) => s.tabs.find((tb) => tb.id === s.activeTabId)?.title ?? "",
+  );
+
+  // --- getting the data out, and putting real data in -------------------
+  // The spectrum could be read and nothing could be done with it. Export makes
+  // the numbers reusable; the comparison overlay makes a measured spectrum
+  // checkable against the prediction, which is the entire point of predicting.
+  const [experimental, setExperimental] = useState<PeakListRow[] | null>(null);
+  const [showPasteBox, setShowPasteBox] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+
+  const rowsFor = useCallback(
+    (nucleus: Nucleus) =>
+      buildPeakList(predictions, predictionsH1, nucleus, (i) =>
+        // Same fallback rule equivalenceGroupLabel uses, so an exported atom
+        // name matches the one shown in the report rather than differing
+        // between the two views of the same data.
+        atomLabels.get(atomOrder[i] ?? "") ?? String(i),
+      ),
+    [predictions, predictionsH1, atomOrder, atomLabels],
+  );
+
+  const doExport = useCallback(
+    (kind: "csv" | "jdx") => {
+      const name = peakListFilename(activeTabTitle, activeNucleus, kind === "csv" ? "csv" : "jdx");
+      const rows = rowsFor(activeNucleus);
+      const text =
+        kind === "csv"
+          ? peakListToCsv(rows)
+          : peakListToJcamp(rows, activeNucleus, activeTabTitle || "predicted spectrum");
+      downloadBlob(
+        new Blob([text], { type: kind === "csv" ? "text/csv" : "chemical/x-jcamp-dx" }),
+        name,
+      );
+    },
+    [activeNucleus, activeTabTitle, rowsFor],
+  );
+
+  const applyPastedPeaks = useCallback(() => {
+    const { rows, skippedLines } = parsePeakList(pasteText);
+    if (rows.length === 0) {
+      setPasteNotice(t("nmr.compareNothingParsed"));
+      return;
+    }
+    setExperimental(rows);
+    setShowPasteBox(false);
+    // Say what was ignored. A partially-imported list that looks complete is
+    // worse than one that admits it dropped lines, because the user has no
+    // other way to know something went missing.
+    setPasteNotice(
+      skippedLines > 0
+        ? t("nmr.comparePartial", { count: rows.length, skipped: skippedLines })
+        : t("nmr.compareLoaded", { count: rows.length }),
+    );
+  }, [pasteText, t]);
+
+  const clearComparison = useCallback(() => {
+    setExperimental(null);
+    setPasteText("");
+    setPasteNotice(null);
+    setShowPasteBox(false);
+  }, []);
 
   const h1Groups = useMemo(() => groupByEquivalence(predictionsH1), [predictionsH1]);
   const c13Groups = useMemo(() => groupByEquivalence(predictions), [predictions]);
@@ -938,12 +1037,75 @@ export function NmrSpectrumView({
       </div>
 
       {activeNucleus === "h1" ? (
-        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} />
+        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} experimental={experimental} />
       ) : (
-        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} />
+        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} experimental={experimental} />
       )}
 
       <p className="nmr-report-dialog__caveat">{t("nmr.spectrumCaveat")}</p>
+
+      {/* Export and comparison. The spectrum was the one part of the app you
+          could read but not use: no way to get the numbers out, and no way to
+          check the prediction against a real spectrum - which is the entire
+          reason to predict one. */}
+      <div className="nmr-spectrum-view__data-bar">
+        <button type="button" className="nmr-report-dialog__btn" onClick={() => doExport("csv")}>
+          {t("nmr.exportCsv")}
+        </button>
+        <button type="button" className="nmr-report-dialog__btn" onClick={() => doExport("jdx")}>
+          {t("nmr.exportJdx")}
+        </button>
+        <button
+          type="button"
+          className="nmr-report-dialog__btn"
+          onClick={() => {
+            setShowPasteBox((v) => !v);
+            setPasteNotice(null);
+          }}
+        >
+          {t("nmr.compareButton")}
+        </button>
+        {experimental && (
+          <button type="button" className="nmr-report-dialog__btn" onClick={clearComparison}>
+            {t("nmr.compareClear")}
+          </button>
+        )}
+      </div>
+
+      {experimental && (
+        <p className="nmr-spectrum-view__compare-summary">
+          {(() => {
+            const s = describeExperimentalSpread(experimental);
+            return t("nmr.compareSummary", { count: s.count, min: s.min.toFixed(2), max: s.max.toFixed(2) });
+          })()}
+        </p>
+      )}
+
+      {pasteNotice && <p className="nmr-spectrum-view__compare-notice">{pasteNotice}</p>}
+
+      {showPasteBox && (
+        <div className="nmr-spectrum-view__paste">
+          <label className="nmr-spectrum-view__paste-label" htmlFor="nmr-compare-paste">
+            {t("nmr.compareHelp")}
+          </label>
+          <textarea
+            id="nmr-compare-paste"
+            className="nmr-spectrum-view__paste-text"
+            value={pasteText}
+            rows={4}
+            placeholder={"7.26, 2, t\n3.74, 3, s\n1.20, 6, s"}
+            onChange={(e) => setPasteText(e.target.value)}
+          />
+          <div className="nmr-spectrum-view__paste-actions">
+            <button type="button" className="nmr-report-dialog__btn" onClick={applyPastedPeaks}>
+              {t("nmr.compareOverlay")}
+            </button>
+            <button type="button" className="nmr-report-dialog__btn" onClick={() => setShowPasteBox(false)}>
+              {t("confirm.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
