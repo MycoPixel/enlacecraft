@@ -244,6 +244,18 @@ jobs:
             exit 1
           fi
           echo "found updater manifest: $manifest"
+          # List what the release will actually be assembled from. The missing
+          # blockmap went unnoticed because every file that WAS uploaded looked
+          # correct - nothing ever printed the full set, so an omission had no
+          # signature. A blockmap is a warning, not a failure: generation is
+          # best-effort per target and a release without one still updates,
+          # just by downloading in full.
+          echo "release contents:"
+          ls -la release/ | grep -vE '^total|^d'
+          if ! compgen -G 'release/*.blockmap' >/dev/null; then
+            echo "WARNING: no .blockmap produced. Differential updates will fall"
+            echo "         back to a full download. Not fatal."
+          fi
 
       # Artifacts, not a release. Download both platforms' outputs from the
       # run summary and attach them to a release by hand.
@@ -253,9 +265,27 @@ jobs:
           if-no-files-found: error
           # Both the installer and its manifest; the .yml is the small file
           # that's easy to forget and fatal to leave behind.
+          #
+          # The *.blockmap files matter for the same reason. electron-builder
+          # writes them next to each installer, and latest*.yml advertises
+          # them (blockMapSize), but they weren't being uploaded - so a release
+          # assembled from these artifacts shipped without them, which is how
+          # 1.8.0 lost its .exe.blockmap.
+          #
+          # electron-updater fetches <installer>.blockmap to do a DIFFERENTIAL
+          # download - only the chunks that changed, rather than the whole
+          # ~700MB file. With it missing, the update either falls back to a
+          # full re-download on every release or fails outright, and both look
+          # fine in the build logs. The yml already promises these files, so
+          # shipping them is just keeping that promise.
+          #
+          # Not an error if absent: blockmap generation is best-effort and
+          # depends on the target. error_no_files_found stays on for the
+          # installer itself, which must never be missing.
           path: |
             release/*.AppImage
             release/*.exe
+            release/*.blockmap
             release/latest*.yml
             release/builder-effective-config.yaml
 
