@@ -139,7 +139,7 @@ export function simulateH1Spectrum(
     let isIllustrative = false;
     if (!couplingsHz || couplingsHz.length === 0) {
       const n = impliedCouplingCount(rep.multiplicity);
-      couplingsHz = new Array(n).fill(DEFAULT_ILLUSTRATIVE_J_HZ);
+      couplingsHz = Array.from({ length: n }, () => DEFAULT_ILLUSTRATIVE_J_HZ);
       isIllustrative = n > 0;
     }
 

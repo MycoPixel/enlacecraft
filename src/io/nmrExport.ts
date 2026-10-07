@@ -246,8 +246,10 @@ export function parsePeakList(text: string): { rows: PeakListRow[]; skippedLines
     const line = rawLine.trim();
     if (!line) continue;
 
-    // JCAMP wrapper lines carry no data.
-    if (/^##/.test(line) || /^##XYDATA/.test(line) || line === "##END") continue;
+    // JCAMP wrapper lines carry no data. One test covers all of them: every
+    // header line starts with "##", including ##XYDATA and ##END, so a
+    // separate clause for those would never be reached.
+    if (line.startsWith("##")) continue;
 
     // Strip JCAMP's structural punctuation, keeping the inner pairs.
     const jcampPair = /\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)/.exec(line);
@@ -319,11 +321,48 @@ export function parsePeakList(text: string): { rows: PeakListRow[]; skippedLines
 }
 
 /**
+ * True when a tab title is still the app's own default ("Tab 3", "Pestaña 3").
+ *
+ * The default carries no information about the structure, so a filename built
+ * from it ("nmr-tab-3-1H.csv") tells you nothing once the file is in a
+ * downloads folder full of them. The IUPAC name is the ideal filename source
+ * but it requires a PubChem lookup, so it isn't available synchronously at
+ * export time - see pickStructureFilename.
+ */
+export function isDefaultTabTitle(title: string): boolean {
+  return /^\s*(tab|pestaña|pestana)\s*\d+\s*$/i.test(title);
+}
+
+/**
+ * Picks the best available name for an exported file.
+ *
+ * Preference order, and why each step exists:
+ *
+ *  1. A tab title that isn't the default - the user named this structure, and
+ *     that name is exactly what they want to see in the filename.
+ *  2. The molecular formula - always available, needs no network, and still
+ *     identifies the structure unambiguously among a handful of downloads.
+ *     Far better than a meaningless "structure" fallback.
+ *  3. "structure" - only when there's genuinely nothing: no title and an empty
+ *     molecule, where no identifier is derivable.
+ *
+ * The formula is NOT a fallback for a bad name - a user who titles a tab
+ * "aspirin draft" gets that slug, not C9H8O4. Renaming someone's work to
+ * something they'd have to reverse is worse than a slightly long filename.
+ */
+export function pickStructureFilename(title: string, formula: string | null): string {
+  const trimmed = title.trim();
+  if (trimmed && !isDefaultTabTitle(trimmed)) return trimmed;
+  const f = formula?.trim();
+  return f || "structure";
+}
+
+/**
  * Filename for an exported peak list, e.g. "nmr-aspirin-1H.csv".
  *
- * Keeps the structure name in the filename because a downloaded peak list with
- * no indication of which structure it came from is close to useless once it's
- * in a downloads folder.
+ * Keeps the structure identifier in the filename because a downloaded peak
+ * list with no indication of which structure it came from is close to useless
+ * once it's in a downloads folder.
  */
 export function peakListFilename(structureName: string, nucleus: Nucleus, extension: string): string {
   const safe = structureName

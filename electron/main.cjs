@@ -112,7 +112,7 @@ function createWindow() {
   // silently blocks the close, which looks like the close button did
   // nothing. `will-prevent-unload` is the event Electron fires instead, and
   // it's on us to show a dialog and decide whether to let the close through.
-  win.webContents.on("will-prevent-unload", (event) => {
+  win.webContents.on("will-prevent-unload", (_event) => {
     // Deliberately does NOT call event.preventDefault() synchronously
     // here - that's what actually lets the close through, and we don't
     // know the user's answer yet. showMessageBox below is the async

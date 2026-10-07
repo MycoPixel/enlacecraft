@@ -4,7 +4,7 @@
 // created with) is tested, not just the helper functions. This is not a
 // substitute for launching the packaged app, but it catches wiring mistakes
 // with no Electron binary needed.
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { createRequire } from "node:module";
 import { EventEmitter } from "node:events";
 import fsp from "node:fs/promises";

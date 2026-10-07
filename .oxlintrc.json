@@ -1,0 +1,48 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "react",
+    "typescript",
+    "oxc",
+    "unicorn"
+  ],
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "unicorn/no-null": "off",
+    "typescript/no-explicit-any": "warn",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "eqeqeq": "off",
+    "no-empty": "off",
+    "react-hooks/exhaustive-deps": "warn",
+    "react/exhaustive-effect-dependencies": "off",
+    "react/set-state-in-effect": "warn",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "unicorn/no-array-reverse": "off",
+    "no-underscore-dangle": "off",
+    "react/memo-dependencies": "off",
+    "react/globals": "warn",
+    "no-shadow": "off"
+  },
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    "release",
+    "scripts"
+  ]
+}

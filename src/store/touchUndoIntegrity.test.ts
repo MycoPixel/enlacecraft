@@ -37,7 +37,6 @@ function freshStore() {
 }
 
 function seedChain() {
-  const store = useMoleculeStore.getState();
   const a = "atom-a";
   const b = "atom-b";
   let mol = addAtom(emptyMolecule(), a, { x: 0, y: 0 }, "C");
@@ -72,7 +71,7 @@ describe("transient mutations stay undoable", () => {
   });
 
   test("checkpoint restores erased atoms and bonds together", () => {
-    const { a, b } = seedChain();
+    const { a } = seedChain();
     const store = useMoleculeStore.getState();
     const before = store.snapshotBefore();
 

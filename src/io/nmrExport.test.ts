@@ -5,6 +5,8 @@ import {
   peakListToJcamp,
   parsePeakList,
   peakListFilename,
+  pickStructureFilename,
+  isDefaultTabTitle,
   describeExperimentalSpread,
   type PeakListRow,
 } from "./nmrExport";
@@ -288,6 +290,47 @@ describe("peakListFilename", () => {
   test("bounds the length so a long name can't make an unwieldy filename", () => {
     const name = peakListFilename("a".repeat(200), "h1", "csv");
     expect(name.length).toBeLessThan(60);
+  });
+});
+
+describe("pickStructureFilename", () => {
+  test("uses a user-given tab title as-is", () => {
+    // The user's own naming of the structure is exactly what belongs in the
+    // filename. Also refuses to normalise it into a formula - see below.
+    expect(pickStructureFilename("aspirin draft", "C9H8O4")).toBe("aspirin draft");
+  });
+
+  test("falls back to the formula when the title is still the app default", () => {
+    // Without this, every download was named nmr-tab-1-1H.csv.
+    expect(pickStructureFilename("Tab 1", "C9H8O4")).toBe("C9H8O4");
+    expect(pickStructureFilename("Pestaña 3", "C9H8O4")).toBe("C9H8O4");
+  });
+
+  test("recognises default titles in either language and any case", () => {
+    expect(isDefaultTabTitle("Tab 12")).toBe(true);
+    expect(isDefaultTabTitle("tab 2")).toBe(true);
+    expect(isDefaultTabTitle("  Pestaña 4  ")).toBe(true);
+  });
+
+  test("does not treat a real name that merely starts with Tab as default", () => {
+    // "Tabernanthine" is a real compound name; stripping it to a formula
+    // would discard the one name the user had.
+    expect(isDefaultTabTitle("Tabernanthine")).toBe(false);
+    expect(pickStructureFilename("Tabernanthine", "C21H22N2O4")).toBe("Tabernanthine");
+  });
+
+  test("falls back to 'structure' only when there is nothing at all", () => {
+    expect(pickStructureFilename("Tab 1", null)).toBe("structure");
+    expect(pickStructureFilename("", null)).toBe("structure");
+    expect(pickStructureFilename("   ", "")).toBe("structure");
+  });
+
+  test("a formula filename still slugs into a usable name", () => {
+    // Formulas contain no slug-illegal characters, but this pins the end-to-end
+    // result since that is what actually reaches the downloads folder.
+    expect(peakListFilename(pickStructureFilename("Tab 1", "C9H8O4"), "h1", "csv")).toBe(
+      "nmr-c9h8o4-1H.csv",
+    );
   });
 });
 

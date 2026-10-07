@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   MousePointer2, Lasso, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
-  MoreHorizontal, Group, Bookmark, BookmarkPlus, Wand2, AlignCenterVertical,
+  MoreHorizontal, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler, ShieldOff,
 } from "lucide-react";

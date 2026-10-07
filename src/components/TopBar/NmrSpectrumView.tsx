@@ -9,10 +9,12 @@ import {
   peakListToCsv,
   peakListToJcamp,
   peakListFilename,
+  pickStructureFilename,
   parsePeakList,
   describeExperimentalSpread,
 } from "../../io/nmrExport";
 import { downloadBlob } from "../../io/exportImage";
+import { computeFormula } from "../../model/valence";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import {
   simulateH1Spectrum,
@@ -1071,6 +1073,7 @@ export function NmrSpectrumView({
   const activeTabTitle = useMoleculeStore(
     (s) => s.tabs.find((tb) => tb.id === s.activeTabId)?.title ?? "",
   );
+  const molecule = useMoleculeStore((s) => s.molecule);
 
   // --- getting the data out, and putting real data in -------------------
   // The spectrum could be read and nothing could be done with it. Export makes
@@ -1116,18 +1119,23 @@ export function NmrSpectrumView({
 
   const doExport = useCallback(
     (kind: "csv" | "jdx") => {
-      const name = peakListFilename(activeTabTitle, activeNucleus, kind === "csv" ? "csv" : "jdx");
+      // A named tab wins; otherwise identify the structure by formula, so a
+      // download is never "nmr-structure-1H.csv" when the formula was sitting
+      // right there and needed no network to compute.
+      const formula = Object.keys(molecule.atoms).length > 0 ? computeFormula(molecule) : null;
+      const stem = pickStructureFilename(activeTabTitle, formula);
+      const name = peakListFilename(stem, activeNucleus, kind === "csv" ? "csv" : "jdx");
       const rows = rowsFor(activeNucleus);
       const text =
         kind === "csv"
           ? peakListToCsv(rows)
-          : peakListToJcamp(rows, activeNucleus, activeTabTitle || "predicted spectrum");
+          : peakListToJcamp(rows, activeNucleus, stem || "predicted spectrum");
       downloadBlob(
         new Blob([text], { type: kind === "csv" ? "text/csv" : "chemical/x-jcamp-dx" }),
         name,
       );
     },
-    [activeNucleus, activeTabTitle, rowsFor],
+    [activeNucleus, activeTabTitle, rowsFor, molecule],
   );
 
   const applyPastedPeaks = useCallback(() => {
