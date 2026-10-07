@@ -28,7 +28,15 @@ ENV MICROMAMBA=/opt/bin/micromamba
 
 # binutils is a hard PyInstaller requirement on Linux (its analysis step calls
 # objdump); without it the freeze aborts.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Acquire::Retries so a flaky mirror doesn't fail the whole freeze.
+#
+# These three Dockerfiles each hit the Ubuntu archive during the build, and a
+# single refused connection (we saw "Connection failed" against
+# security.ubuntu.com mid-install) takes down the layer - and with it the
+# 2.5GB freeze and a full runner run. apt retries per-connection by default
+# but not a whole fetch that failed outright, hence the explicit setting.
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
         ca-certificates curl bzip2 binutils \
     && rm -rf /var/lib/apt/lists/*
 
