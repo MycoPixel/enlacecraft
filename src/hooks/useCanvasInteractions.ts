@@ -77,6 +77,47 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   }, []);
 
   /**
+   * Long-press to open the context menu on touch.
+   *
+   * The app already had a context menu, but on touch it was reachable only
+   * via the browser's native `contextmenu` event, which is unreliable for
+   * exactly the content this is (SVG). The existing code said as much: its
+   * own comment noted that iOS Safari "may simply do nothing there" for a
+   * long-press on non-text elements. The practical result was that eleven
+   * actions — dative bond, haptic bond, aromatic circle, charge bracket,
+   * ignore-valence, per-atom highlight, duplicate, copy, paste, select-all,
+   * IUPAC name — existed on a phone with no way to reach them at all.
+   *
+   * So this adds the same timer-based detector AtomView already uses for its
+   * own long-press (550ms, cancelled past 8px of movement), rather than
+   * relying on the native event at all.
+   *
+   * Deliberately NOT started when the press begins on an atom: AtomView
+   * already claims that gesture for the free-text label editor, and both
+   * timers firing would open a label editor and a context menu at once.
+   * This mirrors the same exclusion onContextMenu has always applied.
+   */
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  const clearLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  }, []);
+
+  const openContextMenuAt = useCallback((clientX: number, clientY: number) => {
+    const store = useMoleculeStore.getState();
+    const pt = clientToWorld(clientX, clientY);
+    const atomId = pickAtom(store.molecule, pt);
+    const bondId = atomId ? null : pickBond(store.molecule, pt);
+    store.setContextMenu({ x: clientX, y: clientY, atomId, bondId });
+  }, [clientToWorld, pickAtom, pickBond]);
+
+  /**
    * Aborts whatever single-pointer gesture is in flight, without losing the
    * work it already did.
    *
@@ -208,6 +249,23 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     const hitBond = !hitAtom ? pickBond(molecule, pt) : null;
     store.setBondPreview(null);
     store.setChainPreview(null);
+
+    // Arm the touch long-press, except on an atom where AtomView's own
+    // long-press (the label editor) has first claim on the gesture.
+    clearLongPress();
+    longPressFiredRef.current = false;
+    if (e.pointerType === "touch" && !hitAtom) {
+      longPressStartRef.current = { x: e.clientX, y: e.clientY };
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressFiredRef.current = true;
+        // The press was meant as "show me the menu", not as the active tool's
+        // action, so whatever that tool already did on pointerdown is
+        // abandoned (and checkpointed, so it stays undoable) rather than
+        // being carried to the release as a completed gesture.
+        abortDrag();
+        openContextMenuAt(e.clientX, e.clientY);
+      }, 550);
+    }
 
     if (tool === "pan") {
       dragRef.current = { mode: "pan", startClient: { x: e.clientX, y: e.clientY }, startView: store.view };
@@ -470,9 +528,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       dragRef.current = { mode: "bond", from: startAtom };
       return;
     }
-  }, [clientToWorld, pickAtom, pickBond]);
+  }, [clientToWorld, pickAtom, pickBond, clearLongPress, abortDrag, openContextMenuAt]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    // A press that turns into a drag is not a long-press. Same 8px threshold
+    // AtomView uses, so the two gestures feel identical.
+    const lpStart = longPressStartRef.current;
+    if (lpStart && Math.hypot(e.clientX - lpStart.x, e.clientY - lpStart.y) > 8) {
+      clearLongPress();
+    }
     if (e.pointerType === "touch" && touchPointersRef.current.has(e.pointerId)) {
       touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
@@ -705,7 +769,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "bracket-draw") {
       store.setBracketPairPreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
     }
-  }, [clientToWorld, abortDrag, pickAtom, pickBond]);
+  }, [clientToWorld, abortDrag, pickAtom, pickBond, clearLongPress]);
 
   /**
    * A cancelled pointer must NOT be treated as a successful release.
@@ -720,6 +784,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
    * the molecule and just refuses to invent the part that never happened.
    */
   const onPointerCancel = useCallback((e: React.PointerEvent) => {
+    clearLongPress();
     if (e.pointerType === "touch") {
       touchPointersRef.current.delete(e.pointerId);
       if (touchPointersRef.current.size < 2) pinchRef.current = null;
@@ -728,6 +793,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
   }, [abortDrag]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
+    clearLongPress();
+    if (longPressFiredRef.current) {
+      // The long-press already opened the menu and abandoned the drag. Fall
+      // through to nothing else: this release is the tail of that gesture,
+      // not a separate click that should also run the active tool.
+      longPressFiredRef.current = false;
+      abortDrag();
+      return;
+    }
     if (e.pointerType === "touch") {
       touchPointersRef.current.delete(e.pointerId);
       if (touchPointersRef.current.size < 2) pinchRef.current = null;
@@ -913,7 +987,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       store.setSelectedAnnotationIds(new Set([openId, closeId]));
       store.setTool("select");
     }
-  }, [clientToWorld, pickAtom, pickBond]);
+  }, [clientToWorld, pickAtom, pickBond, abortDrag, clearLongPress]);
 
   const onDoubleClick = useCallback((e: React.MouseEvent) => {
     const store = useMoleculeStore.getState();
