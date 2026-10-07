@@ -3744,3 +3744,73 @@
   opacity: 0.35;
   cursor: default;
 }
+
+/* Integral trace, drawn beneath the ppm axis.
+   The step-function path is fill-only (the rise between two peaks is the
+   integral "wall"); a stroke on top of it makes the steps legible at small
+   sizes where the fill alone loses the vertical edges. */
+.nmr-spectrum-plot__integral {
+  fill: var(--ink-soft);
+  fill-opacity: 0.16;
+  stroke: var(--ink-soft);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+
+.nmr-spectrum-plot__integral-base {
+  stroke: var(--grid-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.nmr-spectrum-plot__integral-label {
+  fill: var(--ink-soft);
+  font-size: 8px;
+  text-anchor: start;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Inline coupling detail in the report table.
+   Replaces a title= tooltip, which needed a hover and so never appeared at all
+   on a touch device - this detail carries the tier-2 real J estimates, the
+   whole reason the xTB prediction path exists. */
+.nmr-report-table__mult-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nmr-report-table__mult-toggle:hover .nmr-report-table__mult-detail,
+.nmr-report-table__mult-toggle:focus-visible .nmr-report-table__mult-detail {
+  color: var(--ink);
+}
+
+.nmr-report-table__mult-detail {
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  line-height: 1.35;
+  /* Keep a long coupling list from stretching the row unpredictably as it
+     expands - the table's columns are fixed-width by design. */
+  max-width: 220px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+/* Rows without any detail keep the plain cell; the dotted underline that
+   hinted "there's a tooltip here" is now misleading, since the detail is
+   inline and doesn't need a hint to be discoverable. */
+.nmr-report-table__mult-cell--hasdetail {
+  cursor: pointer;
+}

@@ -18,6 +18,17 @@ const PLOT_WIDTH = 760;
 const PLOT_HEIGHT = 240;
 const PLOT_PADDING_TOP = 34; // room for group labels above the tallest peak
 const AXIS_Y = PLOT_HEIGHT - 26;
+
+/** Height of the integral trace band drawn beneath the ppm axis. */
+const INTEGRAL_HEIGHT = 46;
+/** Total SVG height: the peak plot plus the integral band. The integral has to
+ *  live in the same SVG rather than a second one so it shares the exact same
+ *  x -> ppm mapping - an integral in a separate chart can drift out of
+ *  alignment with the peaks it belongs to, which defeats the point. */
+const TOTAL_PLOT_HEIGHT = PLOT_HEIGHT + INTEGRAL_HEIGHT;
+/** Where the integral trace starts (below the tick labels) and its baseline. */
+const INTEGRAL_TOP = PLOT_HEIGHT + 16;
+const INTEGRAL_BASE_Y = TOTAL_PLOT_HEIGHT - 6;
 const CURVE_SAMPLES = 480;
 
 type PlotMode = "curve" | "sticks";
@@ -384,6 +395,59 @@ function SpectrumPlot({
     });
   }, [peakGroups, minPpm, maxPpm, effectiveMaxIntensity, showShiftValues]);
 
+  /**
+   * The integral trace, as an SVG path.
+   *
+   * Drawn as a step function (flat, then a vertical rise) because that's how
+   * integrals are read: the height of each flat section is that signal's area,
+   * and a sloped line would invite reading the slope as meaningful when it
+   * isn't. Normalised against the tallest integral so a weak signal next to a
+   * strong one stays visible, same rationale as the intensity zoom.
+   *
+   * Uses each group's totalIntegration - already computed in
+   * io/nmrSpectrum.ts and, until now, read by nobody. For 1H that is the proton
+   * count, so the ratios are real; for 13C it's the carbon count, which is a
+   * teaching approximation (see simulateC13Spectrum's note about real 13C
+   * heights not being proportional to carbon count).
+   */
+  const integralPath = useMemo(() => {
+    const groups = peakGroups.filter((g) => tallestLine(g) !== null);
+    if (groups.length === 0) return "";
+    const maxIntegration = Math.max(...groups.map((g) => g.totalIntegration), 1e-6);
+
+    // Ascending x: ppm decreases left-to-right, so sort by ppm descending.
+    const ordered = [...groups].sort((a, b) => {
+      const la = tallestLine(a)!;
+      const lb = tallestLine(b)!;
+      return lb.ppm - la.ppm;
+    });
+
+    const usableHeight = INTEGRAL_BASE_Y - INTEGRAL_TOP;
+    const yFor = (group: SimulatedPeakGroup) =>
+      INTEGRAL_BASE_Y - (usableHeight * group.totalIntegration) / maxIntegration;
+
+    const first = ordered[0];
+    let d = `M 0 ${INTEGRAL_BASE_Y} L ${ppmToX(tallestLine(first)!.ppm)} ${yFor(first)}`;
+    for (let i = 0; i < ordered.length; i++) {
+      const group = ordered[i];
+      const x = ppmToX(tallestLine(group)!.ppm);
+      const y = yFor(group);
+      d += ` L ${x} ${y}`;
+      // Step to the next group's level at the midpoint between them, so the
+      // rise sits between the two peaks rather than on either one.
+      const next = ordered[i + 1];
+      if (next) {
+        const nextX = ppmToX(tallestLine(next)!.ppm);
+        const midX = (x + nextX) / 2;
+        d += ` L ${midX} ${y} L ${midX} ${yFor(next)}`;
+      } else {
+        d += ` L ${PLOT_WIDTH} ${y}`;
+      }
+    }
+    d += ` L ${PLOT_WIDTH} ${INTEGRAL_BASE_Y} Z`;
+    return d;
+  }, [peakGroups, minPpm, maxPpm]);
+
   const resetZoom = () => {
     setVerticalZoom(1);
     setZoomRangePpm(null);
@@ -616,7 +680,7 @@ function SpectrumPlot({
         <svg
           ref={svgRef}
           className="nmr-spectrum-plot__svg"
-          viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
+          viewBox={`0 0 ${PLOT_WIDTH} ${TOTAL_PLOT_HEIGHT}`}
           preserveAspectRatio="xMidYMid meet"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -743,6 +807,27 @@ function SpectrumPlot({
               </text>
             </g>
           ))}
+
+          {/*
+            Integral trace, beneath the axis. Shares this SVG (and therefore the
+            x -> ppm mapping) with the peaks above it, so each step is
+            unambiguously under the signal it belongs to.
+          */}
+          {integralPath && (
+            <>
+              <text x={0} y={INTEGRAL_TOP - 5} className="nmr-spectrum-plot__integral-label">
+                {t("nmr.spectrumIntegralLabel")}
+              </text>
+              <line
+                x1={0}
+                y1={INTEGRAL_BASE_Y}
+                x2={PLOT_WIDTH}
+                y2={INTEGRAL_BASE_Y}
+                className="nmr-spectrum-plot__integral-base"
+              />
+              <path d={integralPath} className="nmr-spectrum-plot__integral" />
+            </>
+          )}
 
           {isDragging && dragStartPpm.current !== null && dragCurrentPpm !== null && (
             <rect

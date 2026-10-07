@@ -424,6 +424,14 @@ export function NmrPredictionButton() {
                           <span className="nmr-result__shift">
                             {rep.predictedShiftPpm.toFixed(2)} ppm
                             {rep.multiplicity && (
+                              // Detail kept as a title here on purpose: this is
+                              // the compact dropdown, with rows 28px tall and
+                              // ten of them on screen. Inlining the J values
+                              // would roughly double its height and push the
+                              // rest of the list out of view. The full report's
+                              // table shows them properly; here the tooltip is
+                              // an extra for pointer users, not the only way -
+                              // which was the real defect before.
                               <span
                                 className="nmr-result__multiplicity"
                                 title={rep.multiplicityDetail || undefined}

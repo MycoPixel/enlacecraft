@@ -75,6 +75,15 @@ export function NmrReportView({
   onSelectIsomer: (index: number) => void;
 }) {
   const t = useT();
+  // Which atom's coupling detail is expanded in the table, if any. One at a
+  // time: expanding several would reflow the whole table and make it harder to
+  // line a row up with its peak.
+  const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
+  // Keyed by the row's own `key` (see the rows memo below), not by atom id:
+  // a grouped row spans several equivalent atoms, so there is no single
+  // atomId to hang the toggle off.
+  const toggleDetail = (rowKey: string) =>
+    setExpandedDetail((prev) => (prev === rowKey ? null : rowKey));
   // The prediction service emits warnings as fixed English strings; the
   // translator maps the known ones to localized text and passes anything
   // unmatched through unchanged (see nmrWarnings.ts for why that's the
@@ -404,11 +413,36 @@ export function NmrReportView({
                       </span>
                     )}
                   </td>
-                  <td
-                    title={r.shifts?.h1?.multiplicityDetail || undefined}
-                    className={r.shifts?.h1?.multiplicityDetail ? "nmr-report-table__mult-cell--hasdetail" : undefined}
-                  >
-                    {r.shifts?.h1?.multiplicity || "\u2014"}
+                  {/*
+                    The J-value detail (t, d, dd, coupling magnitudes) is the
+                    only place the tier-2 real coupling estimates surface, and it
+                    was reachable only through a title= tooltip - which needs a
+                    hover, so it was unreachable by touch entirely.
+
+                    Now shown inline beneath the multiplicity label, and the
+                    whole cell is also a button that toggles it. Inline is the
+                    important part: on a touch device a title tooltip never
+                    appears at all, so the detail has to be visible in the table
+                    rather than discovered.
+                  */}
+                  <td className={r.shifts?.h1?.multiplicityDetail ? "nmr-report-table__mult-cell--hasdetail" : undefined}>
+                    {r.shifts?.h1?.multiplicityDetail ? (
+                      <button
+                        type="button"
+                        className="nmr-report-table__mult-toggle"
+                        onClick={() => toggleDetail(r.key)}
+                        aria-expanded={expandedDetail === r.key}
+                      >
+                        <span>{r.shifts.h1.multiplicity}</span>
+                        {expandedDetail === r.key && (
+                          <span className="nmr-report-table__mult-detail">
+                            {r.shifts.h1.multiplicityDetail}
+                          </span>
+                        )}
+                      </button>
+                    ) : (
+                      r.shifts?.h1?.multiplicity || "\u2014"
+                    )}
                   </td>
                 </tr>
               ))}
