@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useT } from "../../i18n/useT";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import type { Nucleus, PeakListRow } from "../../io/nmrExport";
+import { compareSpectrum, classifyMatch, DEFAULT_TOLERANCE_PPM, type ComparisonResult } from "../../io/nmrCompare";
 import {
   buildPeakList,
   peakListToCsv,
@@ -155,12 +156,139 @@ function decimalsForStep(step: number): number {
  * Illustrative, not measurement-grade - see io/nmrSpectrum.ts's
  * module docstring for exactly what's simulated vs. real per peak.
  */
+/**
+ * The quantitative side of the comparison: which signals agreed, by how much,
+ * and what each side has that the other doesn't.
+ *
+ * The overlay already let the user judge agreement by eye. This is the part
+ * that can't be eyeballed - the residual per signal, and the two lists that
+ * matter most when the model is wrong: signals it predicted but nobody
+ * observed, and measured signals it failed to predict at all.
+ */
+function SpectrumComparison({
+  result,
+  tolerancePpm,
+  onToleranceChange,
+}: {
+  result: ComparisonResult;
+  tolerancePpm: number;
+  onToleranceChange: (value: number) => void;
+}) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+
+  const formatDelta = (delta: number) => `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`;
+
+  return (
+    <div className="nmr-spectrum-view__comparison">
+      <div className="nmr-spectrum-view__comparison-head">
+        {result.meanAbsErrorPpm !== null ? (
+          <p className="nmr-spectrum-view__compare-stat">
+            <strong>{t("nmr.compareMeanError", { value: result.meanAbsErrorPpm.toFixed(3) })}</strong>
+            <span className="nmr-spectrum-view__compare-stat-sub">
+              {t("nmr.compareWorst", { value: result.maxAbsErrorPpm!.toFixed(3) })}
+            </span>
+          </p>
+        ) : (
+          <p className="nmr-spectrum-view__compare-stat nmr-spectrum-view__compare-stat--none">
+            {t("nmr.compareNoMatches")}
+          </p>
+        )}
+
+        {/* Tolerance is user-facing because it decides the answer. Hiding it
+            would mean a user staring at "0 matched" with no way to tell
+            whether the model is wrong or the window is too tight. */}
+        <label className="nmr-spectrum-view__tolerance">
+          <span>{t("nmr.compareTolerance", { value: tolerancePpm.toFixed(2) })}</span>
+          <input
+            type="range"
+            min={0.02}
+            max={0.5}
+            step={0.01}
+            value={tolerancePpm}
+            onChange={(e) => onToleranceChange(Number(e.target.value))}
+          />
+        </label>
+      </div>
+
+      {result.matchedFraction !== null && (
+        <p className="nmr-spectrum-view__compare-fractions">
+          {t("nmr.compareMatched", {
+            value: Math.round(result.matchedFraction * 100),
+            count: result.matches.length,
+            total: result.predictedCount,
+          })}
+        </p>
+      )}
+
+      <button
+        type="button"
+        className="nmr-spectrum-view__comparison-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? t("nmr.compareHideTable") : t("nmr.compareShowTable")}
+      </button>
+
+      {expanded && (
+        <div className="nmr-spectrum-view__comparison-detail">
+          <table className="nmr-spectrum-view__comparison-table">
+            <thead>
+              <tr>
+                <th>{t("nmr.compareColAtoms")}</th>
+                <th>{t("nmr.comparePredicted")}</th>
+                <th>{t("nmr.compareMeasured")}</th>
+                <th>&Delta;</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.matches.map((m, i) => (
+                <tr key={`m-${i}-${m.label}`} className={`nmr-spectrum-view__match--${classifyMatch(m.deltaPpm)}`}>
+                  <td>{m.label}</td>
+                  <td>{m.predictedPpm.toFixed(2)}</td>
+                  <td>{m.measuredPpm.toFixed(2)}</td>
+                  <td className="nmr-spectrum-view__delta">{formatDelta(m.deltaPpm)}</td>
+                </tr>
+              ))}
+
+              {/* Predicted but never observed. Listed because a signal the
+                  model invented where there is nothing is the clearest
+                  failure mode to investigate. */}
+              {result.unmatchedPredictions.map((p, i) => (
+                <tr key={`p-${i}-${p.label}`} className="nmr-spectrum-view__match--missing">
+                  <td>{p.label}</td>
+                  <td>{p.predictedPpm.toFixed(2)}</td>
+                  <td className="nmr-spectrum-view__delta">&mdash;</td>
+                  <td className="nmr-spectrum-view__delta">{t("nmr.compareNotSeen")}</td>
+                </tr>
+              ))}
+
+              {/* Measured but not predicted. An unexplained measured peak is
+                  the most actionable row in the table: the model missed a
+                  signal that demonstrably exists. */}
+              {result.unmatchedMeasurements.map((m, i) => (
+                <tr key={`x-${i}-${m.measuredPpm}`} className="nmr-spectrum-view__match--extra">
+                  <td>{m.atoms || t("nmr.compareUnassigned")}</td>
+                  <td className="nmr-spectrum-view__delta">&mdash;</td>
+                  <td>{m.measuredPpm.toFixed(2)}</td>
+                  <td className="nmr-spectrum-view__delta">{t("nmr.compareUnexpected")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SpectrumPlot({
   peakGroups,
   nucleus,
   linewidthPpm,
   onSelectGroup,
   experimental,
+  matchedLabels,
 }: {
   peakGroups: SimulatedPeakGroup[];
   nucleus: Nucleus;
@@ -170,6 +298,10 @@ function SpectrumPlot({
   onSelectGroup: ((group: SimulatedPeakGroup) => void) | undefined;
   /** Measured peaks to overlay, or null when no comparison is loaded. */
   experimental: PeakListRow[] | null;
+  /** Labels of predicted signals that matched a measured peak. Rendered as
+   *  connector lines so a good match is visible on the plot itself, not only
+   *  as a number in a table. */
+  matchedLabels: Set<string> | null;
 }) {
   const t = useT();
   const [mode, setMode] = useState<PlotMode>("curve");
@@ -777,6 +909,38 @@ function SpectrumPlot({
             )
           )}
 
+          {/* Connectors from each predicted signal to the measured peak it matched.
+              This is what turns "two sets of lines, look at them" into "this
+              one is 0.02 off and that one is 0.4 off" - visible on the plot
+              itself rather than only in the table below it. Drawn under the
+              experimental markers so they never obscure a peak. */}
+          {experimental &&
+            matchedLabels &&
+            peakGroups
+              .filter((g) => matchedLabels.has(g.label))
+              .map((g, i) => {
+                const best = experimental.reduce(
+                  (acc, r) => {
+                    const d = Math.abs(r.shiftPpm - g.centerPpm);
+                    return d < acc.d ? { d, ppm: r.shiftPpm } : acc;
+                  },
+                  { d: Infinity, ppm: NaN },
+                );
+                if (!Number.isFinite(best.ppm)) return null;
+                const fromX = ppmToX(g.centerPpm);
+                const toX = ppmToX(best.ppm);
+                return (
+                  <line
+                    key={`conn-${i}-${g.label}`}
+                    x1={fromX}
+                    y1={AXIS_Y - 3}
+                    x2={toX}
+                    y2={AXIS_Y - 3}
+                    className="nmr-spectrum-plot__connector"
+                  />
+                );
+              })}
+
           {/* Measured peaks, as presence markers only.
               Deliberately EQUAL height rather than scaled by their integral or
               any intensity. A pasted peak list reports positions, and its
@@ -928,6 +1092,28 @@ export function NmrSpectrumView({
     [predictions, predictionsH1, atomOrder, atomLabels],
   );
 
+  // Predicted proton counts keyed by the same label the plot shows, so the
+  // comparison table can report an integral that matches what's on screen.
+  const integralsByLabel = useCallback(
+    (nucleus: Nucleus) => {
+      const map = new Map<string, number>();
+      for (const r of rowsFor(nucleus)) if (r.atoms) map.set(r.atoms, r.integral);
+      return map;
+    },
+    [rowsFor],
+  );
+
+  const h1Groups = useMemo(() => groupByEquivalence(predictionsH1), [predictionsH1]);
+  const c13Groups = useMemo(() => groupByEquivalence(predictions), [predictions]);
+
+  const h1PeakGroups = useMemo(() => {
+    return simulateH1Spectrum(h1Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
+  }, [h1Groups, atomOrder, atomLabels]);
+
+  const c13PeakGroups = useMemo(() => {
+    return simulateC13Spectrum(c13Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
+  }, [c13Groups, atomOrder, atomLabels]);
+
   const doExport = useCallback(
     (kind: "csv" | "jdx") => {
       const name = peakListFilename(activeTabTitle, activeNucleus, kind === "csv" ? "csv" : "jdx");
@@ -969,16 +1155,36 @@ export function NmrSpectrumView({
     setShowPasteBox(false);
   }, []);
 
-  const h1Groups = useMemo(() => groupByEquivalence(predictionsH1), [predictionsH1]);
-  const c13Groups = useMemo(() => groupByEquivalence(predictions), [predictions]);
+  // Agreement window, editable because 0.15 ppm suits a clean reference
+  // spectrum and is far too tight for a low-resolution one. Comparing against
+  // the wrong window silently reports every signal as unmatched, which reads
+  // as "the model is terrible" when it's really the tolerance.
 
-  const h1PeakGroups = useMemo(() => {
-    return simulateH1Spectrum(h1Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
-  }, [h1Groups, atomOrder, atomLabels]);
+  const [tolerancePpm, setTolerancePpm] = useState(DEFAULT_TOLERANCE_PPM);
 
-  const c13PeakGroups = useMemo(() => {
-    return simulateC13Spectrum(c13Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
-  }, [c13Groups, atomOrder, atomLabels]);
+  // Computed once here rather than inside the panel, because the plot needs
+  // the same result to draw its connectors. Two independent comparisons could
+  // in principle disagree, and the plot would then show connectors the table
+  // doesn't have.
+  const comparison = useMemo(
+    () =>
+      experimental
+        ? compareSpectrum(
+            activeNucleus === "h1" ? h1PeakGroups : c13PeakGroups,
+            experimental,
+            tolerancePpm,
+            integralsByLabel(activeNucleus),
+          )
+        : null,
+    [experimental, activeNucleus, h1PeakGroups, c13PeakGroups, tolerancePpm, integralsByLabel],
+  );
+  const matchedLabels = useMemo(
+    () => (comparison ? new Set(comparison.matches.map((m) => m.label)) : null),
+    [comparison],
+  );
+
+  // Predicted proton counts keyed by the same label the plot shows, so the
+  // comparison table can report an integral that matches what's on screen.
 
   /**
    * Selects the atoms behind a clicked peak on the canvas.
@@ -1037,9 +1243,9 @@ export function NmrSpectrumView({
       </div>
 
       {activeNucleus === "h1" ? (
-        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} experimental={experimental} />
+        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} experimental={experimental} matchedLabels={matchedLabels} />
       ) : (
-        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} experimental={experimental} />
+        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} experimental={experimental} matchedLabels={matchedLabels} />
       )}
 
       <p className="nmr-report-dialog__caveat">{t("nmr.spectrumCaveat")}</p>
@@ -1079,6 +1285,14 @@ export function NmrSpectrumView({
             return t("nmr.compareSummary", { count: s.count, min: s.min.toFixed(2), max: s.max.toFixed(2) });
           })()}
         </p>
+      )}
+
+      {experimental && comparison && (
+        <SpectrumComparison
+          result={comparison}
+          tolerancePpm={tolerancePpm}
+          onToleranceChange={setTolerancePpm}
+        />
       )}
 
       {pasteNotice && <p className="nmr-spectrum-view__compare-notice">{pasteNotice}</p>}

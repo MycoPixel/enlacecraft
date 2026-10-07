@@ -3875,3 +3875,165 @@
   gap: 6px;
   margin-top: 6px;
 }
+
+/* --- Quantitative comparison panel ---------------------------------------
+   The colour bands mirror classifyMatch()'s thresholds (|delta| <= 0.05,
+   <= 0.15, worse). They are deliberately the SAME bands the function uses, so
+   a row's colour and its numeric verdict can never drift apart. */
+
+.nmr-spectrum-view__comparison {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+}
+
+.nmr-spectrum-view__comparison-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nmr-spectrum-view__compare-stat {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.nmr-spectrum-view__compare-stat-sub {
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+
+.nmr-spectrum-view__compare-stat--none {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.nmr-spectrum-view__tolerance {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  min-width: 130px;
+}
+
+.nmr-spectrum-view__compare-fractions {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.nmr-spectrum-view__comparison-toggle {
+  margin-top: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.nmr-spectrum-view__comparison-detail {
+  margin-top: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.nmr-spectrum-view__comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nmr-spectrum-view__comparison-table th,
+.nmr-spectrum-view__comparison-table td {
+  text-align: left;
+  padding: 2px 6px 2px 0;
+  border-bottom: 1px solid var(--grid-line);
+}
+
+.nmr-spectrum-view__comparison-table th {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.nmr-spectrum-view__delta {
+  color: var(--ink-soft);
+}
+
+/* Match quality bands - same thresholds as classifyMatch(). */
+.nmr-spectrum-view__match--close .nmr-spectrum-view__delta {
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+.nmr-spectrum-view__match--usable .nmr-spectrum-view__delta {
+  color: #b26a00;
+}
+
+/* Predicted but never observed, and measured but never predicted: the two
+   failure directions, deliberately distinguished so neither reads as a
+   normal poor match. */
+.nmr-spectrum-view__match--missing td {
+  opacity: 0.75;
+  font-style: italic;
+}
+
+.nmr-spectrum-view__match--extra {
+  background: rgba(217, 83, 79, 0.08);
+}
+
+.nmr-spectrum-view__match--extra .nmr-spectrum-view__delta {
+  color: #b3261e;
+}
+
+/* Connector from a predicted signal to the measured peak it matched. Thin and
+   low-contrast on purpose: it is a reading aid, and should not compete with
+   the peaks it connects. */
+.nmr-spectrum-plot__connector {
+  stroke: #17a2b8;
+  stroke-width: 1;
+  opacity: 0.45;
+}
+
+/* Dark mode: the status hues above are tuned for a light panel, where a
+   mid-tone teal or a mid-tone amber sits at readable contrast. On the dark
+   panel those same mid-tones drop toward the background and stop being
+   legible - especially the amber "usable" band, which is the one a user is
+   most likely to need to read. Lightened per-band rather than via a filter,
+   so each stays distinguishable. */
+[data-theme="dark"] .nmr-spectrum-plot__experimental {
+  stroke: #3fc4d8;
+}
+
+[data-theme="dark"] .nmr-spectrum-plot__connector {
+  stroke: #3fc4d8;
+  opacity: 0.5;
+}
+
+[data-theme="dark"] .nmr-spectrum-view__compare-notice {
+  color: #e3a14a;
+}
+
+[data-theme="dark"] .nmr-spectrum-view__match--close .nmr-spectrum-view__delta {
+  color: #5fd07f;
+}
+
+[data-theme="dark"] .nmr-spectrum-view__match--usable .nmr-spectrum-view__delta {
+  color: #e3a14a;
+}
+
+[data-theme="dark"] .nmr-spectrum-view__match--extra {
+  background: rgba(255, 138, 128, 0.12);
+}
+
+[data-theme="dark"] .nmr-spectrum-view__match--extra .nmr-spectrum-view__delta {
+  color: #ff8a80;
+}
