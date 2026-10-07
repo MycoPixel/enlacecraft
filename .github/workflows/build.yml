@@ -49,6 +49,22 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# Pin what the built-in GITHUB_TOKEN can do, rather than inheriting whatever
+# the repository default happens to be.
+#
+# The default GITHUB_TOKEN is scoped to THIS repository only - it cannot read
+# the private NMRGraph submodule, which is what SUBMODULE_TOKEN is for (see the
+# checkout step in the build job). So nothing here is needed for the build to
+# work; this exists so the blast radius is explicit rather than implicit.
+#
+# This workflow only ever reads and builds. It uploads artifacts (which needs
+# no repo write) and never pushes, creates releases, or touches PRs - releases
+# are a deliberate manual step, see the header. So contents:read is the whole
+# list. If a future step needs more, it should say so here rather than
+# inheriting a broader default that nobody chose on purpose.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: unit tests
@@ -120,6 +136,17 @@ jobs:
           # repo is private and the default GITHUB_TOKEN can't reach it.
           submodules: recursive
           token: ${{ secrets.SUBMODULE_TOKEN }}
+          # Don't write the token into python/NMRGraph/.git/config.
+          #
+          # checkout does this by default so later steps can fetch, but nothing
+          # after this one pushes or fetches - it exists purely to put NMRGraph
+          # on disk for PyInstaller. Leaving the credential in the checkout's
+          # git config means a read-scoped token sits in a file for the rest of
+          # the job, where any later step (or a debugging command someone pastes
+          # in to diagnose a failure) could reach it. The artifact step uploads
+          # explicit release/*.exe globs rather than the workspace, so it isn't
+          # leaking today - this removes the reason to have to check that.
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
