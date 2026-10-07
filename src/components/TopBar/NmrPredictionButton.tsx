@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Activity, Loader2, Expand, AlertTriangle } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
@@ -79,6 +79,26 @@ export function NmrPredictionButton() {
   const [state, setState] = useState<PredictState | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [structureQuality, setStructureQuality] = useState<StructureQuality>("fast");
+  /**
+   * Whether the NMR backend is actually up, as reported by the Electron main
+   * process (which owns spawning it).
+   *
+   * The prediction API lives on localhost:8000 and only exists in a packaged
+   * desktop build - there is no web equivalent and no client-side fallback.
+   * Before this, a web user who clicked the button got "Couldn't reach the
+   * NMR prediction server - is it running?", which asks them to start a
+   * service they have no way to start. The bridge already exposed exactly the
+   * answer (preload.cjs's own comment noted it was "not consumed by the UI
+   * yet"), so this reads it and says something true instead.
+   *
+   * null = not checked yet, which is the only honest value on a web build
+   * where window.electron doesn't exist at all.
+   */
+  const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
+  // Bumped every time the input structure or selection changes, and captured
+  // by each in-flight runPrediction so a prediction that resolves *after* an
+  // edit can't install its now-stale result. See the invalidation effect below.
+  const inputGenerationRef = useRef(0);
   // Which entry of state.results is currently shown - almost always
   // just [0], but can have multiple entries when the input had
   // unassigned ring stereocenters (see NmrPredictResult.results).
@@ -112,6 +132,67 @@ export function NmrPredictionButton() {
   }, [molecule, selected]);
   const canRun = hasContent && !blockedByIgnoredValence && !blockedByOrganometallic;
 
+  /**
+   * Discard a prediction the moment its input structure changes.
+   *
+   * A result here is a function of one specific fragment - the selection, or
+   * the whole canvas when nothing is selected - and nothing else. Editing a
+   * bond or picking a different selection makes that fragment a different
+   * molecule, but the previous result stayed on screen regardless: the
+   * dropdown kept its shift list and the full-screen report kept rendering,
+   * both showing numbers for a structure that was no longer there. That is
+   * actively misleading rather than merely stale, since the obvious use of
+   * this panel is comparing a prediction against an experimental spectrum.
+   *
+   * Invalidating on the `molecule` and `selected` identities is the right
+   * granularity: the store replaces both on every real edit, and neither
+   * changes on hover, so the result survives incidental pointer movement.
+   *
+   * Bumping the generation counter here is also what makes the guards in
+   * runPrediction work - an edit mid-flight has to invalidate the *pending*
+   * request, not just the state that's already displayed.
+   */
+  useEffect(() => {
+    inputGenerationRef.current++;
+    setState(null);
+    setReportOpen(false);
+  }, [molecule, selected]);
+
+  /**
+   * Ask the main process whether the NMR backend came up.
+   *
+   * Electron-only: on a web deploy window.electron is undefined, and the
+   * feature genuinely can't work there, so serverAvailable stays null and the
+   * UI says so rather than pretending a probe failed.
+   */
+  const probeServer = useCallback(async () => {
+    if (!window.electron?.getNmrServerStatus) {
+      setServerAvailable(null);
+      return;
+    }
+    try {
+      const status = await window.electron.getNmrServerStatus();
+      setServerAvailable(status.state === "ready");
+    } catch {
+      // A failed probe isn't proof the server is down, so don't claim it is.
+      setServerAvailable(null);
+    }
+  }, []);
+
+  // Probe once on mount, so the button's tooltip can be honest before the
+  // user has clicked anything and waited for a failure.
+  useEffect(() => {
+    void probeServer();
+  }, [probeServer]);
+
+  // Re-probe after every attempt: the backend may have been started
+  // externally since the last click, and a failure shouldn't be permanent.
+  useEffect(() => {
+    if (!state) return;
+    if (state.phase === "loading") return;
+    void probeServer();
+  }, [state?.phase, probeServer]);
+
   const messageForError = (err: unknown): string => {
     if (err instanceof NmrPredictError) {
       switch (err.code) {
@@ -140,6 +221,7 @@ export function NmrPredictionButton() {
   const runPrediction = async (quality: StructureQuality = structureQuality) => {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     if (ids.length === 0) return;
+    const generation = inputGenerationRef.current;
     setStructureQuality(quality);
     setState({ phase: "loading" });
     try {
@@ -165,6 +247,10 @@ export function NmrPredictionButton() {
       }
 
       const result = await predictNmrSpectrum(smiles, molfile);
+      // The structure may have been edited while this was in flight (and the
+      // xtb path can take many seconds). If so, drop the result rather than
+      // showing shifts for a molecule that is no longer on the canvas.
+      if (generation !== inputGenerationRef.current) return;
       setSelectedIsomer(0);
       setState({
         phase: "result",
@@ -175,13 +261,24 @@ export function NmrPredictionButton() {
         warnings: result.warnings,
       });
     } catch (err) {
+      if (generation !== inputGenerationRef.current) return;
       setState({ phase: "error", message: messageForError(err) });
     }
   };
 
   return (
     <ToolDropdown
-      title={!hasContent ? t("nmr.buttonDisabled") : blockedByIgnoredValence ? t("nmr.blockedByIgnoredValence") : blockedByOrganometallic ? t("nmr.blockedByOrganometallic") : t("nmr.button")}
+      title={
+        !hasContent
+          ? t("nmr.buttonDisabled")
+          : blockedByIgnoredValence
+            ? t("nmr.blockedByIgnoredValence")
+            : blockedByOrganometallic
+              ? t("nmr.blockedByOrganometallic")
+              : serverAvailable === false
+                ? t("nmr.serverUnavailable")
+                : t("nmr.button")
+      }
       active={false}
       onOpen={canRun ? runPrediction : undefined}
       renderContent={(close) => (
@@ -190,7 +287,11 @@ export function NmrPredictionButton() {
           {hasContent && blockedByIgnoredValence && <p className="align-menu__hint">{t("nmr.blockedByIgnoredValence")}</p>}
           {hasContent && !blockedByIgnoredValence && blockedByOrganometallic && <p className="align-menu__hint">{t("nmr.blockedByOrganometallic")}</p>}
 
-          {canRun && (
+          {canRun && serverAvailable === false && (
+            <p className="align-menu__hint">{t("nmr.serverUnavailableDetail")}</p>
+          )}
+
+          {canRun && serverAvailable !== false && (
             <div className="nmr-result__isomer-tabs" role="tablist" aria-label={t("nmr.structureQuality")}>
               <button
                 type="button"
@@ -367,6 +468,7 @@ export function NmrPredictionButton() {
           fragment={state.fragment}
           atomOrder={state.atomOrder}
           results={state.results}
+          warnings={state.warnings}
           selectedIsomer={selectedIsomer}
           onSelectIsomer={setSelectedIsomer}
         />

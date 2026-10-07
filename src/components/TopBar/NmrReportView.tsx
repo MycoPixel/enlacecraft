@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { X, AlertTriangle } from "lucide-react";
 import type { Molecule } from "../../types/chemistry";
 import { useT } from "../../i18n/useT";
+import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { translateNmrWarning } from "../../io/nmrWarnings";
 import type { NmrIsomerResult } from "../../io/nmrPredict";
 import { buildAtomLabels } from "../../io/nmrPredict";
 import { totalHydrogenCount } from "../../model/valence";
@@ -47,6 +49,7 @@ export function NmrReportView({
   fragment,
   atomOrder,
   results,
+  warnings,
   selectedIsomer,
   onSelectIsomer,
 }: {
@@ -58,10 +61,26 @@ export function NmrReportView({
    * unassigned ring stereocenters - see NmrPredictResult.results in
    * io/nmrPredict.ts. */
   results: NmrIsomerResult[];
+  /**
+   * Caveats the prediction service returned alongside the shifts (unusual
+   * elements, unassigned ring stereochemistry, and so on) - the same strings
+   * the compact dropdown shows. Passed in rather than re-fetched so the two
+   * views can't disagree, and so a caveat can't be lost by opening this:
+   * these are exactly the "treat this result with suspicion" notes, and the
+   * full-screen view is where someone is most likely be reading a shift
+   * value off the spectrum and acting on it.
+   */
+  warnings: string[];
   selectedIsomer: number;
   onSelectIsomer: (index: number) => void;
 }) {
   const t = useT();
+  // The prediction service emits warnings as fixed English strings; the
+  // translator maps the known ones to localized text and passes anything
+  // unmatched through unchanged (see nmrWarnings.ts for why that's the
+  // chosen fallback). Same call the compact dropdown makes, so both views
+  // render identical wording.
+  const language = useMoleculeStore((s) => s.language);
   const current = results[selectedIsomer] ?? results[0];
   const predictions = current?.predictions ?? [];
   const predictionsH1 = current?.predictionsH1 ?? [];
@@ -183,6 +202,16 @@ export function NmrReportView({
         </div>
 
         <p className="nmr-report-dialog__hint">{t("nmr.reportHint")}</p>
+
+        {warnings.length > 0 && (
+          <div className="nmr-report-warnings">
+            {warnings.map((warning, i) => (
+              <p key={i} className="nmr-result__warning">
+                {translateNmrWarning(warning, language)}
+              </p>
+            ))}
+          </div>
+        )}
 
         <div className="nmr-report-main-tabs" role="tablist">
           {(["structure", "spectrum"] as const).map((tab) => (

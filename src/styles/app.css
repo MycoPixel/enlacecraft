@@ -3591,3 +3591,31 @@
   background: var(--danger);
   color: #fff;
 }
+
+/* Prediction warnings inside the full-screen NMR report.
+   These reuse .nmr-result__warning for its colour, but the compact
+   dropdown sizes that at 10.5px inside a 280px panel - fine for a glance,
+   wrong for the view where someone is reading shift values off the
+   spectrum. The report has room, so give the caveats a visible box and
+   legible text: they are the "treat this result with suspicion" notes,
+   and burying them was part of why they were easy to miss. */
+.nmr-report-warnings {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning, #c47a1f);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warning, #c47a1f) 8%, transparent);
+}
+
+.nmr-report-warnings .nmr-result__warning {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--warning, #c47a1f);
+}
+
+/* Multiple caveats: separate them rather than letting the lines run
+   together, since each one is a separate caveat. */
+.nmr-report-warnings .nmr-result__warning + .nmr-result__warning {
+  margin-top: 4px;
+}
