@@ -239,3 +239,88 @@ describe("touch long-press opens the context menu", () => {
     expect(useMoleculeStore.getState().contextMenu).toBeNull();
   });
 });
+
+describe("freeAngle bypasses the 30-degree snap", () => {
+  /** One lone carbon, with the bond tool active. */
+  function seedBondTool() {
+    let mol = addAtom(emptyMolecule(), "a1", { x: 0, y: 0 }, "C");
+    useMoleculeStore.setState({ molecule: mol, selected: new Set(), contextMenu: null });
+    useMoleculeStore.setState({ tool: "bond-1" });
+  }
+
+  /**
+   * Drags a bond out at `angleDeg` and returns the angle of the resulting
+   * bond, in degrees, snapped to something comparable.
+   */
+  function dragBondAt(angleDeg: number): number | null {
+    const r = 100;
+    const rad = (angleDeg * Math.PI) / 180;
+    const tx = Math.cos(rad) * r;
+    const ty = Math.sin(rad) * r;
+    act(() => {
+      handlers.onPointerDown(pointerEvent(0, 0)); // on a1
+    });
+    act(() => {
+      handlers.onPointerMove(pointerEvent(tx, ty));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(tx, ty));
+    });
+    const mol = useMoleculeStore.getState().molecule;
+    const other = Object.values(mol.atoms).find((a) => a.id !== "a1");
+    if (!other) return null;
+    return (Math.atan2(other.y, other.x) * 180) / Math.PI;
+  }
+
+  beforeEach(() => {
+    seedBondTool();
+    useMoleculeStore.setState({ freeAngle: false });
+  });
+
+  test("snaps a 40-degree drag onto the 30-degree grid by default", () => {
+    // 40 is not a multiple of 30, so snapping is observable.
+    const deg = dragBondAt(40);
+    expect(deg).not.toBeNull();
+    // atan2 returns ~29.999999999999993 for a true 30, so measure the
+    // distance to the nearest grid line rather than comparing directly.
+    expect(Math.abs(deg! - Math.round(deg! / 30) * 30)).toBeLessThan(1e-6);
+  });
+
+  test("keeps a 40-degree drag at 40 degrees when freeAngle is on", () => {
+    useMoleculeStore.setState({ freeAngle: true });
+    const deg = dragBondAt(40);
+    expect(deg).not.toBeNull();
+    expect(Math.abs(deg! - 40)).toBeLessThan(0.001);
+  });
+
+  test("an angle already on the grid is unchanged either way", () => {
+    const onGrid = dragBondAt(30)!;
+    expect(Math.abs(onGrid - Math.round(onGrid / 30) * 30)).toBeLessThan(1e-6);
+    seedBondTool();
+    useMoleculeStore.setState({ freeAngle: true });
+    const kept = dragBondAt(30)!;
+    expect(Math.abs(kept - 30)).toBeLessThan(1e-6);
+  });
+
+  test("the toggle flips and is readable from the store", () => {
+    expect(useMoleculeStore.getState().freeAngle).toBe(false);
+    act(() => useMoleculeStore.getState().toggleFreeAngle());
+    expect(useMoleculeStore.getState().freeAngle).toBe(true);
+    act(() => useMoleculeStore.getState().toggleFreeAngle());
+    expect(useMoleculeStore.getState().freeAngle).toBe(false);
+  });
+
+  test("does not make freeAngle affect selection, which keeps its own Shift meaning", () => {
+    // With freeAngle on, a plain tap on an atom should still just select it -
+    // the toggle is about angle snapping only.
+    seedBondTool();
+    useMoleculeStore.setState({ tool: "select", freeAngle: true });
+    act(() => {
+      handlers.onPointerDown(pointerEvent(0, 0));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(0, 0));
+    });
+    expect(useMoleculeStore.getState().selected.has("a1")).toBe(true);
+  });
+});

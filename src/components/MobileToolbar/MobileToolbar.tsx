@@ -3,7 +3,7 @@ import {
   MousePointer2, Lasso, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
   MoreHorizontal, Group, Bookmark, BookmarkPlus, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "../Sidebar/ToolButton";
@@ -98,6 +98,10 @@ export function MobileToolbar() {
   const view = useMoleculeStore((s) => s.view);
   const setView = useMoleculeStore((s) => s.setView);
   const resetView = useMoleculeStore((s) => s.resetView);
+  // Sticky Shift-equivalent: without it every bond drawn by finger is locked
+  // to the 30-degree grid, because there is no way to hold a modifier key.
+  const freeAngle = useMoleculeStore((s) => s.freeAngle);
+  const toggleFreeAngle = useMoleculeStore((s) => s.toggleFreeAngle);
   const zoomBy = (factor: number) =>
     setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
 
@@ -324,6 +328,14 @@ export function MobileToolbar() {
 
               <SectionLabel>{t("section.view")}</SectionLabel>
               <div className="row">
+                <ToolButton
+                  big
+                  active={freeAngle}
+                  title={t("tool.freeAngle")}
+                  onClick={toggleFreeAngle}
+                >
+                  <Ruler size={18} />
+                </ToolButton>
                 <ToolButton big title={t("tool.zoomIn")} onClick={() => zoomBy(1.2)}>
                   <ZoomIn size={18} />
                 </ToolButton>

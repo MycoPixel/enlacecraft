@@ -274,6 +274,23 @@ interface MoleculeStore {
   contextMenu: { x: number; y: number; atomId: string | null; bondId: string | null } | null;
   showHydrogens: boolean;
   monochromeAtoms: boolean;
+  /**
+   * Sticky equivalent of holding Shift while drawing: disables the 30-degree
+   * angle snap so bonds, chains, arrows and functional groups can be drawn at
+   * any angle.
+   *
+   * Shift does double duty as a transient modifier (see the snap sites in
+   * useCanvasInteractions), which works fine for a mouse but is unreachable
+   * on touch — there is no second hand to hold a key with, so every
+   * touch-drawn bond was forced onto the 30-degree grid. This is the
+   * same capability made persistent and toggleable, so a finger can reach it.
+   *
+   * Only affects *angle* decisions. Shift+click's selection-toggle meaning is
+   * deliberately left alone: that's a discrete click action, not a drawing
+   * modifier, and binding both to one flag would make a tap unexpectedly
+   * start drawing at free angles.
+   */
+  freeAngle: boolean;
   /** Whether the 3D structure panel is docked next to the 2D canvas. Off
    * by default (a secondary view most edits don't need open) and never
    * persisted — always starts closed, same as any other transient panel
@@ -341,6 +358,7 @@ interface MoleculeStore {
    * copy-then-separately-paste. */
   duplicateSelection: () => void;
   toggleShowHydrogens: () => void;
+  toggleFreeAngle: () => void;
   /** Real structural edit, not a view toggle: on the atom count going up
    * (i.e. hasExplicitHydrogens(molecule) is currently false), adds a real
    * terminal H atom + bond for every implicit hydrogen on every carbon
@@ -689,6 +707,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     rotationSession: null,
     contextMenu: null,
     showHydrogens: false,
+  freeAngle: false,
     monochromeAtoms: true,
     show3DView: false,
     embed3DMethod: "quick",
@@ -816,6 +835,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       });
     },
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
+    toggleFreeAngle: () => set((s) => ({ freeAngle: !s.freeAngle })),
     toggleExplicitHydrogens: () => {
       const { molecule } = get();
       if (M.hasExplicitHydrogens(molecule)) {

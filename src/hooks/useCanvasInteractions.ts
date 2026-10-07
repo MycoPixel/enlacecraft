@@ -66,6 +66,27 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
    */
   const touchInputRef = useRef(false);
 
+  /**
+   * Whether drawing should bypass the 30-degree angle snap.
+   *
+   * True when Shift is held (desktop) OR the persistent freeAngle toggle is
+   * on (store.freeAngle). The toggle exists because touch has no way to hold
+   * a modifier key, so every bond, chain, arrow and functional group drawn by
+   * finger was locked to the 30-degree grid. See store's freeAngle doc comment.
+   *
+   * Read per-call rather than captured, since it can be flipped mid-session
+   * (and mid-gesture) from the mobile toolbar.
+   *
+   * Covers every site where Shift currently bypasses an *angle* snap:
+   * bond/atom-bond/chain/arrow/functional-group drawing, and repositioning a
+   * singly-bonded atom. Deliberately excluded are the two places where Shift
+   * means something else: Shift+click's selection toggle (a discrete click
+   * action, not a drawing modifier) and the rotate gesture, where Shift
+   * *adds* a 15-degree snap rather than removing one.
+   */
+  const angleFree = (e: { shiftKey: boolean }): boolean =>
+    e.shiftKey || useMoleculeStore.getState().freeAngle;
+
   const pickAtom = useCallback((mol: Molecule, pt: Point, excludeId: string | null = null, worldRadius = 16): string | null => {
     const { view } = useMoleculeStore.getState();
     return atomAt(mol, pt, worldRadius, excludeId, view.scale, touchInputRef.current ? MIN_HIT_PX_TOUCH : MIN_HIT_PX_PRECISE);
@@ -586,7 +607,9 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (drag.mode === "move") {
       const lockLength = e.ctrlKey || e.metaKey;
-      if (drag.anchor && (lockLength || !e.shiftKey)) {
+      // freeAngle counts here too: Shift bypasses this snap block, and the
+      // snap being bypassed is a 30-degree angle snap like the others.
+      if (drag.anchor && (lockLength || !angleFree(e))) {
         // Three ways to adjust a singly-bonded atom while dragging it:
         //  - default: angle snaps to 30°, length always follows the drag
         //    (see below for why length isn't forced to standard here).
@@ -728,7 +751,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
             targetBondId = nearBond;
           } else {
             const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-            const ang = bestNewAngle(store.molecule, drag.from, desired, e.shiftKey);
+            const ang = bestNewAngle(store.molecule, drag.from, desired, angleFree(e));
             previewPoint = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
           }
         }
@@ -743,7 +766,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       // the cursor's actually moved away from the press point, then it
       // snaps to 30° (Shift for the exact freeform angle instead).
       const movedEnough = dist(drag.center, pt) > 12;
-      store.setFunctionalGroupDesiredAngle(movedEnough ? (e.shiftKey ? angleOf(drag.center, pt) : snapAngle(angleOf(drag.center, pt))) : null);
+      store.setFunctionalGroupDesiredAngle(movedEnough ? (angleFree(e) ? angleOf(drag.center, pt) : snapAngle(angleOf(drag.center, pt))) : null);
       store.setStatus("status.dragFunctionalGroup");
       return;
     }
@@ -751,14 +774,14 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "chain") {
       const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
       const anchor: Point = fromAtom ? { x: fromAtom.x, y: fromAtom.y } : drag.start;
-      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, e.shiftKey);
+      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, angleFree(e));
       store.setChainPreview(points.length > 0 ? { from: drag.from, anchor, points } : null);
       store.setStatus("status.dragChain");
       return;
     }
 
     if (drag.mode === "arrow-draw") {
-      const end = e.shiftKey || dist(drag.start, pt) <= 8
+      const end = angleFree(e) || dist(drag.start, pt) <= 8
         ? pt
         : polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt)));
       store.setArrowPreview({ x1: drag.start.x, y1: drag.start.y, x2: end.x, y2: end.y });
@@ -904,7 +927,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         toAtom = hitAtom;
       } else {
         const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-        const ang = bestNewAngle(molecule, from, desired, e.shiftKey);
+        const ang = bestNewAngle(molecule, from, desired, angleFree(e));
         const p = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
         toAtom = store.addAtom(p, "C");
       }
@@ -935,7 +958,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         return;
       }
       const hitAtom = pickAtom(molecule, pt, from, 16);
-      const toAtom = hitAtom ?? store.addAtom(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), e.shiftKey)), "C");
+      const toAtom = hitAtom ?? store.addAtom(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), angleFree(e))), "C");
       store.addBond(from, toAtom, 1, "none");
       store.setStatus("status.ready");
       return;
@@ -955,7 +978,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const pt = clientToWorld(e.clientX, e.clientY);
       const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
       const anchor: Point = fromAtom ? { x: fromAtom.x, y: fromAtom.y } : drag.start;
-      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, e.shiftKey);
+      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, angleFree(e));
       store.addChain(drag.from, anchor, points);
       store.setStatus("status.ready");
       return;
@@ -969,7 +992,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         // A near-zero drag still places a reasonable default-length arrow
         // pointing right, rather than a degenerate zero-length one.
         end = { x: drag.start.x + BOND_LEN * 1.5, y: drag.start.y };
-      } else if (e.shiftKey) {
+      } else if (angleFree(e)) {
         end = pt; // free angle — same Shift-to-bypass convention as bonds
       } else {
         end = polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt)));
