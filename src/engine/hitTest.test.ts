@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { atomAt, bondAt, hitRadius, MIN_HIT_PX_PRECISE, MIN_HIT_PX_TOUCH } from "./hitTest";
-import { emptyMolecule, addAtom, addBond, type Molecule } from "../model/molecule";
+import { emptyMolecule, addAtom, addBond } from "../model/molecule";
+import type { Molecule } from "../types/chemistry";
 
 /**
  * Hit targets are sized in world units, so they shrink on screen as the view
