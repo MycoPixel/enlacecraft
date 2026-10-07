@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useT } from "../../i18n/useT";
+import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import {
   simulateH1Spectrum,
@@ -25,6 +26,23 @@ const MIN_VERTICAL_ZOOM = 1;
 const MAX_VERTICAL_ZOOM = 60;
 const VERTICAL_ZOOM_STEP = 1.15; // multiplicative per wheel tick
 const MIN_DRAG_PPM = 0.02; // shorter drags are treated as a click, not a zoom
+
+/** How far the pointer may travel during a press and still count as a click
+ *  rather than a zoom drag, in CSS pixels. Comfortably under the ~8px slop
+ *  used elsewhere in the app for click-vs-drag, and small enough that an
+ *  accidental nudge while aiming at a peak doesn't zoom instead. */
+const CLICK_SLOP_PX = 6;
+
+/**
+ * How close (in plot x units) a click has to be to a peak's own line to count
+ * as selecting it.
+ *
+ * The tallest line of the group is used rather than any line, so clicking the
+ * envelope of a multiplet still resolves to the right signal instead of
+ * depending on which splitting line happened to be under the cursor. Scaled
+ * off LABEL_H_GAP_PX so it tracks the same visual density as the labels.
+ */
+const PICK_TOLERANCE_PX = 14;
 
 // Label decluttering: rough per-character width for the 8.5px group-
 // label font, used to estimate how wide a label's text will render
@@ -54,6 +72,30 @@ function formatPpmForInput(n: number): string {
 // 1-decimal display would print "0.1" for every tick of a 0.05 step).
 // Reads it straight off how the step itself prints, since that's
 // already exactly as precise as the number needs to be.
+/**
+ * Rounds a raw tick interval to the nearest "nice" value from the 1/2/5 ladder
+ * (…, 0.1, 0.2, 0.5, 1, 2, 5, 10, …).
+ *
+ * Standard chart practice, and the same reason software uses it generally: a
+ * reader can count in halves and thirds of a labelled interval far more
+ * easily than in thirds of 1.67. It also keeps the axis readable across the
+ * very different windows this plot gets - a zoomed 0.2 ppm slice and a full
+ * 0-12 ppm 13C range both come out with round, guessable intervals.
+ */
+function niceTickStep(raw: number): number {
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
+  const normalized = raw / magnitude;
+  // Compare against the MIDPOINTS between ladder rungs (1.5, 3, 7), not the
+  // rungs themselves, so the value is rounded to whichever rung is genuinely
+  // nearer rather than always stepped up past its own rung. With rungs as
+  // thresholds a 1.25 ppm interval would snap to 2 - nearly double the wanted
+  // density - because 1.25 merely exceeds 1.
+  // The ladder applies per decade, so 20 ppm stays 20 rather than becoming 2.
+  const snapped = normalized < 1.5 ? 1 : normalized < 3 ? 2 : normalized < 7 ? 5 : 10;
+  return snapped * magnitude;
+}
+
 function decimalsForStep(step: number): number {
   const s = step.toString();
   const dot = s.indexOf(".");
@@ -84,10 +126,14 @@ function SpectrumPlot({
   peakGroups,
   nucleus,
   linewidthPpm,
+  onSelectGroup,
 }: {
   peakGroups: SimulatedPeakGroup[];
   nucleus: Nucleus;
   linewidthPpm: number;
+  /** Called with the group whose peak/label was clicked - lets the plot act
+   *  as a peak picker rather than a purely decorative graph. */
+  onSelectGroup: ((group: SimulatedPeakGroup) => void) | undefined;
 }) {
   const t = useT();
   const [mode, setMode] = useState<PlotMode>("curve");
@@ -96,6 +142,11 @@ function SpectrumPlot({
   const svgRef = useRef<SVGSVGElement>(null);
   const dragStartPpm = useRef<number | null>(null);
   const [dragCurrentPpm, setDragCurrentPpm] = useState<number | null>(null);
+  // Screen-space position the press started at, so a release that never moved
+  // can be told apart from the end of a zoom drag. endDrag already discards
+  // sub-threshold ppm movement, but a horizontal drag and a click can span the
+  // same ppm range, so the test has to be in screen space to be meaningful.
+  const dragStartClient = useRef<{ x: number; y: number } | null>(null);
 
   const naturalRange = useMemo(() => suggestedRange(peakGroups, nucleus), [peakGroups, nucleus]);
   const [minPpm, maxPpm] = zoomRangePpm ?? naturalRange;
@@ -159,6 +210,38 @@ function SpectrumPlot({
   const ppmToX = (ppm: number) => (PLOT_WIDTH * (maxPpm - ppm)) / (maxPpm - minPpm);
   const xToPpm = (x: number) => maxPpm - (x / PLOT_WIDTH) * (maxPpm - minPpm);
 
+  /**
+   * The peak group whose tallest line is nearest a click at plot-x `x`, or
+   * null if nothing is close enough.
+   *
+   * Comparing in plot-x units rather than ppm means the tolerance is a fixed
+   * on-screen distance, so picking feels the same whether the window is 12 ppm
+   * wide or zoomed into a 0.2 ppm slice.
+   */
+  const pickGroupAtX = (x: number): SimulatedPeakGroup | null => {
+    let best: SimulatedPeakGroup | null = null;
+    let bestDist = Infinity;
+    for (const group of peakGroups) {
+      const line = tallestLine(group);
+      if (!line) continue;
+      const d = Math.abs(ppmToX(line.ppm) - x);
+      if (d < bestDist) {
+        best = group;
+        bestDist = d;
+      }
+    }
+    return bestDist <= PICK_TOLERANCE_PX ? best : null;
+  };
+
+  const pickGroupAtClientX = (clientX: number, clientY: number): SimulatedPeakGroup | null => {
+    // Route through the existing client->ppm conversion rather than a second
+    // screen->viewBox transform: clientXToPpm already handles the SVG's
+    // letterboxing correctly (see its comment), and a second implementation
+    // would be a second thing to keep in sync.
+    const ppm = clientXToPpm(clientX, clientY);
+    return ppm === null ? null : pickGroupAtX(ppmToX(ppm));
+  };
+
   const clientXToPpm = (clientX: number, clientY: number): number | null => {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -217,10 +300,30 @@ function SpectrumPlot({
       }
       return result;
     }
-    const count = 6;
-    const step = (maxPpm - minPpm) / count;
-    return Array.from({ length: count + 1 }, (_, i) => minPpm + step * i);
+    // No manual step set: pick one from the NMR-conventional 1/2/5 ladder,
+    // targeting ~8 divisions.
+    //
+    // The previous code divided the range into exactly 6 equal parts, which on
+    // a typical 1H window (say 0-10 ppm) put ticks 1.67 ppm apart - too coarse
+    // to read anything in the aromatic region, where signals routinely sit
+    // 0.1 ppm from their neighbours. Snapping to a round number also means the
+    // labels read 1 / 2 / 5 rather than 1.67 / 3.33, so a reader can estimate
+    // an unknown peak between two labelled lines.
+    const step = niceTickStep((maxPpm - minPpm) / 8);
+    const first = Math.ceil(minPpm / step) * step;
+    const result: number[] = [];
+    for (let i = 0, v = first; v <= maxPpm + 1e-9 && i < 60; i++, v = first + step * i) {
+      // Snap away float drift (0.1 + 0.1 !== 0.2 exactly).
+      result.push(Math.round(v / step) * step);
+    }
+    return result;
   }, [minPpm, maxPpm, tickStep]);
+
+  /**
+   * Whether 0 ppm falls inside the current window - the TMS reference point,
+   * and the one landmark every NMR reader looks for first.
+   */
+  const hasZeroReference = minPpm <= 0 && maxPpm >= 0;
 
   const hasIllustrative = peakGroups.some((g) => g.isIllustrative);
   const hasData = peakGroups.some((g) => g.lines.length > 0);
@@ -296,6 +399,7 @@ function SpectrumPlot({
     const ppm = clientXToPpm(e.clientX, e.clientY);
     if (ppm === null) return;
     dragStartPpm.current = ppm;
+    dragStartClient.current = { x: e.clientX, y: e.clientY };
     setDragCurrentPpm(ppm);
   };
 
@@ -305,15 +409,30 @@ function SpectrumPlot({
     if (ppm !== null) setDragCurrentPpm(ppm);
   };
 
-  const endDrag = () => {
-    if (dragStartPpm.current !== null && dragCurrentPpm !== null) {
-      const lo = Math.min(dragStartPpm.current, dragCurrentPpm);
-      const hi = Math.max(dragStartPpm.current, dragCurrentPpm);
+  const endDrag = (e?: ReactMouseEvent<SVGSVGElement>) => {
+    const start = dragStartPpm.current;
+    const startClient = dragStartClient.current;
+    if (start !== null && dragCurrentPpm !== null) {
+      const lo = Math.min(start, dragCurrentPpm);
+      const hi = Math.max(start, dragCurrentPpm);
       if (hi - lo >= MIN_DRAG_PPM) {
         setZoomRangePpm([lo, hi]);
+      } else if (onSelectGroup && e && startClient) {
+        // Not a zoom drag, so treat it as a click and pick the nearest peak.
+        // This branch is the reason a click was previously swallowed outright:
+        // endDrag used to discard anything under MIN_DRAG_PPM and do nothing
+        // else, so a deliberate click on a peak produced no feedback at all.
+        // Screen-space distance decides the click (see pickGroupAtClientX), but
+        // this screen-space check only decides click-vs-drag.
+        const moved = Math.hypot(e.clientX - startClient.x, e.clientY - startClient.y);
+        if (moved <= CLICK_SLOP_PX) {
+          const group = pickGroupAtClientX(e.clientX, e.clientY);
+          if (group) onSelectGroup(group);
+        }
       }
     }
     dragStartPpm.current = null;
+    dragStartClient.current = null;
     setDragCurrentPpm(null);
   };
 
@@ -414,17 +533,47 @@ function SpectrumPlot({
         >
           <line x1={0} y1={AXIS_Y} x2={PLOT_WIDTH} y2={AXIS_Y} className="nmr-spectrum-plot__axis" />
 
+          {/*
+            Gridlines run the full height of the plot, not just the 4px tick
+            stub below the axis. Without them the only way to read an
+            unlabelled peak is to eyeball it against the baseline, which is
+            exactly the estimate the axis is supposed to support. Drawn behind
+            the peaks so they never obscure a signal.
+          */}
           {ticks.map((tick, i) => {
             const x = ppmToX(tick);
             return (
               <g key={i}>
+                <line x1={x} y1={PLOT_PADDING_TOP} x2={x} y2={AXIS_Y} className="nmr-spectrum-plot__gridline" />
                 <line x1={x} y1={AXIS_Y} x2={x} y2={AXIS_Y + 4} className="nmr-spectrum-plot__tick" />
                 <text x={x} y={AXIS_Y + 15} className="nmr-spectrum-plot__tick-label">
-                  {tick.toFixed(tickStep !== null ? decimalsForStep(tickStep) : nucleus === "h1" ? 1 : 0)}
+                  {tick.toFixed(tickStep !== null ? decimalsForStep(tickStep) : decimalsForStep((maxPpm - minPpm) / 8))}
                 </text>
               </g>
             );
           })}
+
+          {/*
+            0 ppm - the TMS reference - gets a distinct full-height marker
+            and its own label, because it is the one line every NMR reader
+            looks for first and it is frequently not one of the interval
+            ticks (a 0-10 ppm window at a 1 ppm step happens to include it, a
+            zoomed window usually does not).
+          */}
+          {hasZeroReference && (
+            <g className="nmr-spectrum-plot__reference">
+              <line
+                x1={ppmToX(0)}
+                y1={PLOT_PADDING_TOP}
+                x2={ppmToX(0)}
+                y2={AXIS_Y + 4}
+                className="nmr-spectrum-plot__reference-line"
+              />
+              <text x={ppmToX(0)} y={AXIS_Y + 27} className="nmr-spectrum-plot__reference-label">
+                {t("nmr.spectrumReference")}
+              </text>
+            </g>
+          )}
 
           {mode === "curve" ? (
             <polyline
@@ -442,8 +591,10 @@ function SpectrumPlot({
                   y2={intensityToY(line.intensity)}
                   className={
                     "nmr-spectrum-plot__stick" +
-                    (group.isIllustrative ? " nmr-spectrum-plot__stick--illustrative" : "")
+                    (group.isIllustrative ? " nmr-spectrum-plot__stick--illustrative" : "") +
+                    (onSelectGroup ? " nmr-spectrum-plot__stick--clickable" : "")
                   }
+                  onClick={onSelectGroup ? () => onSelectGroup(group) : undefined}
                 />
               ))
             )
@@ -460,7 +611,34 @@ function SpectrumPlot({
                   className="nmr-spectrum-plot__label-leader"
                 />
               )}
-              <text x={placement.x} y={placement.y} className="nmr-spectrum-plot__group-label">
+              {/* The label is the one per-peak element present in both curve
+                  and sticks mode, so it's the click target that works
+                  regardless of which mode is showing. cursor:pointer and the
+                  hover treatment are in app.css. */}
+              <text
+                x={placement.x}
+                y={placement.y}
+                className={
+                  "nmr-spectrum-plot__group-label" +
+                  (onSelectGroup ? " nmr-spectrum-plot__group-label--clickable" : "")
+                }
+                onClick={onSelectGroup ? () => onSelectGroup(placement.group) : undefined}
+                role={onSelectGroup ? "button" : undefined}
+                tabIndex={onSelectGroup ? 0 : undefined}
+                onKeyDown={
+                  onSelectGroup
+                    ? (ev) => {
+                        // Keyboard parity with a clickable thing - Enter/Space,
+                        // since a spectrum peak is otherwise unreachable without
+                        // a pointer.
+                        if (ev.key === "Enter" || ev.key === " ") {
+                          ev.preventDefault();
+                          onSelectGroup(placement.group);
+                        }
+                      }
+                    : undefined
+                }
+              >
                 {placement.text}
               </text>
             </g>
@@ -505,16 +683,52 @@ export function NmrSpectrumView({
 }) {
   const t = useT();
   const [activeNucleus, setActiveNucleus] = useState<Nucleus>("h1");
+  const setSelected = useMoleculeStore((s) => s.setSelected);
+
+  const h1Groups = useMemo(() => groupByEquivalence(predictionsH1), [predictionsH1]);
+  const c13Groups = useMemo(() => groupByEquivalence(predictions), [predictions]);
 
   const h1PeakGroups = useMemo(() => {
-    const groups = groupByEquivalence(predictionsH1);
-    return simulateH1Spectrum(groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
-  }, [predictionsH1, atomOrder, atomLabels]);
+    return simulateH1Spectrum(h1Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
+  }, [h1Groups, atomOrder, atomLabels]);
 
   const c13PeakGroups = useMemo(() => {
-    const groups = groupByEquivalence(predictions);
-    return simulateC13Spectrum(groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
-  }, [predictions, atomOrder, atomLabels]);
+    return simulateC13Spectrum(c13Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
+  }, [c13Groups, atomOrder, atomLabels]);
+
+  /**
+   * Selects the atoms behind a clicked peak on the canvas.
+   *
+   * This is the link the spectrum was missing: peaks were labelled with atom
+   * names ("C5, C6") but inert, so there was no way to go from a signal back
+   * to the atoms that produced it. The obvious use - "which protons is that
+   * multiplet?" - needed you to read the label and hunt on the canvas by eye.
+   *
+   * Groups are matched by equivalence_group rather than by position in the
+   * peak list: the simulated groups are derived from the same equivalence
+   * grouping, so the group id is the stable link between "this peak" and
+   * "these atoms".
+   *
+   * Replaces rather than extends the selection: clicking a peak is a statement
+   * about that signal, and leaving an unrelated previous selection in place
+   * would make a following drag move atoms the user wasn't looking at.
+   */
+  const handleSelectGroup = useCallback(
+    (nucleus: Nucleus) => (group: SimulatedPeakGroup) => {
+      const groups = nucleus === "h1" ? h1Groups : c13Groups;
+      const match = groups.find(
+        (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels) === group.label,
+      );
+      if (!match) return;
+      const ids = new Set(
+        match.members
+          .map((m) => atomOrder[m.atomIndex])
+          .filter((id): id is string => Boolean(id)),
+      );
+      if (ids.size > 0) setSelected(ids);
+    },
+    [h1Groups, c13Groups, atomOrder, atomLabels, setSelected],
+  );
 
   return (
     <div className="nmr-spectrum-view">
@@ -539,9 +753,9 @@ export function NmrSpectrumView({
       </div>
 
       {activeNucleus === "h1" ? (
-        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} />
+        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} />
       ) : (
-        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} />
+        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} />
       )}
 
       <p className="nmr-report-dialog__caveat">{t("nmr.spectrumCaveat")}</p>

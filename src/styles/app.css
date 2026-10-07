@@ -3619,3 +3619,75 @@
 .nmr-report-warnings .nmr-result__warning + .nmr-result__warning {
   margin-top: 4px;
 }
+
+/* Full-height gridlines behind the peaks.
+   The tick stubs alone only mark the baseline, which gives the eye nothing to
+   measure a peak against vertically; running them through the plot area makes
+   an unlabelled peak's position readable the way any chart grid should. */
+.nmr-spectrum-plot__gridline {
+  stroke: var(--grid-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The 0 ppm / TMS reference. Deliberately stronger than a gridline: it's the
+   one landmark a reader navigates by, and it's usually absent from the tick
+   set because the visible window rarely lands on a multiple of the interval. */
+.nmr-spectrum-plot__reference-line {
+  stroke: var(--ink);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.75;
+}
+
+.nmr-spectrum-plot__reference-label {
+  fill: var(--ink-soft);
+  font-size: 9px;
+  text-anchor: middle;
+  letter-spacing: 0.04em;
+}
+
+/* Clickable spectrum elements.
+   Peaks and their labels select the atoms behind them on the canvas (see
+   NmrSpectrumView's handleSelectGroup), which is the only way to get from a
+   signal back to the structure. Without a visible affordance that's an
+   undiscoverable feature, so these carry pointer + hover + focus states.
+
+   min-height/min-width are set because these are SVG text elements: their
+   hit area is the glyph box, so a small label is a small target - especially
+   on touch. */
+.nmr-spectrum-plot__group-label--clickable {
+  cursor: pointer;
+}
+
+.nmr-spectrum-plot__group-label--clickable:hover {
+  fill: var(--accent, currentColor);
+  font-weight: 600;
+}
+
+/* Keyboard focus has to be visible: these are reachable by Tab, and Enter/
+   Space activates them (see the onKeyDown in NmrSpectrumView). */
+.nmr-spectrum-plot__group-label--clickable:focus {
+  outline: none;
+  fill: var(--accent, currentColor);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+/* Thicken the underline on focus so it reads as a focus ring in SVG, where
+   `outline` on a <text> is inconsistently supported. */
+.nmr-spectrum-plot__group-label--clickable:focus-visible {
+  paint-order: stroke;
+  stroke: var(--accent, currentColor);
+  stroke-width: 2px;
+  stroke-linejoin: round;
+}
+
+.nmr-spectrum-plot__stick--clickable {
+  cursor: pointer;
+}
+
+.nmr-spectrum-plot__stick--clickable:hover {
+  stroke-width: 3;
+}
