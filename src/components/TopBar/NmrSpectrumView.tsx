@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useT } from "../../i18n/useT";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
@@ -24,7 +25,18 @@ type Nucleus = "h1" | "c13";
 
 const MIN_VERTICAL_ZOOM = 1;
 const MAX_VERTICAL_ZOOM = 60;
-const VERTICAL_ZOOM_STEP = 1.15; // multiplicative per wheel tick
+const VERTICAL_ZOOM_STEP = 1.15; // multiplicative per wheel tick / button press
+
+/**
+ * Clamps the vertical zoom to its allowed range.
+ *
+ * Extracted rather than inlined at each use site so the wheel handler and the
+ * touch buttons cannot drift apart - two copies of the same clamp is how one
+ * of them ends up letting you zoom past the ceiling.
+ */
+function clampVerticalZoom(value: number): number {
+  return Math.min(MAX_VERTICAL_ZOOM, Math.max(MIN_VERTICAL_ZOOM, value));
+}
 const MIN_DRAG_PPM = 0.02; // shorter drags are treated as a click, not a zoom
 
 /** How far the pointer may travel during a press and still count as a click
@@ -147,6 +159,10 @@ function SpectrumPlot({
   // sub-threshold ppm movement, but a horizontal drag and a click can span the
   // same ppm range, so the test has to be in screen space to be meaningful.
   const dragStartClient = useRef<{ x: number; y: number } | null>(null);
+  // Which pointer is driving the drag. Pinch-to-zoom on a phone sends several
+  // pointers at once, and without pinning one, each finger's move would fight
+  // the others over the same range selection.
+  const dragPointerId = useRef<number | null>(null);
 
   const naturalRange = useMemo(() => suggestedRange(peakGroups, nucleus), [peakGroups, nucleus]);
   const [minPpm, maxPpm] = zoomRangePpm ?? naturalRange;
@@ -373,6 +389,19 @@ function SpectrumPlot({
     setZoomRangePpm(null);
   };
 
+  /**
+   * Nudges the vertical (intensity) zoom by one step.
+   *
+   * Vertical zoom was reachable only via the mouse wheel, which on a phone
+   * does nothing at all - so a small peak sitting next to a large one (a 1H
+   * signal beside a solvent peak, say) simply couldn't be grown into view.
+   * These buttons are the touch-reachable equivalent, using the same clamping
+   * and step as the wheel handler so both inputs behave identically.
+   */
+  const stepVerticalZoom = (direction: 1 | -1) => {
+    setVerticalZoom((prev) => clampVerticalZoom(prev * (direction === 1 ? VERTICAL_ZOOM_STEP : 1 / VERTICAL_ZOOM_STEP)));
+  };
+
   // Bound as a native listener with { passive: false } instead of
   // React's onWheel prop: React attaches wheel listeners passively by
   // default, so calling preventDefault() from onWheel doesn't
@@ -385,31 +414,48 @@ function SpectrumPlot({
     const onWheel = (e: WheelEvent) => {
       if (!hasData) return;
       e.preventDefault();
-      setVerticalZoom((current) => {
-        const next = e.deltaY < 0 ? current * VERTICAL_ZOOM_STEP : current / VERTICAL_ZOOM_STEP;
-        return Math.min(MAX_VERTICAL_ZOOM, Math.max(MIN_VERTICAL_ZOOM, next));
-      });
+      setVerticalZoom((current) =>
+        clampVerticalZoom(e.deltaY < 0 ? current * VERTICAL_ZOOM_STEP : current / VERTICAL_ZOOM_STEP),
+      );
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
   }, [hasData]);
 
-  const handleMouseDown = (e: ReactMouseEvent<SVGSVGElement>) => {
+  /**
+   * Starts a range-selection drag.
+   *
+   * Pointer events rather than mouse events: this used to be onMouseDown /
+   * onMouseMove, which a finger never fires, so touch could not zoom the
+   * horizontal axis at all. React's pointer events cover mouse, pen and touch
+   * through one path, which is also why the canvas's own gestures use them.
+   *
+   * A second simultaneous pointer is ignored (left to the browser, which
+   * treats a two-finger gesture as a pinch rather than a selection), and the
+   * pointer is captured so a drag that leaves the plot still tracks.
+   */
+  const handlePointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (!hasData) return;
+    if (e.pointerType === "touch" && dragPointerId.current !== null) return;
+    // A mouse other than the primary button (e.g. right-click opening the
+    // browser menu, or middle-click autoscroll) shouldn't start a zoom.
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     const ppm = clientXToPpm(e.clientX, e.clientY);
     if (ppm === null) return;
+    dragPointerId.current = e.pointerId;
     dragStartPpm.current = ppm;
     dragStartClient.current = { x: e.clientX, y: e.clientY };
     setDragCurrentPpm(ppm);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
   };
 
-  const handleMouseMove = (e: ReactMouseEvent<SVGSVGElement>) => {
-    if (dragStartPpm.current === null) return;
+  const handlePointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (dragPointerId.current !== e.pointerId) return;
     const ppm = clientXToPpm(e.clientX, e.clientY);
     if (ppm !== null) setDragCurrentPpm(ppm);
   };
 
-  const endDrag = (e?: ReactMouseEvent<SVGSVGElement>) => {
+  const endDrag = (e?: ReactPointerEvent<SVGSVGElement>) => {
     const start = dragStartPpm.current;
     const startClient = dragStartClient.current;
     if (start !== null && dragCurrentPpm !== null) {
@@ -431,12 +477,29 @@ function SpectrumPlot({
         }
       }
     }
+    if (e && dragPointerId.current === e.pointerId) {
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    }
     dragStartPpm.current = null;
     dragStartClient.current = null;
+    dragPointerId.current = null;
     setDragCurrentPpm(null);
   };
 
   const isDragging = dragStartPpm.current !== null && dragCurrentPpm !== null;
+
+  /**
+   * Ends the drag when a pointer is cancelled or released outside the plot.
+   *
+   * Pointer capture means a normal release is always delivered here, but a
+   * cancel (an OS gesture stealing the pointer, the window losing focus) needs
+   * this path or the drag would stay latched - leaving the selection rectangle
+   * stuck on screen with no way to clear it.
+   */
+  const handlePointerCancel = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (dragPointerId.current !== e.pointerId) return;
+    endDrag();
+  };
 
   return (
     <div className="nmr-spectrum-plot">
@@ -455,6 +518,35 @@ function SpectrumPlot({
               {t(option === "curve" ? "nmr.spectrumModeCurve" : "nmr.spectrumModeSticks")}
             </button>
           ))}
+        </div>
+        {/*
+          Vertical zoom was wheel-only, which a finger can't do. Without these
+          a small peak next to a large one was unreachable on touch. Buttons
+          rather than a pinch gesture because the plot's two-finger gesture is
+          already spent on browser page zoom, and adding a custom one would
+          fight it.
+        */}
+        <div className="nmr-spectrum-plot__intensity-controls">
+          <button
+            type="button"
+            className="nmr-spectrum-plot__intensity-btn"
+            onClick={() => stepVerticalZoom(1)}
+            disabled={verticalZoom >= MAX_VERTICAL_ZOOM}
+            aria-label={t("nmr.spectrumIntensityUp")}
+            title={t("nmr.spectrumIntensityUp")}
+          >
+            <ChevronUp size={14} />
+          </button>
+          <button
+            type="button"
+            className="nmr-spectrum-plot__intensity-btn"
+            onClick={() => stepVerticalZoom(-1)}
+            disabled={verticalZoom <= MIN_VERTICAL_ZOOM}
+            aria-label={t("nmr.spectrumIntensityDown")}
+            title={t("nmr.spectrumIntensityDown")}
+          >
+            <ChevronDown size={14} />
+          </button>
         </div>
         {isZoomed && (
           <button type="button" className="nmr-spectrum-plot__reset-zoom" onClick={resetZoom}>
@@ -526,10 +618,18 @@ function SpectrumPlot({
           className="nmr-spectrum-plot__svg"
           viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
           preserveAspectRatio="xMidYMid meet"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={endDrag}
-          onMouseLeave={endDrag}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={handlePointerCancel}
+          // Deliberately NOT onPointerLeave: pointer capture keeps events
+          // flowing to this element after the pointer leaves it, so a drag that
+          // runs off the plot still updates and still ends. Leaving here would
+          // end the drag mid-gesture and then re-fire on re-entry.
+          onPointerLeave={(e) => {
+            // Only if capture was never taken (e.g. the press started outside).
+            if (dragPointerId.current === null) endDrag(e);
+          }}
         >
           <line x1={0} y1={AXIS_Y} x2={PLOT_WIDTH} y2={AXIS_Y} className="nmr-spectrum-plot__axis" />
 

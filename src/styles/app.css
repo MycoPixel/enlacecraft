@@ -1642,7 +1642,23 @@
   height: clamp(340px, 52vh, 620px);
   display: block;
   cursor: crosshair;
-  touch-action: none;
+  /* pan-x, NOT none.
+     This was `touch-action: none`, which told the browser this element handles
+     every touch gesture itself - and it didn't: the drag handlers were bound
+     to onMouseDown/onMouseMove, which a finger never fires. So a finger on the
+     plot could neither scroll the page nor zoom the plot. It was the worst of
+     both: suppressed the scroll it should have delegated, and provided no
+     gesture in exchange.
+
+     Now that drag-to-zoom runs on pointer events, horizontal pans are claimed
+     for the plot's own drag gesture while vertical scrolling is left to the
+     browser - so a finger can scroll the page vertically and still drag out a
+     ppm range sideways. `pinch-zoom` is left enabled deliberately so the
+     browser's native pinch still works on the plot.
+     (The molecule canvas at app.css:1905 keeps `none`, which is correct
+     there: it implements both axes of pinch itself and needs the page not to
+     scroll underneath.) */
+  touch-action: pan-x pinch-zoom;
 }
 
 .nmr-spectrum-plot__axis {
@@ -3690,4 +3706,41 @@
 
 .nmr-spectrum-plot__stick--clickable:hover {
   stroke-width: 3;
+}
+
+/* Vertical (intensity) zoom buttons.
+   The wheel is the only other way to change peak height, and a touch device
+   has no wheel - so before these, a small peak beside a large one was
+   unreachable by finger. Sized to clear the 44px touch guideline rather than
+   the 26px used for the in-canvas annotation toolbar: these are a
+   secondary control used deliberately, not a dense editing strip. */
+.nmr-spectrum-plot__intensity-controls {
+  display: inline-flex;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+.nmr-spectrum-plot__intensity-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 44px square - comfortable to hit with a thumb. */
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid var(--border, currentColor);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.nmr-spectrum-plot__intensity-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+.nmr-spectrum-plot__intensity-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
