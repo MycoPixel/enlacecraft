@@ -3,7 +3,7 @@ import {
   MousePointer2, Lasso, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
   MoreHorizontal, Group, Bookmark, BookmarkPlus, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler, ShieldOff,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "../Sidebar/ToolButton";
@@ -81,6 +81,16 @@ export function MobileToolbar() {
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
   const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
+  // Atom-scoped actions that the context menu used to be the only route to.
+  // On touch there is no hover, so the selection is the target.
+  const toggleIgnoreValenceForSelection = useMoleculeStore((s) => s.toggleIgnoreValenceForSelection);
+  const deleteSelection = useMoleculeStore((s) => s.deleteSelection);
+  // True when the first selected atom already has the flag, so the button can
+  // show the state it would move TO rather than always reading "add".
+  const selectionIgnoresValence = useMoleculeStore((s) => {
+    const first = [...s.selected][0];
+    return first ? s.molecule.atoms[first]?.ignoreValence === true : false;
+  });
   // Same reasoning as the sidebar's identical computation: align/distribute
   // operate on whole connected fragments, not raw atom count.
   const selectedFragmentCount = useMemo(
@@ -318,6 +328,27 @@ export function MobileToolbar() {
                 onChoose={(color) => { highlightSelection(color); setPanel(null); }}
               />
               {selected.size === 0 && <p className="align-menu__hint">{t("highlight.needSelection")}</p>}
+
+              <SectionLabel>{t("section.atoms")}</SectionLabel>
+              <div className="row">
+                <ToolButton
+                  big
+                  active={selectionIgnoresValence}
+                  title={t("contextMenu.ignoreValence")}
+                  disabled={selected.size === 0}
+                  onClick={() => { toggleIgnoreValenceForSelection(); setPanel(null); }}
+                >
+                  <ShieldOff size={18} />
+                </ToolButton>
+                <ToolButton
+                  big
+                  title={t("contextMenu.deleteSelection")}
+                  disabled={selected.size === 0}
+                  onClick={() => { deleteSelection(); setPanel(null); }}
+                >
+                  <Trash2 size={18} />
+                </ToolButton>
+              </div>
 
               <SectionLabel>{t("section.annotations")}</SectionLabel>
               <div className="row">

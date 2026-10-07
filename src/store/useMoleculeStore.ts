@@ -474,6 +474,21 @@ interface MoleculeStore {
    * current selection — every selected atom, plus every bond whose both
    * endpoints are selected. No-op with nothing selected. */
   highlightSelection: (color: string | null) => void;
+  /**
+   * Toggles Atom.ignoreValence across the whole selection as ONE undo step.
+   *
+   * The per-atom toggleAtomIgnoreValence is still what the context menu uses,
+   * since it knows exactly which atom was under the cursor. This exists for
+   * the mobile toolbar, which has no cursor: there, the selection is the only
+   * sensible target, and applying it atom-by-atom would push one undo entry
+   * per atom for what the user thinks of as a single action.
+   *
+   * The new value is decided from the FIRST selected atom and applied to all
+   * of them, so a mixed selection resolves predictably (toggling makes
+   * everything match the first atom) rather than flipping each atom
+   * independently and leaving a mess.
+   */
+  toggleIgnoreValenceForSelection: () => void;
   /** Swaps a wedge/dash bond's narrow and wide ends in place. */
   flipBondDirection: (id: string) => void;
   cycleDoubleBondSide: (id: string) => void;
@@ -966,6 +981,17 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     highlightSelection: (color) => {
       const { selected } = get();
       commit((mol) => M.setHighlightForSelection(mol, selected, color));
+    },
+    toggleIgnoreValenceForSelection: () => {
+      const { molecule, selected } = get();
+      if (selected.size === 0) return;
+      const first = [...selected][0];
+      const target = !molecule.atoms[first]?.ignoreValence;
+      commit((mol) => {
+        let next = mol;
+        for (const id of selected) next = M.setAtomIgnoreValence(next, id, target);
+        return next;
+      });
     },
     flipBondDirection: (id) => commit((mol) => M.flipBondDirection(mol, id)),
     cycleDoubleBondSide: (id) => commit((mol) => M.cycleDoubleBondSide(mol, id)),
