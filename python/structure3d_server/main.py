@@ -191,7 +191,27 @@ def run_xtb_optimization(
                 [xtb_bin, str(xyz_path), "--opt", "--gfn", "2", "--chrg", str(charge)],
                 cwd=tmpdir_path,
                 capture_output=True,
-                text=True,
+                # Pin the encoding rather than relying on text=True's
+                # locale-dependent default. xtb writes UTF-8 - its citation
+                # header alone contains non-ASCII author names, e.g.
+                # "Hölzer" - but on Windows text=True decodes with cp1252,
+                # which raises UnicodeDecodeError inside subprocess's own
+                # reader thread the moment it hits a byte cp1252 can't
+                # represent. On Linux the locale is UTF-8 so this never
+                # showed up; on Windows it fired on *every* xtb call,
+                # losing the tail of stdout (the only diagnostic the
+                # XtbFailure message below has) and leaving the parent
+                # thread waiting on a stream nobody would ever finish
+                # writing to, so the request sat there until
+                # XTB_TIMEOUT_SECONDS instead of returning.
+                #
+                # errors="replace" as well as the explicit encoding: this
+                # output is only ever read for a human-readable error tail
+                # (the optimized geometry itself comes from the xtbopt.xyz
+                # *file*, parsed as text), so an undecodable byte is never
+                # worth failing a request over.
+                encoding="utf-8",
+                errors="replace",
                 timeout=XTB_TIMEOUT_SECONDS,
             )
         except FileNotFoundError as exc:

@@ -37,6 +37,21 @@ Each of these runs the normal web build first (`vite build`) and then wraps
 that same `dist/` output with Electron via electron-builder. Output lands in
 `release/` (gitignored, just like `dist/`).
 
+**The three frozen backends must already be in `resources/` before any of
+these will run.** All three `dist:*` scripts invoke
+`scripts/check-backends.mjs` first (via npm's `predist:win` / `predist:linux`
+/ `predist` hooks), which fails the build listing exactly what's missing.
+That check isn't ceremony: electron-builder does *not* error on a missing
+`build.extraResources` source path, it just skips it without a word. So
+building without having frozen the backends produces a perfectly plausible
+installer that is simply missing NMR prediction, GFN2-xTB 3D refinement and
+the IUPAC-naming fallback — the app launches and looks fine, and the only
+symptom is those three features quietly not working, plus one line in
+`%APPDATA%/EnlaceCraft/logs/app.log` ("Executable not found at ..."). It
+checks the hand-copied runtime dependencies too (`data/models/*.pt`,
+`xtb/bin/xtb`, `jre/…/jvm.dll`), since a bundle missing one of those starts
+and answers `/health` fine but fails on every real request.
+
 **Cross-building note:** electron-builder can build a Windows installer from
 Linux (and vice versa) in many setups, but it's most reliable to build each
 target on its own OS, or use their CI action if you want both from one
@@ -118,6 +133,22 @@ failure mode on its own.
 **Docker is required for the Linux freeze.** If it isn't installed, use the
 host-side freeze in each folder's README for debugging a build failure — just
 don't ship what it produces.
+
+**On Windows, freeze all three in one go instead**, from `python/` in
+PowerShell:
+
+    .\freeze_windows.ps1
+
+That's the Windows counterpart to the three container scripts above: it
+creates a throwaway venv per backend (or a micromamba env for
+`structure3d_server`, the one backend that needs conda-forge for `xtb`),
+freezes each one, bundles that backend's extra runtime dependency, smoke-tests
+the frozen binary against a *real* request, and copies the verified result
+straight into `resources/`. It needs PyInstaller, so it has to run on a real
+Windows machine — same no-cross-compiling rule as everything above. It works
+under both Windows PowerShell 5.1 (`powershell.exe`) and PowerShell 7 (`pwsh`);
+see the comment on its `Invoke-Native` function for the 5.1-specific stderr
+behavior it has to work around.
 
 **Important: the frozen server is platform-specific.** A Linux build of
 `nmrgraph_server` only runs on Linux - repeat step 1 ON a Windows machine to
