@@ -148,6 +148,49 @@ jobs:
           # leaking today - this removes the reason to have to check that.
           persist-credentials: false
 
+      # --- Reclaim disk before doing the heavy work -------------------
+      # The Linux runner ran out of space building the AppImage (ENOSPC).
+      #
+      # The arithmetic: resources/ holds 2.6GB of frozen PyInstaller backends,
+      # and electron-builder copies all of it into release/linux-unpacked/
+      # before squashing it into the AppImage - so ~5.2GB for the backends
+      # alone, twice over. Add node_modules, the npm cache and the Electron
+      # download and that's most of a stock runner's disk before it has built
+      # anything.
+      #
+      # So delete the toolchains this build never touches - they're images for
+      # jobs we're not running: dotnet, the Android SDK, GHC, Boost, the
+      # PowerShell install. Together that's several GB and none of it is
+      # touched by freezing Python backends or building an Electron AppImage.
+      #
+      # Deliberately NOT deleting $AGENT_TOOLSDIRECTORY, which several guides
+      # include and which frees more. It also holds the preinstalled Node that
+      # the setup-node step below resolves against, and a failed freeze is a
+      # long run to lose. The four toolchains are enough slack, so take the
+      # option that can't break a later step.
+      #
+      # Kept as its own step before setup-node so nothing can be deleted out
+      # from under a cache action, and it prints df either side so a future
+      # failure here is diagnosable from the log instead of mysterious.
+      #
+      # Windows runners have more room and didn't need this, hence Linux-only.
+      - name: Reclaim disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "before:"
+          df -h / | tail -1
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/share/boost \
+            /usr/local/share/powershell
+          # The Android SDK leaves AVD and emulator images behind even after
+          # the SDK tree goes; without this the reclaim is only partial.
+          sudo rm -rf /root/Android
+          echo "after:"
+          df -h / | tail -1
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
