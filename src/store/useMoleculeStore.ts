@@ -5,7 +5,7 @@ import type {
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
 import * as M from "../model/molecule";
-import { nextId } from "../model/id";
+import { nextId, reserveIds } from "../model/id";
 import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { addExplicitHydrogens } from "../engine/explicitHydrogens";
@@ -597,6 +597,32 @@ export function effectiveCanvasBackground(theme: Theme, canvasBackground: Canvas
   return theme === "dark" ? "theme" : canvasBackground;
 }
 
+/**
+ * Every id a set of project documents already occupies: atoms, bonds, haptics,
+ * ring displays and annotations across all tabs.
+ *
+ * Collected purely to feed reserveIds - see its doc comment for why a restore
+ * has to do this. Iterating documents rather than just the active one because
+ * a background tab's atoms get switched into and then added to.
+ */
+function idsUsedByDocuments(
+  tabs: { molecule: Molecule; annotations: Record<string, Annotation> }[],
+): string[] {
+  const ids: string[] = [];
+  for (const tb of tabs) {
+    ids.push(...Object.keys(tb.molecule.atoms));
+    ids.push(...Object.keys(tb.molecule.bonds));
+    ids.push(...Object.keys(tb.molecule.hapticBonds));
+    ids.push(...Object.keys(tb.molecule.aromaticRingDisplays));
+    // Values, not keys. Annotation records are keyed by the annotation's own
+    // id and both come from nextId(), so the keys would work too - but reading
+    // the id off the value keeps this correct if the keying ever diverges,
+    // and reserveIds ignores anything non-numeric anyway.
+    ids.push(...Object.values(tb.annotations).map((a) => a.id));
+  }
+  return ids;
+}
+
 export const useMoleculeStore = create<MoleculeStore>((set, get) => {
   /** Applies a structural edit, pushing the previous state onto the undo stack. */
   const commit = (mutate: (mol: Molecule) => Molecule) => {
@@ -1024,6 +1050,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     loadMolecule: (mol) => set({ molecule: mol, past: [], future: [], selected: new Set(), hasUnsavedChanges: true }),
     loadProject: (data) => {
+      // Documents are installed verbatim, so their ids come from whichever
+      // session last saved them - while nextId() restarts at 1 for this page.
+      // Without this, the first atom drawn after a restore overwrote an
+      // existing atom and left its bonds pointing at the replacement.
+      reserveIds(idsUsedByDocuments(data.tabs));
       const active = data.tabs.find((tb) => tb.id === data.activeTabId) ?? data.tabs[0];
       const tabDocuments: Record<string, TabDocument> = {};
       for (const tb of data.tabs) {
@@ -1066,6 +1097,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       }));
     },
     importProjectAsNewTabs: (data) => {
+      reserveIds(idsUsedByDocuments(data.tabs));
       const activeSaved = data.tabs.find((tb) => tb.id === data.activeTabId) ?? data.tabs[0];
       const idMap = new Map<string, string>();
       const newTabInfos: TabInfo[] = [];
