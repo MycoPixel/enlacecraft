@@ -17,7 +17,26 @@ import type { Molecule } from "../types/chemistry";
 
 const NMR_API_BASE = "http://localhost:8000";
 
-export type NmrPredictErrorCode = "EMPTY_QUERY" | "INVALID_SMILES" | "NETWORK" | "HTTP";
+/**
+ * How long to wait before giving up on the NMR backend.
+ *
+ * Generous on purpose: one request runs up to 8 isomers x 30 MMFF conformers
+ * (NMRGraph api/main.py, coupling_karplus.py), so a legitimately heavy tier-2
+ * prediction is slow. This exists to turn an INDEFINITE spinner into an error,
+ * not to enforce a latency budget.
+ */
+const FETCH_TIMEOUT_MS = 120_000;
+
+export type NmrPredictErrorCode =
+  | "EMPTY_QUERY"
+  | "INVALID_SMILES"
+  | "NETWORK"
+  | "HTTP"
+  /** We waited FETCH_TIMEOUT_MS and gave up. */
+  | "TIMEOUT"
+  /** A 2xx response that wasn't the JSON we expect - a proxy error page, HTML
+   *  from the wrong port, or schema drift between app and backend. */
+  | "MALFORMED";
 
 export class NmrPredictError extends Error {
   code: NmrPredictErrorCode;
@@ -201,15 +220,35 @@ export async function predictNmrSpectrum(smiles: string, molfile?: string): Prom
   const trimmed = smiles.trim();
   if (!trimmed) throw new NmrPredictError("EMPTY_QUERY");
 
+  // A timeout, matching xtbRefine.ts's pattern. Without one the dropdown could
+  // spin forever: the backend runs up to 8 isomers x 30 MMFF conformers per
+  // request (see NMRGraph api/main.py and coupling_karplus.py), so a wedged or
+  // merely very slow service left the user with an indefinite spinner and no
+  // cancel.
+  //
+  // 120s for the same reason xtbRefine uses it: generous enough not to fire
+  // during a legitimately heavy tier-2 request.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
   let res: Response;
   try {
     res = await fetch(`${NMR_API_BASE}/predict`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(molfile ? { smiles: trimmed, molfile } : { smiles: trimmed }),
+      signal: controller.signal,
     });
-  } catch {
+  } catch (err) {
+    // Distinguish "we gave up" from "the request never got there" - the user
+    // can act differently on the two, and lumping them together is what made
+    // this indistinguishable from a genuine network failure.
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new NmrPredictError("TIMEOUT");
+    }
     throw new NmrPredictError("NETWORK");
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!res.ok) {
@@ -217,7 +256,31 @@ export async function predictNmrSpectrum(smiles: string, molfile?: string): Prom
     throw new NmrPredictError("HTTP", { status: res.status });
   }
 
-  const data = (await res.json()) as {
+  // Inside try: a non-JSON body (a proxy error page, HTML from the wrong port,
+  // schema drift) otherwise escaped as a raw SyntaxError, and the caller's
+  // final fallback returned err.message verbatim - so the user could be shown
+  // `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`.
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new NmrPredictError("MALFORMED");
+  }
+
+  // Shape check. `results` in particular is dereferenced immediately by the
+  // report and spectrum views, so a missing field would crash the dropdown
+  // rather than degrade. Validate the frame, not every element - the per-row
+  // fields are cast below exactly as before.
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !Array.isArray((data as { results?: unknown }).results) ||
+    !Array.isArray((data as { warnings?: unknown }).warnings)
+  ) {
+    throw new NmrPredictError("MALFORMED");
+  }
+
+  const typed = data as {
     smiles: string;
     results: {
       smiles: string;
@@ -236,8 +299,12 @@ export async function predictNmrSpectrum(smiles: string, molfile?: string): Prom
   };
 
   return {
-    smiles: data.smiles,
-    results: data.results.map((r) => ({
+    smiles: typed.smiles,
+    // Defaulted rather than left undefined: state.warnings.map(...) in the
+    // dropdown would have thrown on a response that omitted it, and an empty
+    // list is the honest reading of "no warnings".
+    warnings: typed.warnings ?? [],
+    results: typed.results.map((r) => ({
       smiles: r.smiles,
       predictions: r.predictions.map((p) => ({
         atomIndex: p.atom_index,
@@ -254,6 +321,5 @@ export async function predictNmrSpectrum(smiles: string, molfile?: string): Prom
         equivalenceGroup: p.equivalence_group,
       })),
     })),
-    warnings: data.warnings,
   };
 }

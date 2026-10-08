@@ -69,7 +69,7 @@ function group(ppm: number, totalIntegration: number): SimulatedPeakGroup {
     centerPpm: ppm,
     totalIntegration,
     lines: [{ ppm, intensity: 1 }],
-    isIllustrative: false,
+    isIllustrative: false, splittingUnknown: false,
   };
 }
 

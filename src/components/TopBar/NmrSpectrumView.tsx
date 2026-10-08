@@ -471,6 +471,9 @@ function SpectrumPlot({
   const hasZeroReference = minPpm <= 0 && maxPpm >= 0;
 
   const hasIllustrative = peakGroups.some((g) => g.isIllustrative);
+  // Counted separately because these peaks need a DIFFERENT explanation: not
+  // "our spacing is approximate" but "we don't know the shape".
+  const splittingUnknownCount = peakGroups.filter((g) => g.splittingUnknown).length;
   const hasData = peakGroups.some((g) => g.lines.length > 0);
   const isZoomed = verticalZoom !== 1 || zoomRangePpm !== null;
 
@@ -487,7 +490,12 @@ function SpectrumPlot({
       .map((group) => {
         const line = tallestLine(group);
         if (!line) return null;
-        const text = group.label + (showShiftValues ? ` (${group.centerPpm.toFixed(nucleus === "h1" ? 2 : 1)})` : "") + (group.isIllustrative ? "*" : "");
+        // Two distinct markers, because two distinct things are true. "*" means
+        // the shape came from a 7 Hz stand-in; "?" means we were told the
+        // multiplicity but could not translate it into a shape at all. Sharing a
+        // marker made the caveat describe the second case wrongly.
+        const marker = group.splittingUnknown ? "?" : group.isIllustrative ? "*" : "";
+        const text = group.label + (showShiftValues ? ` (${group.centerPpm.toFixed(nucleus === "h1" ? 2 : 1)})` : "") + marker;
         const x = ppmToX(group.centerPpm);
         const width = text.length * LABEL_CHAR_WIDTH_PX;
         const baseY = Math.min(intensityToY(line.intensity) - 6, AXIS_Y - 8);
@@ -1017,6 +1025,11 @@ function SpectrumPlot({
       <p className="nmr-spectrum-plot__zoom-hint">{t("nmr.spectrumZoomHint")}</p>
 
       {hasIllustrative && <p className="nmr-spectrum-plot__caveat">{t("nmr.spectrumIllustrativeCaveat")}</p>}
+      {splittingUnknownCount > 0 && (
+        <p className="nmr-spectrum-plot__caveat">
+          {t("nmr.spectrumSplittingUnknownCaveat", { count: splittingUnknownCount })}
+        </p>
+      )}
     </div>
   );
 }

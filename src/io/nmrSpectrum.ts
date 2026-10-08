@@ -56,6 +56,15 @@ export interface SimulatedPeakGroup {
    * rather than a real tier 2 estimate - callers should visually
    * distinguish these from measured-J peaks. */
   isIllustrative: boolean;
+  /** True when the backend named a multiplicity it could not translate into a
+   *  coupling pattern (tier 1's "m"), so the peak is drawn unsplit because the
+   *  shape is UNKNOWN, not because it is a singlet.
+   *
+   *  A distinct flag from isIllustrative because the asterisk in the plot label
+   *  is explained by the caveat as "illustrative default coupling", which is
+   *  not what happened here - so the label and the caveat both need to say so
+   *  rather than quietly misdescribe the peak. */
+  splittingUnknown: boolean;
 }
 
 const MULTIPLICITY_N: Record<string, number> = {
@@ -69,14 +78,32 @@ const MULTIPLICITY_N: Record<string, number> = {
 };
 
 /**
- * Number of synthetic tier-1 coupling partners implied by a
- * multiplicity label. Tier 1 labels are always a single component
- * (never compound like tier 2's "dd"/"tdq" - see multiplicity.py on
- * the backend). Unrecognized labels (e.g. "m") fall back to 0
- * (rendered as an unsplit line) rather than guessing a shape.
+ * Synthetic tier-1 coupling partners implied by a multiplicity label.
+ *
+ * Returns null for a label it does not recognise, which is meaningfully
+ * different from 0.
+ *
+ * Tier 1 labels are a single component; tier 2's compound labels ("dd", "ddd")
+ * never reach here because they always arrive with real couplingHz values and
+ * take the measured-splitting path. But tier 1 CAN emit "m" (multiplet) for a
+ * proton coupled to more than seven neighbours - see _label_for_count in the
+ * backend's multiplicity.py.
+ *
+ * Collapsing "m" to 0 was a fabrication of certainty, which is the one thing
+ * this module must never do. Zero partners means "draw a single unsplit line",
+ * and because isIllustritative is derived from the count, that line came out
+ * looking like the most precise thing on the plot: solid, no asterisk, no
+ * caveat. The dropdown and CSV still said "(m)", so the plot and the table
+ * contradicted each other. Meanwhile every tier-1 peak beside it was honestly
+ * marked as an illustrative 7 Hz stand-in - so the one peak we knew LEAST about
+ * was the one presented most confidently.
+ *
+ * Null keeps the shape: the peak is still drawn unsplit, but flagged as
+ * splitting-unknown, so it reads as "we know a proton is here and not how it's
+ * split" rather than "a clean singlet".
  */
-function impliedCouplingCount(label: string): number {
-  return MULTIPLICITY_N[label] ?? 0;
+function impliedCouplingCount(label: string): number | null {
+  return MULTIPLICITY_N[label] ?? null;
 }
 
 /**
@@ -137,10 +164,21 @@ export function simulateH1Spectrum(
 
     let couplingsHz = rep.couplingHz;
     let isIllustrative = false;
+    // True when the backend told us the multiplicity but not the couplings that
+    // produce it - the shape below is then our invention, not its prediction.
+    let splittingUnknown = false;
     if (!couplingsHz || couplingsHz.length === 0) {
       const n = impliedCouplingCount(rep.multiplicity);
-      couplingsHz = Array.from({ length: n }, () => DEFAULT_ILLUSTRATIVE_J_HZ);
-      isIllustrative = n > 0;
+      if (n === null) {
+        // Unrecognised label ("m"): draw it unsplit but flag it, rather than
+        // presenting a multiplet as a measured singlet.
+        couplingsHz = [];
+        splittingUnknown = true;
+        isIllustrative = true;
+      } else {
+        couplingsHz = Array.from({ length: n }, () => DEFAULT_ILLUSTRATIVE_J_HZ);
+        isIllustrative = n > 0;
+      }
     }
 
     const convolved = convolveCouplings(couplingsHz);
@@ -155,6 +193,7 @@ export function simulateH1Spectrum(
       totalIntegration,
       lines,
       isIllustrative,
+      splittingUnknown,
     };
   });
 }
@@ -176,6 +215,7 @@ export function simulateC13Spectrum(
     totalIntegration: group.members.length,
     lines: [{ ppm: group.representative.predictedShiftPpm, intensity: group.members.length }],
     isIllustrative: false,
+    splittingUnknown: false,
   }));
 }
 

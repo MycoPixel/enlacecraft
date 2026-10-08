@@ -49,8 +49,19 @@ function result(smiles: string) {
   return {
     smiles,
     results: [{ smiles, predictions: [], predictionsH1: [] }],
-    warnings: [],
+    // Annotated so taggedResult can widen it to string[] without a type error.
+    warnings: [] as string[],
   };
+}
+
+/**
+ * Same, but tagged with a marker warning so two results can be told apart in
+ * the DOM. translateNmrWarning passes an unrecognised warning through verbatim,
+ * so the tag renders as-is - the SMILES isn't displayed anywhere, which makes it
+ * useless as a discriminator.
+ */
+function taggedResult(tag: string) {
+  return { ...result("CC"), warnings: [`TAG-${tag}`] };
 }
 
 /**
@@ -203,6 +214,95 @@ describe("NMR prediction result invalidation", () => {
 
     // No stale error banner either.
     expect(document.body.querySelector(".nmr-result")).toBeNull();
+  });
+
+  test("two predictions for the SAME input: the later one wins", async () => {
+    // The generation guard only bumps when the MOLECULE changes, so two requests
+    // for the same unedited structure shared a generation and neither could tell
+    // the other apart. Clicking "XTB" then "Fast" - realistic, since the xtb
+    // path allows 120s - could leave MMFF shifts displayed under an xTB tab
+    // label, a 0.3-0.5 ppm difference on a value the user measures off the plot.
+    //
+    // So: two requests, NO edit between them, resolved in the order that used
+    // to be wrong.
+    let resolveFirst!: (value: ReturnType<typeof result>) => void;
+    let resolveSecond!: (value: ReturnType<typeof result>) => void;
+    predictNmrSpectrum.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
+
+    await openDropdown();
+    // Let the first request reach the predict call.
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    // Second request for the same molecule, via the other quality tab.
+    const tabs = Array.from(document.body.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    predictNmrSpectrum.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecond = resolve;
+      }),
+    );
+    await act(async () => {
+      tabs[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    // The SECOND (most recent) resolves first and is displayed.
+    await act(async () => {
+      resolveSecond(taggedResult("SECOND"));
+    });
+    expect(document.body.textContent).toContain("TAG-SECOND");
+
+    // The FIRST resolves afterwards, and must be discarded rather than
+    // overwriting the newer result.
+    await act(async () => {
+      resolveFirst(taggedResult("FIRST"));
+    });
+    expect(document.body.textContent).toContain("TAG-SECOND");
+    expect(document.body.textContent).not.toContain("TAG-FIRST");
+  });
+
+  test("a stale error does not replace a newer successful result", async () => {
+    let rejectFirst!: (reason: Error) => void;
+    predictNmrSpectrum.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectFirst = reject;
+      }),
+    );
+    await openDropdown();
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    predictNmrSpectrum.mockResolvedValue(taggedResult("FRESH"));
+    const tabs = Array.from(document.body.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    await act(async () => {
+      tabs[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushPrediction();
+    expect(document.body.textContent).toContain("TAG-FRESH");
+
+    // The older request now fails. Showing its error would replace a perfectly
+    // good result with a banner about a request the user has already moved on
+    // from.
+    await act(async () => {
+      rejectFirst(new Error("network down"));
+    });
+    expect(document.body.textContent).toContain("TAG-FRESH");
+    expect(document.body.textContent).not.toContain("network down");
   });
 
   test("editing twice in a row keeps it discarded", async () => {

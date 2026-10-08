@@ -99,6 +99,10 @@ export function NmrPredictionButton() {
   // by each in-flight runPrediction so a prediction that resolves *after* an
   // edit can't install its now-stale result. See the invalidation effect below.
   const inputGenerationRef = useRef(0);
+  // Counts PREDICTION REQUESTS, which inputGenerationRef does not: that one
+  // counts edits to the input. Two requests for the same unedited molecule
+  // share a generation, so only this can tell them apart. See runPrediction.
+  const requestSeqRef = useRef(0);
   // Which entry of state.results is currently shown - almost always
   // just [0], but can have multiple entries when the input had
   // unassigned ring stereocenters (see NmrPredictResult.results).
@@ -206,14 +210,29 @@ export function NmrPredictionButton() {
           return t("nmr.errorHttp", { status: String(err.params.status) });
       }
     }
-    if (err instanceof Embed3DError || err instanceof XtbRefineError) {
-      // Reuses the message text directly rather than a translated
-      // key - these are the same error classes Molecule3DView already
-      // surfaces, but this button doesn't have that view's
-      // per-code translation table wired up; the Error subclasses'
-      // own messages are already reasonably descriptive on their own
-      // (see embed3d.ts/xtbRefine.ts for what each code means).
-      return err.message || "Could not generate a 3D structure";
+    if (err instanceof XtbRefineError) {
+      // XtbRefineError's message IS its code string - the constructor is
+      // super(code) with no sentence - so returning err.message rendered
+      // literally "NETWORK", "TIMEOUT" or "HTTP" in the error banner. The
+      // comment here used to claim these messages were "already reasonably
+      // descriptive", which is true of Embed3DError (it takes a real sentence)
+      // and false of this one.
+      //
+      // Molecule3DView already maps these per code (view3d.errorXtb*), and it
+      // matters here for a specific reason: structure3d is a DIFFERENT backend
+      // from the NMR service on 8000. Collapsing both failures to the same bare
+      // token meant a user with structure3d down had no way to tell which
+      // service was missing.
+      switch (err.code) {
+        case "NETWORK": return t("nmr.errorXtbNetwork");
+        case "TIMEOUT": return t("nmr.errorXtbTimeout");
+        case "HTTP": return t("nmr.errorXtbHttp", { status: String(err.params.status) });
+      }
+    }
+    if (err instanceof Embed3DError) {
+      // Unlike XtbRefineError, this one is constructed with a real sentence, so
+      // its message is genuinely user-facing. Nothing to translate.
+      return err.message || t("nmr.errorEmbedGeneric");
     }
     return err instanceof Error ? err.message : "Prediction failed";
   };
@@ -222,6 +241,20 @@ export function NmrPredictionButton() {
     const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
     if (ids.length === 0) return;
     const generation = inputGenerationRef.current;
+    // A second, independent sequence number.
+    //
+    // inputGenerationRef only bumps when the MOLECULE changes, so two requests
+    // for the same input share a generation and neither guard below can tell
+    // them apart - whichever await resolves last wins, regardless of which the
+    // user asked for last. Clicking "XTB" and then "Fast" (the xtb path allows
+    // 120s, so impatience is realistic) could therefore display MMFF shifts
+    // under an xTB tab label, or vice versa: a 0.3-0.5 ppm difference on a value
+    // the user then measures off the plot, with the tab disagreeing with the
+    // numbers underneath it.
+    //
+    // This counts REQUESTS rather than edits, which is exactly the axis the
+    // generation counter does not cover.
+    const requestId = ++requestSeqRef.current;
     setStructureQuality(quality);
     setState({ phase: "loading" });
     try {
@@ -251,6 +284,9 @@ export function NmrPredictionButton() {
       // xtb path can take many seconds). If so, drop the result rather than
       // showing shifts for a molecule that is no longer on the canvas.
       if (generation !== inputGenerationRef.current) return;
+      // A newer request was started while this one was in flight; its result
+      // (or its error) is the one the user is waiting for.
+      if (requestId !== requestSeqRef.current) return;
       setSelectedIsomer(0);
       setState({
         phase: "result",
@@ -262,6 +298,7 @@ export function NmrPredictionButton() {
       });
     } catch (err) {
       if (generation !== inputGenerationRef.current) return;
+      if (requestId !== requestSeqRef.current) return;
       setState({ phase: "error", message: messageForError(err) });
     }
   };

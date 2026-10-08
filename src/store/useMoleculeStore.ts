@@ -639,6 +639,26 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
   };
 
   /** Same as `commit`, but for the annotations map (arrows/text boxes). */
+  /**
+   * Why the live annotation mutators set hasUnsavedChanges without committing.
+   *
+   * updateTextHtml, updateTextSize, moveAnnotationTransient and friends fire per
+   * keystroke while typing into a reagent box and per pointermove while dragging
+   * a text box. An undo checkpoint each time would flood the history, so undo
+   * integrity is handled separately: snapshotBefore() on interaction start, then
+   * commitCheckpoint() on blur/pointerup (see TextAnnotationView).
+   *
+   * The dirty flag asks a different question - "does unsaved work exist?" - and
+   * it simply was not being answered by these five. Typing "conc. H2SO4, 80 C"
+   * into a text box and closing the tab inside the autosave debounce produced no
+   * dirty dot and no beforeunload prompt, so the text was lost with nothing
+   * warning about it. Structurally identical edits at least triggered the prompt;
+   * annotation-only edits got nothing.
+   *
+   * So they set the flag and skip commitAnnotations. hasUnsavedChanges is
+   * cleared by markProjectSaved, not by undo, so staying true is correct.
+   */
+
   const commitAnnotations = (mutate: (anns: Record<string, Annotation>) => Record<string, Annotation>) => {
     set((s) => {
       const next = mutate(s.annotations);
@@ -1674,7 +1694,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       set((s) => {
         const ann = s.annotations[id];
         if (!ann || ann.kind !== "text") return s;
-        return { annotations: { ...s.annotations, [id]: { ...ann, html } } };
+        return {
+          annotations: { ...s.annotations, [id]: { ...ann, html } },
+          // See hasUnsavedChangesInTransientAnnotationEdit above.
+          hasUnsavedChanges: true,
+        };
       });
     },
 
@@ -1683,7 +1707,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const ann = s.annotations[id];
         if (!ann || ann.kind !== "text") return s;
         if (ann.width === width && ann.height === height) return s;
-        return { annotations: { ...s.annotations, [id]: { ...ann, width, height } } };
+        return {
+          annotations: { ...s.annotations, [id]: { ...ann, width, height } },
+          // See hasUnsavedChangesInTransientAnnotationEdit above.
+          hasUnsavedChanges: true,
+        };
       });
     },
 
@@ -1710,7 +1738,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const ann = s.annotations[id];
         if (!ann || ann.kind !== "bracket") return s;
         if (ann.width === width && ann.height === height) return s;
-        return { annotations: { ...s.annotations, [id]: { ...ann, width, height } } };
+        return {
+          annotations: { ...s.annotations, [id]: { ...ann, width, height } },
+          // See hasUnsavedChangesInTransientAnnotationEdit above.
+          hasUnsavedChanges: true,
+        };
       });
     },
 
@@ -1727,7 +1759,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const ann = s.annotations[id];
         if (!ann) return s;
         if (ann.kind === "text" || ann.kind === "bracket") {
-          return { annotations: { ...s.annotations, [id]: { ...ann, x: p.x, y: p.y } } };
+          return {
+            annotations: { ...s.annotations, [id]: { ...ann, x: p.x, y: p.y } },
+            // See hasUnsavedChangesInTransientAnnotationEdit above.
+            hasUnsavedChanges: true,
+          };
         }
         // Arrow: `p` here is the new position of the arrow's start point;
         // the whole segment translates together, keeping its shape.
@@ -1781,7 +1817,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       set((s) => {
         const ann = s.annotations[id];
         if (!ann || ann.kind !== "arrow") return s;
-        return { annotations: { ...s.annotations, [id]: { ...ann, curvature } } };
+        return {
+          annotations: { ...s.annotations, [id]: { ...ann, curvature } },
+          // See hasUnsavedChangesInTransientAnnotationEdit above.
+          hasUnsavedChanges: true,
+        };
       });
     },
 

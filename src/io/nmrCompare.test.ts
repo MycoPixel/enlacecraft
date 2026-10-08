@@ -28,7 +28,7 @@ const grp = (label: string, centerPpm: number, totalIntegration = 1): SimulatedP
   centerPpm,
   totalIntegration,
   lines: [{ ppm: centerPpm, intensity: 1 }],
-  isIllustrative: false,
+  isIllustrative: false, splittingUnknown: false,
 });
 
 const row = (shiftPpm: number, integral = 1, atoms = ""): PeakListRow => ({
@@ -111,7 +111,7 @@ describe("compareSpectrum matching", () => {
         { ppm: 3.68, intensity: 0.5 },
         { ppm: 3.80, intensity: 0.5 },
       ],
-      isIllustrative: false,
+      isIllustrative: false, splittingUnknown: false,
     };
     const r = compareSpectrum([doublet], [row(3.74)], TOL);
     expect(r.matches).toHaveLength(1);

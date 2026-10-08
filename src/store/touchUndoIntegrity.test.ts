@@ -167,3 +167,73 @@ describe("move and rotate", () => {
     expect(restored.atoms[a].x).toBe(originalX);
   });
 });
+/**
+ * Annotation-only edits must mark the document dirty.
+ *
+ * updateTextHtml, updateTextSize, moveAnnotationTransient,
+ * updateBracketSizeOf and updateArrowCurvatureTransient set only `annotations` -
+ * they never set hasUnsavedChanges, because going through commitAnnotations()
+ * would push an undo checkpoint per keystroke and per pointermove.
+ *
+ * The dirty flag asks a different question ("does unsaved work exist?"), and it
+ * simply wasn't being answered. Typing "conc. H2SO4, 80 C" into a reagent box
+ * and closing the tab inside the autosave debounce produced no dirty dot and no
+ * beforeunload prompt, so the text was lost with nothing warning about it.
+ * Structurally identical edits at least triggered the prompt; annotation-only
+ * edits got nothing.
+ */
+describe("annotation-only edits set the dirty flag", () => {
+  beforeEach(() => {
+    useMoleculeStore.setState({ hasUnsavedChanges: false, molecule: emptyMolecule(), annotations: {} });
+  });
+
+  test("typing into a text annotation marks the document dirty", () => {
+    const s = useMoleculeStore.getState();
+    const id = s.addTextAnnotation({ x: 0, y: 0 });
+    // Adding is a commit, so clear the flag to isolate the LIVE edit.
+    useMoleculeStore.setState({ hasUnsavedChanges: false });
+
+    useMoleculeStore.getState().updateTextHtml(id, "conc. H2SO4");
+    expect(useMoleculeStore.getState().hasUnsavedChanges).toBe(true);
+  });
+
+  test("resizing a text annotation marks the document dirty", () => {
+    const s = useMoleculeStore.getState();
+    const id = s.addTextAnnotation({ x: 0, y: 0 });
+    useMoleculeStore.setState({ hasUnsavedChanges: false });
+
+    useMoleculeStore.getState().updateTextSize(id, 220, 40);
+    expect(useMoleculeStore.getState().hasUnsavedChanges).toBe(true);
+  });
+
+  test("dragging an annotation marks the document dirty", () => {
+    const s = useMoleculeStore.getState();
+    const id = s.addTextAnnotation({ x: 0, y: 0 });
+    useMoleculeStore.setState({ hasUnsavedChanges: false });
+
+    useMoleculeStore.getState().moveAnnotationTransient(id, { x: 90, y: 60 });
+    expect(useMoleculeStore.getState().hasUnsavedChanges).toBe(true);
+  });
+
+  test("curving an arrow marks the document dirty", () => {
+    const s = useMoleculeStore.getState();
+    const id = s.addArrowAnnotation({ x: 0, y: 0 }, { x: 80, y: 0 }, "forward", "full", "medium");
+    useMoleculeStore.setState({ hasUnsavedChanges: false });
+
+    useMoleculeStore.getState().updateArrowCurvatureTransient(id, 12);
+    expect(useMoleculeStore.getState().hasUnsavedChanges).toBe(true);
+  });
+
+  test("still does NOT flood the undo history with one entry per keystroke", () => {
+    // The reason these bypass commitAnnotations in the first place - if this
+    // ever changes, the "separate undo checkpoint" comment above goes stale.
+    const s = useMoleculeStore.getState();
+    const id = s.addTextAnnotation({ x: 0, y: 0 });
+    const before = useMoleculeStore.getState().past.length;
+
+    for (const text of ["c", "co", "con", "conc"]) {
+      useMoleculeStore.getState().updateTextHtml(id, text);
+    }
+    expect(useMoleculeStore.getState().past.length).toBe(before);
+  });
+});

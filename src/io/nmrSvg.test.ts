@@ -25,7 +25,7 @@ const grp = (label: string, centerPpm: number, lines: number[], illustrative = f
   centerPpm,
   totalIntegration: 1,
   lines: lines.map((ppm) => ({ ppm, intensity: 1 })),
-  isIllustrative: illustrative,
+  isIllustrative: illustrative, splittingUnknown: false,
 });
 
 const aspirinish = [
