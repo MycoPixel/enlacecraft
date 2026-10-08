@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { niceTickStep, ticksForRange } from "../../io/nmrAxisTicks";
 
 /**
  * Spectrum axis readability.
@@ -12,24 +13,10 @@ import { describe, expect, test } from "vitest";
  * ladder, giving round numbers a reader can count in halves of.
  */
 
-/** Mirror of the component's niceTickStep (kept local so this file has no React import). */
-function niceTickStep(raw: number): number {
-  if (!Number.isFinite(raw) || raw <= 0) return 1;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
-  const normalized = raw / magnitude;
-  const snapped = normalized < 1.5 ? 1 : normalized < 3 ? 2 : normalized < 7 ? 5 : 10;
-  return snapped * magnitude;
-}
 
-/** Mirror of the default branch that builds the tick list. */
+/** The default branch that builds the tick list. */
 function defaultTicks(minPpm: number, maxPpm: number): number[] {
-  const step = niceTickStep((maxPpm - minPpm) / 8);
-  const first = Math.ceil(minPpm / step) * step;
-  const result: number[] = [];
-  for (let i = 0, v = first; v <= maxPpm + 1e-9 && i < 60; i++, v = first + step * i) {
-    result.push(Math.round(v / step) * step);
-  }
-  return result;
+  return ticksForRange(minPpm, maxPpm, niceTickStep((maxPpm - minPpm) / 8));
 }
 
 describe("niceTickStep", () => {

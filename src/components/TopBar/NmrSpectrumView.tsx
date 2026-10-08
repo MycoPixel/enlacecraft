@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useT } from "../../i18n/useT";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { niceTickStep, decimalsForStep, ticksForRange } from "../../io/nmrAxisTicks";
 import type { Nucleus, PeakListRow } from "../../io/nmrExport";
 import { compareSpectrum, classifyMatch, DEFAULT_TOLERANCE_PPM, type ComparisonResult } from "../../io/nmrCompare";
 import {
@@ -14,6 +15,7 @@ import {
   describeExperimentalSpread,
 } from "../../io/nmrExport";
 import { downloadBlob } from "../../io/exportImage";
+import { spectrumToSvg } from "../../io/nmrSvg";
 import { computeFormula } from "../../model/valence";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import {
@@ -118,25 +120,6 @@ function formatPpmForInput(n: number): string {
  * very different windows this plot gets - a zoomed 0.2 ppm slice and a full
  * 0-12 ppm 13C range both come out with round, guessable intervals.
  */
-function niceTickStep(raw: number): number {
-  if (!Number.isFinite(raw) || raw <= 0) return 1;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
-  const normalized = raw / magnitude;
-  // Compare against the MIDPOINTS between ladder rungs (1.5, 3, 7), not the
-  // rungs themselves, so the value is rounded to whichever rung is genuinely
-  // nearer rather than always stepped up past its own rung. With rungs as
-  // thresholds a 1.25 ppm interval would snap to 2 - nearly double the wanted
-  // density - because 1.25 merely exceeds 1.
-  // The ladder applies per decade, so 20 ppm stays 20 rather than becoming 2.
-  const snapped = normalized < 1.5 ? 1 : normalized < 3 ? 2 : normalized < 7 ? 5 : 10;
-  return snapped * magnitude;
-}
-
-function decimalsForStep(step: number): number {
-  const s = step.toString();
-  const dot = s.indexOf(".");
-  return dot === -1 ? 0 : Math.min(4, s.length - dot - 1);
-}
 
 /**
  * One nucleus's spectrum plot (shared by the 1H and 13C tabs below) -
@@ -465,13 +448,7 @@ function SpectrumPlot({
       // the same step always produces the same gridlines regardless of
       // which window is currently showing — the whole point of a
       // manual interval is for two different plots to line up.
-      const first = Math.ceil(minPpm / tickStep) * tickStep;
-      const MAX_TICKS = 60; // guards against a tiny step over a wide range
-      const result: number[] = [];
-      for (let i = 0, v = first; v <= maxPpm + 1e-9 && i < MAX_TICKS; i++, v = first + tickStep * i) {
-        // Snap away float drift (e.g. 0.1 + 0.1 + 0.1 !== 0.3 exactly).
-        result.push(Math.round(v / tickStep) * tickStep);
-      }
+      const result = ticksForRange(minPpm, maxPpm, tickStep);
       return result;
     }
     // No manual step set: pick one from the NMR-conventional 1/2/5 ladder,
@@ -484,13 +461,7 @@ function SpectrumPlot({
     // labels read 1 / 2 / 5 rather than 1.67 / 3.33, so a reader can estimate
     // an unknown peak between two labelled lines.
     const step = niceTickStep((maxPpm - minPpm) / 8);
-    const first = Math.ceil(minPpm / step) * step;
-    const result: number[] = [];
-    for (let i = 0, v = first; v <= maxPpm + 1e-9 && i < 60; i++, v = first + step * i) {
-      // Snap away float drift (0.1 + 0.1 !== 0.2 exactly).
-      result.push(Math.round(v / step) * step);
-    }
-    return result;
+    return ticksForRange(minPpm, maxPpm, step);
   }, [minPpm, maxPpm, tickStep]);
 
   /**
@@ -1118,12 +1089,21 @@ export function NmrSpectrumView({
   }, [c13Groups, atomOrder, atomLabels]);
 
   const doExport = useCallback(
-    (kind: "csv" | "jdx") => {
+    (kind: "csv" | "jdx" | "svg") => {
       // A named tab wins; otherwise identify the structure by formula, so a
       // download is never "nmr-structure-1H.csv" when the formula was sitting
       // right there and needed no network to compute.
       const formula = Object.keys(molecule.atoms).length > 0 ? computeFormula(molecule) : null;
       const stem = pickStructureFilename(activeTabTitle, formula);
+      const groups = activeNucleus === "h1" ? h1PeakGroups : c13PeakGroups;
+      if (kind === "svg") {
+        // Always the FULL natural range, never the on-screen zoom: this is a
+        // figure for a report, and whoever made the export was last looking at
+        // some 0.3 ppm window they happened to be interested in.
+        const svg = spectrumToSvg(groups, activeNucleus, stem, suggestedRange(groups, activeNucleus));
+        downloadBlob(new Blob([svg], { type: "image/svg+xml" }), peakListFilename(stem, activeNucleus, "svg"));
+        return;
+      }
       const name = peakListFilename(stem, activeNucleus, kind === "csv" ? "csv" : "jdx");
       const rows = rowsFor(activeNucleus);
       const text =
@@ -1135,7 +1115,7 @@ export function NmrSpectrumView({
         name,
       );
     },
-    [activeNucleus, activeTabTitle, rowsFor, molecule],
+    [activeNucleus, activeTabTitle, rowsFor, molecule, h1PeakGroups, c13PeakGroups],
   );
 
   const applyPastedPeaks = useCallback(() => {
@@ -1268,6 +1248,9 @@ export function NmrSpectrumView({
         </button>
         <button type="button" className="nmr-report-dialog__btn" onClick={() => doExport("jdx")}>
           {t("nmr.exportJdx")}
+        </button>
+        <button type="button" className="nmr-report-dialog__btn" onClick={() => doExport("svg")}>
+          {t("nmr.exportSvg")}
         </button>
         <button
           type="button"

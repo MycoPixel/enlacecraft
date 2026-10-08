@@ -130,10 +130,42 @@ describe("peakListToJcamp", () => {
     expect(out.trimEnd().endsWith("##END")).toBe(true);
   });
 
-  test("sets 13C nucleus and a plausible carbon frequency", () => {
+  test("sets 13C nucleus and a plausible carbon frequency in SF", () => {
+    // PROTONSFREQ is the SPECTROMETER's proton reference and belongs at 400.13
+    // on BOTH files. It used to be 100.60 on 13C files while SF stayed 400.13,
+    // so the two disagreed 4x and anything deriving a Hz axis got a wrong number.
     const out = peakListToJcamp(rows, "c13", "x");
     expect(out).toContain("##NUCLEUS=13C");
-    expect(out).toContain("##PROTONSFREQ=100.60");
+    expect(out).toContain("##PROTONSFREQ=400.13");
+    // SF is the OBSERVED nucleus: ~100 MHz for 13C on a 400 MHz instrument.
+    expect(out).toContain("##SF=100.63");
+  });
+
+  test("SF and PROTONSFREQ are both 400.13 for a 1H file", () => {
+    const out = peakListToJcamp(rows, "h1", "x");
+    expect(out).toContain("##SF=400.13");
+    expect(out).toContain("##PROTONSFREQ=400.13");
+  });
+
+  test("FUNC names the observed nucleus, not always 1H", () => {
+    // Was hardcoded, so a 13C file claimed to be a proton spectrum.
+    expect(peakListToJcamp(rows, "h1", "x")).toContain("##FUNC=EM(BRUKE 1H)");
+    expect(peakListToJcamp(rows, "c13", "x")).toContain("##FUNC=EM(BRUKE 13C)");
+  });
+
+  test("the 13C SF is derived from the proton frequency, not a separate constant", () => {
+    // gamma(13C)/gamma(1H) on the same spectrometer. Pinning the relationship
+    // is what stops the two fields drifting apart again.
+    const ratio = 10.7084 / 42.5775;
+    const out = peakListToJcamp(rows, "c13", "x");
+    const sf = Number(/##SF=([\d.]+)/.exec(out)![1]);
+    expect(sf).toBeCloseTo(400.13 * ratio, 1);
+    expect(sf).toBeGreaterThan(90);
+    expect(sf).toBeLessThan(110);
+  });
+
+  test("a 13C file no longer declares a 1H pulse function", () => {
+    expect(peakListToJcamp(rows, "c13", "x")).not.toContain("BRUKE 1H");
   });
 
   test("normalises intensity into the 0-99 range the form conventionally uses", () => {

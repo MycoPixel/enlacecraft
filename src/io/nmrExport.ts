@@ -120,6 +120,26 @@ export function peakListToCsv(rows: PeakListRow[]): string {
 }
 
 /**
+ * The spectrometer's proton reference frequency, MHz.
+ *
+ * Conventional rather than measured: the app has no concept of the field
+ * strength a given spectrum came from, and every other part of the spectrum
+ * code already assumes 400 MHz for its simulated splitting (see
+ * io/nmrSpectrum.ts). A typical-but-wrong value keeps the file readable by
+ * tools that expect the field; an absent or zero one does not.
+ */
+const PROTON_FREQ_MHZ = 400.13;
+
+/**
+ * 13C Larmor frequency as a fraction of the proton frequency on the same
+ * spectrometer: gamma(13C)/gamma(1H) = 10.7084 / 42.5775.
+ *
+ * Derived rather than typed as "100.6" so SF and PROTONSFREQ stay consistent by
+ * construction - they were independently hardcoded and disagreed by 4x.
+ */
+const C13_OVER_PROTON = 10.7084 / 42.5775;
+
+/**
  * The peak list as JCAMP-DX text.
  *
  * The `##XYDATA` form carries (X, Y) pairs directly, which is what we have -
@@ -139,7 +159,9 @@ export function peakListToJcamp(
   title: string,
 ): string {
   const nucleusName = nucleus === "h1" ? "1H" : "13C";
-  const protonFreq = nucleus === "h1" ? 400.13 : 100.6;
+  // Both frequencies derive from ONE constant, because they are the same
+  // spectrometer described two ways and must not be able to disagree.
+  const sfMhz = nucleus === "h1" ? PROTON_FREQ_MHZ : PROTON_FREQ_MHZ * C13_OVER_PROTON;
   const maxIntegral = Math.max(...rows.map((r) => r.integral), 1e-6);
 
   const xydata = rows
@@ -152,9 +174,17 @@ export function peakListToJcamp(
     "##DATATYPE=SPECTRUM",
     "##FORMAT=XYDATA",
     `##NUCLEUS=${nucleusName}`,
-    `##FUNC=EM(BRUKE 1H)`,
-    `##PROTONSFREQ=${protonFreq.toFixed(2)}`,
-    "##SF=400.13",
+    // FUNC names the observed nucleus. It used to be hardcoded to 1H, so a 13C
+    // file claimed to be a proton spectrum.
+    `##FUNC=EM(BRUKE ${nucleusName})`,
+    // PROTONSFREQ is the SPECTROMETER's proton reference, not the observed
+    // nucleus - so it is the same 400.13 on both a 1H and a 13C file. It used to
+    // be 100.60 on 13C files, which is the 13C frequency, and SF was 400.13 on
+    // both: the two fields disagreed by a factor of four, so anything deriving
+    // a Hz axis or a decoupling frequency from them got a 4x-wrong number.
+    `##PROTONSFREQ=${PROTON_FREQ_MHZ.toFixed(2)}`,
+    // SF is the OBSERVED nucleus frequency: ~400 MHz for 1H, ~100 MHz for 13C.
+    `##SF=${sfMhz.toFixed(2)}`,
     "##SI=0.5",
     "##OFFSET=0",
     "##SPTYPE=FT",
