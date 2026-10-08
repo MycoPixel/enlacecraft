@@ -19,11 +19,22 @@ export function useAutosave() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const snapshot = await loadAutosaveSnapshot();
+      const outcome = await loadAutosaveSnapshot();
       if (cancelled) return;
-      if (snapshot && hasAnyContent(snapshot.tabs)) {
-        useMoleculeStore.getState().loadProject(snapshot);
+      if (outcome.kind === "ok" && hasAnyContent(outcome.tabs)) {
+        useMoleculeStore.getState().loadProject({
+          activeTabId: outcome.activeTabId,
+          tabs: outcome.tabs,
+        });
         useMoleculeStore.getState().setStatus(t("autosave.restored"));
+      } else if (outcome.kind === "unreadable") {
+        // Say so. Previously this failed silently - the console warning was
+        // suppressed for exactly this case - so a user whose session couldn't
+        // be restored saw a blank canvas and no explanation, which reads as
+        // "nothing was ever saved" and invites them to overwrite the last
+        // recoverable copy. loadAutosaveSnapshot has already moved the raw
+        // snapshot aside, so this is honest rather than alarming.
+        useMoleculeStore.getState().setStatus(t("autosave.unreadable"));
       }
       restoreAttempted.current = true;
     })();

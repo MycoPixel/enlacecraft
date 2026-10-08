@@ -1,7 +1,25 @@
-import { exportProject, importProject, ProjectParseError, type ProjectTab } from "./project";
+import { exportProject, importProject, type ProjectTab } from "./project";
 import { openLocalDb, SNAPSHOTS_STORE } from "./localDb";
 
 const RECORD_KEY = "current";
+/**
+ * Where an unreadable snapshot is kept instead of being overwritten.
+ *
+ * Never restored automatically - see quarantineSnapshot.
+ */
+const QUARANTINE_KEY = "unreadable";
+
+/**
+ * Record keys, for tests that need to assert what is actually in storage.
+ *
+ * Exported deliberately: the behaviour that matters here - that an unreadable
+ * snapshot is preserved rather than overwritten - is invisible from the public
+ * API, since loadAutosaveSnapshot reports an outcome rather than a location.
+ */
+export const autosaveKeysForTest = {
+  live: RECORD_KEY,
+  quarantine: QUARANTINE_KEY,
+} as const;
 
 /**
  * Silent, continuous backup of the whole session (every tab, exactly the
@@ -44,24 +62,91 @@ export async function saveAutosaveSnapshot(data: { activeTabId: string; tabs: Pr
   }
 }
 
-export async function loadAutosaveSnapshot(): Promise<{ activeTabId: string; tabs: ProjectTab[] } | null> {
+/**
+ * Outcome of the startup restore attempt.
+ *
+ * Previously this returned `snapshot | null`, which could not distinguish
+ * "there was nothing saved" from "something WAS saved and we could not read
+ * it" - so the caller treated both as "start empty". That matters because a
+ * parse failure is the interesting case: the user's work is sitting in
+ * IndexedDB, and the next autosave would overwrite it.
+ */
+export type AutosaveRestore =
+  | { kind: "none" }
+  | { kind: "ok"; activeTabId: string; tabs: ProjectTab[] }
+  /** Saved, present, and unreadable. The raw JSON is preserved, not discarded. */
+  | { kind: "unreadable"; reason: string };
+
+export async function loadAutosaveSnapshot(): Promise<AutosaveRestore> {
+  let json: string | undefined;
   try {
     const db = await openLocalDb();
-    const json = await new Promise<string | undefined>((resolve, reject) => {
+    json = await new Promise<string | undefined>((resolve, reject) => {
       const tx = db.transaction(SNAPSHOTS_STORE, "readonly");
       const req = tx.objectStore(SNAPSHOTS_STORE).get(RECORD_KEY);
       req.onsuccess = () => resolve(req.result as string | undefined);
       req.onerror = () => reject(req.error);
     });
     db.close();
-    if (!json) return null;
-    const project = importProject(json);
-    return { activeTabId: project.activeTabId, tabs: project.tabs };
   } catch (err) {
-    // A corrupt/unreadable autosave shouldn't block the app from starting
-    // — just proceed as if there were none.
-    if (!(err instanceof ProjectParseError)) console.warn("Autosave restore failed", err);
-    return null;
+    // Storage itself unavailable (private browsing, IndexedDB disabled). Not a
+    // problem with the user's data, so nothing to recover and nothing to warn
+    // about beyond the console.
+    console.warn("Autosave storage unavailable", err);
+    return { kind: "none" };
+  }
+
+  if (!json) return { kind: "none" };
+
+  try {
+    const project = importProject(json);
+    return { kind: "ok", activeTabId: project.activeTabId, tabs: project.tabs };
+  } catch (err) {
+    // A corrupt or unreadable autosave must not block the app from starting,
+    // but it must NOT be silent either. The previous code suppressed the
+    // warning for exactly this case (`if (!(err instanceof ProjectParseError))`),
+    // which is backwards: ProjectParseError is the LIKELY failure - a snapshot
+    // written by a newer build, or one that trips an import limit - and the
+    // user saw a blank canvas with no message at all.
+    //
+    // exportProject applies no size limits while importProject refuses
+    // over-limit files, so the app can save a project it will not read back.
+    // That asymmetry is why this is reachable at all.
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn("Autosave snapshot could not be restored", err);
+    await quarantineSnapshot(json);
+    return { kind: "unreadable", reason };
+  }
+}
+
+/**
+ * Moves an unreadable snapshot aside instead of leaving it in the live slot.
+ *
+ * The single slot is overwritten by the very next autosave - and at startup
+ * that is almost immediate, since a ResizeObserver or a mouse move counts as a
+ * store change. So leaving the bad snapshot where it was meant a blank canvas
+ * followed within a second by the only copy being replaced with the blank
+ * state, and no way to get it back.
+ *
+ * Copying it to a second key is cheap relative to losing a session, and it
+ * leaves the data in a place a developer can still recover by hand. It is
+ * never read back automatically: a file the parser already rejected has no
+ * business being restored.
+ */
+async function quarantineSnapshot(json: string): Promise<void> {
+  try {
+    const db = await openLocalDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(SNAPSHOTS_STORE, "readwrite");
+      tx.objectStore(SNAPSHOTS_STORE).put(json, QUARANTINE_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (err) {
+    // Best effort. Failing to preserve it is unfortunate but must not itself
+    // throw - the caller is already on the failure path.
+    console.warn("Could not preserve the unreadable autosave snapshot", err);
   }
 }
 
