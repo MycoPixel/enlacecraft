@@ -52,10 +52,11 @@ concurrency:
 # Pin what the built-in GITHUB_TOKEN can do, rather than inheriting whatever
 # the repository default happens to be.
 #
-# The default GITHUB_TOKEN is scoped to THIS repository only - it cannot read
-# the private NMRGraph submodule, which is what SUBMODULE_TOKEN is for (see the
-# checkout step in the build job). So nothing here is needed for the build to
-# work; this exists so the blast radius is explicit rather than implicit.
+# The default GITHUB_TOKEN is scoped to this repository and needs nothing more:
+# every checkout is a plain one, since NMRGraph used to be a private submodule
+# requiring a separate credential and is now in-tree. So this block is not
+# needed for the build to work; it exists so the blast radius is explicit
+# rather than inherited from whatever the repository default happens to be.
 #
 # This workflow only ever reads and builds. It uploads artifacts (which needs
 # no repo write) and never pushes, creates releases, or touches PRs - releases
@@ -70,14 +71,10 @@ jobs:
     name: unit tests
     runs-on: ubuntu-latest
     steps:
-      # Submodules, because the NMRGraph tests below live inside one. Same
-      # token and same hardening as the package job's checkout - see there for
-      # why the private submodule needs a credential at all.
+      # Plain checkout. NMRGraph used to be a private submodule needing a
+      # credential to clone; it is now ordinary files in this repo, so a
+      # checkout needs nothing beyond the default token.
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.SUBMODULE_TOKEN }}
-          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -97,9 +94,10 @@ jobs:
       #
       # Worth being honest about what this does and doesn't buy: it would NOT
       # have caught the reason 1.9.0 shipped broken, which was that those fixes
-      # were never committed (NMRGraph is a submodule, and the parent repo only
-      # records a pointer). CI on the old code passed fine. What it does buy is
-      # protection against a future regression in the committed code.
+      # were never committed (NMRGraph was a submodule, and the parent repo only
+      # recorded a pointer to it). CI on the old code passed fine. What it does
+      # buy is protection against a future regression in the committed code -
+      # and NMRGraph being in-tree now is what stops that class of mistake.
       #
       # Runs here rather than as its own job so a failure lands in the same
       # two-minute gate as the JS tests. Needs only rdkit - these tests import
@@ -109,10 +107,15 @@ jobs:
         run: |
           python3 -m pip install --quiet --upgrade pip
           python3 -m pip install --quiet rdkit
+          # Redundant now that NMRGraph is in-tree, but cheap and worth
+          # keeping: a `discover` against a missing directory fails with a
+          # confusing "Start directory is not importable", and a test step that
+          # silently runs nothing is the same failure mode as the missing
+          # submodule, wearing a different hat.
           if [ ! -d python/NMRGraph/tests ]; then
-            echo "ERROR: python/NMRGraph/tests is missing - the submodule was not" >&2
-            echo "       checked out, so the backend tests silently did not run." >&2
-            echo "       Failing rather than passing vacuously." >&2
+            echo "ERROR: python/NMRGraph/tests is missing, so the backend tests" >&2
+            echo "       silently did not run. Failing rather than passing" >&2
+            echo "       vacuously." >&2
             exit 1
           fi
           python3 -m unittest discover -s python/NMRGraph/tests -t python/NMRGraph
@@ -139,50 +142,17 @@ jobs:
       ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
 
     steps:
-      # Fail loudly and specifically if the secret is missing. Without it,
-      # checkout's submodule clone just dies with "remote: Repository not
-      # found", which looks like a permissions problem in a repo that has
-      # none - see the comment on the checkout step below for the real cause.
-      - name: Check the submodule token is configured
-        shell: bash
-        env:
-          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
-        run: |
-          if [ -z "$SUBMODULE_TOKEN" ]; then
-            echo "ERROR: the SUBMODULE_TOKEN secret is not set." >&2
-            echo >&2
-            echo "python/NMRGraph is a PRIVATE repo, so Actions' default" >&2
-            echo "GITHUB_TOKEN cannot clone it - that token is scoped to" >&2
-            echo "enlacecraft alone, and the submodule clone fails with a" >&2
-            echo "misleading 'Repository not found'." >&2
-            echo >&2
-            echo "Create a fine-grained PAT with Contents:read on" >&2
-            echo "MycoPixel/NMRGraph only, and add it as the repository" >&2
-            echo "secret SUBMODULE_TOKEN (Settings > Secrets and variables" >&2
-            echo "> Actions)." >&2
-            exit 1
-          fi
-          echo "SUBMODULE_TOKEN is set"
-
+      # A plain checkout. This used to need `submodules: recursive` plus a
+      # fine-grained PAT, because NMRGraph was a separate private repo and the
+      # default GITHUB_TOKEN cannot read it - which is why SUBMODULE_TOKEN
+      # existed at all. Inlining NMRGraph deleted all of that: no .gitmodules,
+      # no credential, no separate repo to keep in sync.
+      #
+      # The failure that credential papered over is worth remembering: a missing
+      # submodule doesn't fail clearly, it fails as "remote: Repository not
+      # found", which reads like a permissions problem in a repo that has none.
+      # Three fixes were once lost that way, shipping a broken 1.9.0.
       - uses: actions/checkout@v4
-        with:
-          # NMRGraph is a submodule, and the build needs it: without this the
-          # backend source and the model checkpoints are simply absent and the
-          # freeze has nothing to freeze. The token is required because that
-          # repo is private and the default GITHUB_TOKEN can't reach it.
-          submodules: recursive
-          token: ${{ secrets.SUBMODULE_TOKEN }}
-          # Don't write the token into python/NMRGraph/.git/config.
-          #
-          # checkout does this by default so later steps can fetch, but nothing
-          # after this one pushes or fetches - it exists purely to put NMRGraph
-          # on disk for PyInstaller. Leaving the credential in the checkout's
-          # git config means a read-scoped token sits in a file for the rest of
-          # the job, where any later step (or a debugging command someone pastes
-          # in to diagnose a failure) could reach it. The artifact step uploads
-          # explicit release/*.exe globs rather than the workspace, so it isn't
-          # leaking today - this removes the reason to have to check that.
-          persist-credentials: false
 
       # --- Reclaim disk before doing the heavy work -------------------
       # The Linux runner ran out of space building the AppImage (ENOSPC).
@@ -245,10 +215,12 @@ jobs:
       - name: Freeze backends (Linux)
         if: runner.os == 'Linux'
         run: |
-          # The submodule must be present for the freeze to have anything to
-          # freeze. Without this an empty checkout would fail deep inside
-          # Docker with a confusing "no such file" rather than saying so.
-          test -d python/NMRGraph/src || { echo "ERROR: NMRGraph submodule empty" >&2; exit 1; }
+          # The backend source and model checkpoints must be present for the
+          # freeze to have anything to freeze. Redundant now that NMRGraph is
+          # in-tree; kept so a truncated or mis-checked-out workspace fails
+          # here with a clear message rather than deep inside Docker with a
+          # "no such file".
+          test -d python/NMRGraph/src || { echo "ERROR: NMRGraph sources missing" >&2; exit 1; }
           ./python/freeze_in_container.sh
           ./python/freeze_structure3d.sh
           ./python/freeze_iupac.sh

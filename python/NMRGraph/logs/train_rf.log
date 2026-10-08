@@ -1,0 +1,57 @@
+Loading dataset...
+Dataset shape: (361988, 164)
+
+Using 160 features
+
+Training molecules: 26,676
+Testing molecules : 6,669
+
+Training atoms: 289,264
+Testing atoms : 72,724
+
+Training Random Forest...
+Training finished.
+
+Model performance
+-----------------
+MAE : 4.906 ppm
+RMSE: 7.397 ppm
+R²  : 0.980
+
+Top 30 features
+-----------------
+                 feature  importance
+0          hybridization    0.819046
+1       oxygen_neighbors    0.095444
+2     nitrogen_neighbors    0.012222
+3                 degree    0.008864
+4           triple_bonds    0.007886
+5     fluorine_neighbors    0.005726
+6           double_bonds    0.004252
+7               total_hs    0.004117
+8           single_bonds    0.003901
+9       carbon_neighbors    0.003863
+10      sulfur_neighbors    0.001894
+11         fraction_csp3    0.001661
+12                  logp    0.001496
+13      iodine_neighbors    0.001359
+14                  tpsa    0.001349
+15    chlorine_neighbors    0.000978
+16            is_in_ring    0.000787
+17            mol_weight    0.000780
+18      exact_mol_weight    0.000740
+19        aromatic_bonds    0.000702
+20     bromine_neighbors    0.000639
+21           h_acceptors    0.000605
+22              h_donors    0.000559
+23  aliphatic_ring_count    0.000556
+24       rotatable_bonds    0.000529
+25      heavy_atom_count    0.000528
+26           is_aromatic    0.000522
+27                fp_047    0.000467
+28                fp_108    0.000398
+29            ring_count    0.000358
+
+Model saved to: data/models/random_forest_v1.joblib
+Feature importance saved to:
+data/models/random_forest_feature_importance.csv

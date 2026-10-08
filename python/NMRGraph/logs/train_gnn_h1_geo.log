@@ -1,0 +1,132 @@
+Device: cpu
+
+Parsing SDF into graphs (1H)...
+Built 17,426 molecule graphs
+
+Training molecules  : 12,546
+Validation molecules: 1,394
+Testing molecules   : 3,486
+
+Model parameters: 425,217
+
+Training...
+
+Epoch   1 | train MAE  0.589 RMSE  1.022 | val MAE  0.483 RMSE  0.733  <- best
+Epoch   2 | train MAE  0.438 RMSE  0.748 | val MAE  0.406 RMSE  0.694  <- best
+Epoch   3 | train MAE  0.408 RMSE  0.712 | val MAE  0.367 RMSE  0.643  <- best
+Epoch   4 | train MAE  0.390 RMSE  0.678 | val MAE  0.394 RMSE  0.639
+Epoch   5 | train MAE  0.382 RMSE  0.654 | val MAE  0.385 RMSE  0.627
+Epoch   6 | train MAE  0.372 RMSE  0.634 | val MAE  0.365 RMSE  0.615  <- best
+Epoch   7 | train MAE  0.365 RMSE  0.624 | val MAE  0.342 RMSE  0.599  <- best
+Epoch   8 | train MAE  0.358 RMSE  0.612 | val MAE  0.356 RMSE  0.604
+Epoch   9 | train MAE  0.352 RMSE  0.596 | val MAE  0.394 RMSE  0.629
+Epoch  10 | train MAE  0.344 RMSE  0.586 | val MAE  0.323 RMSE  0.579  <- best
+Epoch  11 | train MAE  0.341 RMSE  0.579 | val MAE  0.362 RMSE  0.609
+Epoch  12 | train MAE  0.338 RMSE  0.579 | val MAE  0.310 RMSE  0.573  <- best
+Epoch  13 | train MAE  0.335 RMSE  0.578 | val MAE  0.322 RMSE  0.579
+Epoch  14 | train MAE  0.326 RMSE  0.557 | val MAE  0.325 RMSE  0.578
+Epoch  15 | train MAE  0.322 RMSE  0.552 | val MAE  0.341 RMSE  0.580
+Epoch  16 | train MAE  0.322 RMSE  0.546 | val MAE  0.302 RMSE  0.562  <- best
+Epoch  17 | train MAE  0.324 RMSE  0.550 | val MAE  0.309 RMSE  0.563
+Epoch  18 | train MAE  0.318 RMSE  0.542 | val MAE  0.339 RMSE  0.594
+Epoch  19 | train MAE  0.316 RMSE  0.545 | val MAE  0.344 RMSE  0.577
+Epoch  20 | train MAE  0.311 RMSE  0.531 | val MAE  0.372 RMSE  0.601
+Epoch  21 | train MAE  0.295 RMSE  0.508 | val MAE  0.299 RMSE  0.547  <- best
+Epoch  22 | train MAE  0.292 RMSE  0.503 | val MAE  0.295 RMSE  0.541  <- best
+Epoch  23 | train MAE  0.291 RMSE  0.499 | val MAE  0.297 RMSE  0.550
+Epoch  24 | train MAE  0.287 RMSE  0.494 | val MAE  0.292 RMSE  0.544  <- best
+Epoch  25 | train MAE  0.288 RMSE  0.493 | val MAE  0.281 RMSE  0.538  <- best
+Epoch  26 | train MAE  0.288 RMSE  0.494 | val MAE  0.287 RMSE  0.544
+Epoch  27 | train MAE  0.286 RMSE  0.490 | val MAE  0.281 RMSE  0.530
+Epoch  28 | train MAE  0.284 RMSE  0.485 | val MAE  0.285 RMSE  0.542
+Epoch  29 | train MAE  0.285 RMSE  0.483 | val MAE  0.292 RMSE  0.543
+Epoch  30 | train MAE  0.272 RMSE  0.467 | val MAE  0.274 RMSE  0.525  <- best
+Epoch  31 | train MAE  0.272 RMSE  0.464 | val MAE  0.280 RMSE  0.531
+Epoch  32 | train MAE  0.270 RMSE  0.463 | val MAE  0.269 RMSE  0.528  <- best
+Epoch  33 | train MAE  0.270 RMSE  0.462 | val MAE  0.274 RMSE  0.526
+Epoch  34 | train MAE  0.269 RMSE  0.461 | val MAE  0.268 RMSE  0.522  <- best
+Epoch  35 | train MAE  0.268 RMSE  0.458 | val MAE  0.270 RMSE  0.524
+Epoch  36 | train MAE  0.267 RMSE  0.456 | val MAE  0.266 RMSE  0.523  <- best
+Epoch  37 | train MAE  0.266 RMSE  0.455 | val MAE  0.266 RMSE  0.524  <- best
+Epoch  38 | train MAE  0.266 RMSE  0.453 | val MAE  0.265 RMSE  0.521  <- best
+Epoch  39 | train MAE  0.266 RMSE  0.454 | val MAE  0.269 RMSE  0.522
+Epoch  40 | train MAE  0.265 RMSE  0.450 | val MAE  0.265 RMSE  0.526  <- best
+Epoch  41 | train MAE  0.264 RMSE  0.452 | val MAE  0.265 RMSE  0.515  <- best
+Epoch  42 | train MAE  0.263 RMSE  0.447 | val MAE  0.270 RMSE  0.528
+Epoch  43 | train MAE  0.261 RMSE  0.446 | val MAE  0.264 RMSE  0.518  <- best
+Epoch  44 | train MAE  0.260 RMSE  0.445 | val MAE  0.264 RMSE  0.512  <- best
+Epoch  45 | train MAE  0.260 RMSE  0.442 | val MAE  0.261 RMSE  0.520  <- best
+Epoch  46 | train MAE  0.260 RMSE  0.443 | val MAE  0.262 RMSE  0.514
+Epoch  47 | train MAE  0.259 RMSE  0.440 | val MAE  0.280 RMSE  0.527
+Epoch  48 | train MAE  0.259 RMSE  0.441 | val MAE  0.261 RMSE  0.519  <- best
+Epoch  49 | train MAE  0.259 RMSE  0.442 | val MAE  0.295 RMSE  0.530
+Epoch  50 | train MAE  0.259 RMSE  0.439 | val MAE  0.263 RMSE  0.518
+Epoch  51 | train MAE  0.257 RMSE  0.438 | val MAE  0.264 RMSE  0.518
+Epoch  52 | train MAE  0.257 RMSE  0.437 | val MAE  0.264 RMSE  0.523
+Epoch  53 | train MAE  0.251 RMSE  0.426 | val MAE  0.264 RMSE  0.519
+Epoch  54 | train MAE  0.251 RMSE  0.425 | val MAE  0.261 RMSE  0.511  <- best
+Epoch  55 | train MAE  0.249 RMSE  0.424 | val MAE  0.258 RMSE  0.515  <- best
+Epoch  56 | train MAE  0.249 RMSE  0.424 | val MAE  0.267 RMSE  0.517
+Epoch  57 | train MAE  0.249 RMSE  0.423 | val MAE  0.259 RMSE  0.515
+Epoch  58 | train MAE  0.249 RMSE  0.423 | val MAE  0.259 RMSE  0.514
+Epoch  59 | train MAE  0.248 RMSE  0.422 | val MAE  0.260 RMSE  0.516
+Epoch  60 | train MAE  0.246 RMSE  0.417 | val MAE  0.259 RMSE  0.512
+Epoch  61 | train MAE  0.246 RMSE  0.416 | val MAE  0.256 RMSE  0.513  <- best
+Epoch  62 | train MAE  0.245 RMSE  0.416 | val MAE  0.261 RMSE  0.514
+Epoch  63 | train MAE  0.245 RMSE  0.415 | val MAE  0.257 RMSE  0.513
+Epoch  64 | train MAE  0.244 RMSE  0.412 | val MAE  0.256 RMSE  0.511  <- best
+Epoch  65 | train MAE  0.245 RMSE  0.414 | val MAE  0.258 RMSE  0.512
+Epoch  66 | train MAE  0.244 RMSE  0.413 | val MAE  0.255 RMSE  0.511  <- best
+Epoch  67 | train MAE  0.243 RMSE  0.412 | val MAE  0.256 RMSE  0.513
+Epoch  68 | train MAE  0.244 RMSE  0.413 | val MAE  0.257 RMSE  0.511
+Epoch  69 | train MAE  0.243 RMSE  0.411 | val MAE  0.254 RMSE  0.510  <- best
+Epoch  70 | train MAE  0.242 RMSE  0.412 | val MAE  0.257 RMSE  0.514
+Epoch  71 | train MAE  0.242 RMSE  0.411 | val MAE  0.255 RMSE  0.511
+Epoch  72 | train MAE  0.242 RMSE  0.410 | val MAE  0.259 RMSE  0.514
+Epoch  73 | train MAE  0.243 RMSE  0.409 | val MAE  0.258 RMSE  0.512
+Epoch  74 | train MAE  0.241 RMSE  0.406 | val MAE  0.263 RMSE  0.514
+Epoch  75 | train MAE  0.241 RMSE  0.406 | val MAE  0.255 RMSE  0.511
+Epoch  76 | train MAE  0.241 RMSE  0.408 | val MAE  0.257 RMSE  0.512
+Epoch  77 | train MAE  0.241 RMSE  0.406 | val MAE  0.254 RMSE  0.511  <- best
+Epoch  78 | train MAE  0.241 RMSE  0.407 | val MAE  0.254 RMSE  0.511
+Epoch  79 | train MAE  0.240 RMSE  0.405 | val MAE  0.255 RMSE  0.512
+Epoch  80 | train MAE  0.241 RMSE  0.406 | val MAE  0.255 RMSE  0.512
+Epoch  81 | train MAE  0.241 RMSE  0.406 | val MAE  0.254 RMSE  0.512  <- best
+Epoch  82 | train MAE  0.240 RMSE  0.405 | val MAE  0.253 RMSE  0.511  <- best
+Epoch  83 | train MAE  0.240 RMSE  0.405 | val MAE  0.256 RMSE  0.511
+Epoch  84 | train MAE  0.241 RMSE  0.405 | val MAE  0.255 RMSE  0.510
+Epoch  85 | train MAE  0.239 RMSE  0.404 | val MAE  0.255 RMSE  0.512
+Epoch  86 | train MAE  0.240 RMSE  0.404 | val MAE  0.254 RMSE  0.510
+Epoch  87 | train MAE  0.239 RMSE  0.403 | val MAE  0.255 RMSE  0.510
+Epoch  88 | train MAE  0.239 RMSE  0.403 | val MAE  0.253 RMSE  0.509  <- best
+Epoch  89 | train MAE  0.239 RMSE  0.402 | val MAE  0.254 RMSE  0.510
+Epoch  90 | train MAE  0.239 RMSE  0.402 | val MAE  0.257 RMSE  0.511
+Epoch  91 | train MAE  0.239 RMSE  0.403 | val MAE  0.254 RMSE  0.512
+Epoch  92 | train MAE  0.239 RMSE  0.403 | val MAE  0.255 RMSE  0.512
+Epoch  93 | train MAE  0.239 RMSE  0.402 | val MAE  0.253 RMSE  0.511  <- best
+Epoch  94 | train MAE  0.238 RMSE  0.401 | val MAE  0.255 RMSE  0.512
+Epoch  95 | train MAE  0.239 RMSE  0.401 | val MAE  0.254 RMSE  0.511
+Epoch  96 | train MAE  0.239 RMSE  0.401 | val MAE  0.254 RMSE  0.511
+Epoch  97 | train MAE  0.238 RMSE  0.401 | val MAE  0.254 RMSE  0.512
+Epoch  98 | train MAE  0.238 RMSE  0.400 | val MAE  0.254 RMSE  0.512
+Epoch  99 | train MAE  0.238 RMSE  0.401 | val MAE  0.254 RMSE  0.511
+Epoch 100 | train MAE  0.238 RMSE  0.401 | val MAE  0.254 RMSE  0.511
+Epoch 101 | train MAE  0.239 RMSE  0.403 | val MAE  0.253 RMSE  0.511
+Epoch 102 | train MAE  0.238 RMSE  0.401 | val MAE  0.253 RMSE  0.511
+Epoch 103 | train MAE  0.238 RMSE  0.401 | val MAE  0.254 RMSE  0.511
+Epoch 104 | train MAE  0.239 RMSE  0.402 | val MAE  0.254 RMSE  0.511
+Epoch 105 | train MAE  0.238 RMSE  0.400 | val MAE  0.254 RMSE  0.511
+Epoch 106 | train MAE  0.238 RMSE  0.400 | val MAE  0.254 RMSE  0.511
+Epoch 107 | train MAE  0.238 RMSE  0.401 | val MAE  0.254 RMSE  0.511
+Epoch 108 | train MAE  0.238 RMSE  0.402 | val MAE  0.254 RMSE  0.511
+
+Early stopping (no improvement for 15 epochs)
+
+Best validation MAE: 0.253 ppm
+
+Test set performance
+---------------------
+MAE : 0.244 ppm
+RMSE: 0.470 ppm
+
+Model saved to: data/models/gnn_h1_v1.pt

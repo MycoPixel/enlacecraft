@@ -1,0 +1,57 @@
+Loading dataset...
+Dataset shape: (361988, 164)
+
+Using 160 features
+
+Training molecules: 26,676
+Testing molecules : 6,669
+
+Training atoms: 289,264
+Testing atoms : 72,724
+
+Training XGBoost...
+Training finished (best iteration: 799).
+
+Model performance
+-----------------
+MAE : 5.232 ppm
+RMSE: 7.583 ppm
+R²  : 0.979
+
+Top 30 features
+-----------------
+                 feature  importance
+0          hybridization    0.693259
+1           triple_bonds    0.061542
+2       oxygen_neighbors    0.058949
+3               total_hs    0.049717
+4            is_aromatic    0.016827
+5           single_bonds    0.013590
+6     fluorine_neighbors    0.012746
+7           double_bonds    0.011298
+8                 degree    0.010216
+9     nitrogen_neighbors    0.007003
+10      iodine_neighbors    0.006985
+11     bromine_neighbors    0.003957
+12      carbon_neighbors    0.003589
+13    chlorine_neighbors    0.002506
+14        aromatic_bonds    0.002003
+15                fp_073    0.001944
+16      sulfur_neighbors    0.001744
+17         formal_charge    0.001489
+18                fp_108    0.001405
+19  phosphorus_neighbors    0.001283
+20                fp_022    0.000948
+21                fp_047    0.000775
+22                fp_010    0.000766
+23                fp_116    0.000758
+24                fp_016    0.000735
+25                fp_097    0.000710
+26                fp_034    0.000705
+27            is_in_ring    0.000691
+28                fp_038    0.000649
+29                fp_066    0.000646
+
+Model saved to: data/models/xgboost_v1.joblib
+Feature importance saved to:
+data/models/xgboost_feature_importance.csv

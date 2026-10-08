@@ -1,0 +1,12 @@
+Saved 361,988 rows
+Unique molecules: 33,345
+Columns: 164
+
+   nmrshiftdb_id                                    smiles  ...  fp_126  fp_127
+0            234  CC1(C)CCC[C@@]2(C)C1CC=C(C=O)[C@]2(O)C=O  ...       0       0
+1            234  CC1(C)CCC[C@@]2(C)C1CC=C(C=O)[C@]2(O)C=O  ...       0       0
+2            234  CC1(C)CCC[C@@]2(C)C1CC=C(C=O)[C@]2(O)C=O  ...       0       0
+3            234  CC1(C)CCC[C@@]2(C)C1CC=C(C=O)[C@]2(O)C=O  ...       0       0
+4            234  CC1(C)CCC[C@@]2(C)C1CC=C(C=O)[C@]2(O)C=O  ...       0       0
+
+[5 rows x 164 columns]

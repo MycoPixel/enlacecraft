@@ -1,0 +1,22 @@
+name: nmr
+# Renamed from the earlier "nmrgraph" - this is what actually gets
+# activated day to day (`micromamba activate nmr`), so the env name
+# matches that instead of requiring --name nmr on every machine.
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.12
+  - rdkit
+  - pip
+  - pip:
+      - numpy
+      - pandas
+      - matplotlib
+      - scikit-learn
+      - xgboost
+      - jupyter
+      - torch
+      - fastapi
+      - uvicorn[standard]
