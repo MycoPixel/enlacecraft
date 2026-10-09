@@ -5,7 +5,7 @@
     "email": "paulo.castro@usach.cl"
   },
   "desktopName": "enlacecraft.desktop",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "A browser-based molecule drawing application.",
   "private": true,
   "type": "module",
