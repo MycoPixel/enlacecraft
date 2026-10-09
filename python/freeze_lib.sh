@@ -25,6 +25,34 @@ require_docker() {
     fi
 }
 
+# SELinux hosts (Fedora/RHEL, and anything else shipping SELinux in Enforcing
+# mode) label a bind mount with the host directory's context, and the container
+# process is then denied write access to it even though its uid is root. The
+# symptom is PyInstaller dying at the very end of a long freeze:
+#
+#     PermissionError: [Errno 13] Permission denied: '/src/dist/<bundle>'
+#
+# i.e. it completes Analysis/PYZ/EXE and only fails when COLLECT tries to
+# mkdir the output directory. That is late enough to look like an unrelated
+# flake, and it's invisible on CI (Ubuntu runners are permissive), so a
+# release frozen on a Mac or CI box can differ from one frozen on a
+# developer workstation for reasons that have nothing to do with the build.
+#
+# `--security-opt label=disable` opts the container out of SELinux labeling
+# entirely. It's a build-time-only container running our own pinned image and
+# writing to a directory we just created, so there's no confinement worth
+# preserving here - and it's preferable to the alternatives: `:z`/`:Z` would
+# permanently relabel the developer's own source tree, which leaks container
+# labels into files that have nothing to do with the build.
+#
+# Only added when SELinux is actually enforcing, so hosts without it (CI,
+# macOS, most desktops) pass through unchanged.
+docker_selinux_flags() {
+    if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+        echo "--security-opt label=disable"
+    fi
+}
+
 # Freeze a backend inside its pinned container.
 #
 #   freeze_in_container <image> <source-dir> <bundle-name> <spec> [extra sh]
@@ -32,7 +60,7 @@ require_docker() {
 # <source-dir> and <bundle-name> are relative to the repo root, e.g.
 # python/structure3d_server and structure3d_server.
 #
-# The three odd-looking details here are all deliberate, and each one was a
+# The four odd-looking details here are all deliberate, and each one was a
 # real bug found by actually running this:
 #
 #  - The rm happens *inside* the container. A previous run's output is
@@ -48,12 +76,16 @@ require_docker() {
 #    from a plain `sh -c` instead, so we can chain the chmod with `&&`.
 #    Running micromamba run directly leaves the container's exit status
 #    unmapped to the actual pyinstaller result in some micromamba versions.
+#
+#  - $(docker_selinux_flags) is the SELinux-host fix; see that function for
+#    why the failure it prevents only shows up on a developer's machine.
 freeze_in_container() {
     local image="$1" src="$2" bundle="$3" spec="$4" extra="${5:-}"
 
     echo "==> Freezing $bundle inside the container"
     mkdir -p "$src/dist"
     docker run --rm \
+        $(docker_selinux_flags) \
         -v "$(pwd)/$src/dist:/src/dist" \
         "$image" \
         sh -c "set -e

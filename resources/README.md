@@ -29,6 +29,24 @@ The host-side freeze (`pyinstaller` directly) is still fine for debugging
 a build failure itself; just don't ship it. See each backend folder's
 README.md for the Windows equivalents.
 
+### If a freeze dies at the very end with "Permission denied"
+
+On a host with SELinux in Enforcing mode (Fedora, RHEL), the freeze used to
+die after ~5 minutes of apparently-successful PyInstaller output, right at
+the `COLLECT` step:
+
+    PermissionError: [Errno 13] Permission denied: '/src/dist/<bundle>'
+
+That is SELinux, not the build: the container is denied write access to the
+bind-mounted `dist/` folder even though it runs as root, so PyInstaller
+completes Analysis/PYZ/EXE and only fails when it tries to create the output
+directory. `freeze_lib.sh` now detects an enforcing SELinux host and adds
+`--security-opt label=disable` to the `docker run` (see
+`docker_selinux_flags` there for why the container opt-out is preferable to
+`:z` relabeling the source tree). If you hit this on an older checkout, pull
+that fix before re-running — otherwise you will burn a full container build
+per backend and fail identically at the end.
+
 ## nmrgraph_server/
 
 `nmrgraph_server/` (gitignored, not present until you create it) is where
