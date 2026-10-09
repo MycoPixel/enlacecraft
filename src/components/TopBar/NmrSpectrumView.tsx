@@ -1274,6 +1274,10 @@ export function NmrSpectrumView({
   // the thing being read, and a permanent diagram would shrink the plot on a
   // screen that's already narrow.
   const [showStructure, setShowStructure] = useState(false);
+  // Whether the inline structure shows each atom's hydrogen count ("C1H3").
+  // Off by default: the 1H signal's own integration already reports the proton
+  // count, so printing it on every atom too is mostly duplication.
+  const [showStructureHydrogens, setShowStructureHydrogens] = useState(false);
   // The signal currently hovered on the plot, so its atoms can be highlighted
   // on the diagram. null means nothing hovered - deliberately an explicit
   // "nothing is linked" rather than defaulting to the first peak, which would
@@ -1529,13 +1533,31 @@ export function NmrSpectrumView({
           thing pointing back, and it points unambiguously at one signal. */}
       {showStructure && (
         <div className="nmr-spectrum-view__structure">
+          <div className="nmr-report-shift-toggle nmr-spectrum-view__structure-controls" role="group" aria-label={t("nmr.reportShiftToggleLabel")}>
+            {/* Hydrogen count per atom ("C1H3"). Lives here rather than being
+                always-on because it's redundant next to the spectrum most of
+                the time - the 1H signal's own integration already says how many
+                protons it carries. It's the case where the STRUCTURE says it
+                and the spectrum doesn't that it earns its place. */}
+            <button
+              type="button"
+              className={
+                "nmr-report-shift-toggle__btn" +
+                (showStructureHydrogens ? " nmr-report-shift-toggle__btn--active" : "")
+              }
+              aria-pressed={showStructureHydrogens}
+              onClick={() => setShowStructureHydrogens((v) => !v)}
+            >
+              {t("nmr.reportShowHydrogens")}
+            </button>
+          </div>
           <NmrStructureDiagram
             fragment={fragment}
             labelOf={atomLabels}
             shiftsByAtom={NO_SHIFTS}
             showC={false}
             showH={false}
-            showExplicitHydrogens={false}
+            showExplicitHydrogens={showStructureHydrogens}
             highlightedAtomIds={highlightedAtomIds}
           />
           <p className="nmr-spectrum-view__structure-hint">{t("nmr.spectrumStructureHint")}</p>

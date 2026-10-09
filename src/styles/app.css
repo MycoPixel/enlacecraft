@@ -1589,6 +1589,15 @@
   width: 100%;
 }
 
+/* The H toggle sits above the diagram inside the structure panel rather than
+   in the main toolbar: it's a property of that panel, and putting it up with
+   the nucleus switch would read as affecting the plot too, which it doesn't. */
+.nmr-spectrum-view__structure-controls {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 6px;
+}
+
 .nmr-spectrum-view__structure-hint {
   margin: 6px 0 0;
   font-size: 10.5px;
