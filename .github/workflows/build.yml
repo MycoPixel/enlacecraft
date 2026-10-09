@@ -22,29 +22,42 @@
 #
 # TRIGGERS
 # --------
-# workflow_dispatch for an on-demand run, or a push to main that touches
-# something that changes the *output* (the Python backends, the Electron
-# layer, the version, packaging config). Renderer-only changes under src/ are
-# deliberately NOT a trigger: each run freezes three backends and downloads
-# several GB, which is a lot of runner time to burn for a tweak that only
-# changes the JS bundle. Ask for a run manually when you want one.
+# MANUAL ONLY - there is deliberately no `push:` trigger here.
+#
+# This used to fire on any push to main touching something that changes the
+# *output* (the Python backends, the Electron layer, the version, packaging
+# config), on the reasoning that those are exactly the changes whose output
+# you want verified. It cost far more than that reasoning is worth: one run is
+# THREE jobs - unit tests, plus a Linux and a Windows installer - and each
+# installer job freezes all three Python backends from scratch and downloads
+# several GB. A one-line fix to a shell script in python/ is a "change to the
+# output" by that rule, and it quietly spends a Linux AND a Windows build to
+# produce installers nobody asked for.
+#
+# Nothing is lost by going manual, because this workflow builds but does not
+# publish (see the header above): releases are already a deliberate manual step
+# performed by a human from downloaded artifacts. So there was never a case
+# where waiting for a green check gated a release - the automatic run only
+# pre-built installers that the manual release step would have been happy to
+# trigger itself.
+#
+# To build installers: Actions -> "build installers" -> Run workflow. Or from
+# a clone: gh workflow run build.yml.
+#
+# If automatic builds on push are ever wanted again, add a push trigger back,
+# but keep it narrow (a tag or release event is the right shape for it).
 name: build installers
 
 on:
+  # Manual only - see "TRIGGERS" in the header before adding a push trigger
+  # back. The paths filter that used to be here still looked expensive on
+  # paper (it excluded src/), but python/** and electron/** are exactly where
+  # one-line fixes live, and each match spent two full installer builds.
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - package.json
-      - package-lock.json
-      - electron/**
-      - python/**
-      - build/**
-      - .gitmodules
-      - .github/workflows/build.yml
 
-# Don't let a broken push queue up a dozen expensive runs - cancel the older
-# one for the same ref instead.
+# Still worth having with only workflow_dispatch: clicking "Run workflow" twice
+# is easy, and this cancels the older run for the same ref rather than letting
+# two three-backend builds compete for the same minutes.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
