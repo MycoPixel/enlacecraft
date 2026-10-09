@@ -22,6 +22,9 @@ import {
   type IntegrationRegion,
 } from "../../io/nmrIntegrate";
 import { computeFormula } from "../../model/valence";
+import { NmrStructureDiagram } from "./NmrStructureDiagram";
+import type { Molecule } from "../../types/chemistry";
+import type { AtomShifts } from "./nmrReportTypes";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import {
   simulateH1Spectrum,
@@ -50,6 +53,18 @@ type PlotMode = "curve" | "sticks";
  * what the gesture MEANS rather than making the user learn a second gesture.
  */
 type DragTool = "zoom" | "integrate";
+
+/**
+ * Shared empty shift map for the inline structure diagram.
+ *
+ * The diagram beside the plot is there to answer "which atoms is this
+ * signal?", and printing shift numbers on it as well would duplicate the
+ * Structure tab inside a view whose job is the spectrum - and would compete
+ * with the highlight for the reader's attention. An empty map (rather than a
+ * flag on the component) keeps "no shifts here" a normal input, so the
+ * component has no special case for this caller.
+ */
+const NO_SHIFTS: Map<string, AtomShifts> = new Map();
 
 
 /**
@@ -301,6 +316,7 @@ function SpectrumPlot({
   matchedLabels,
   mode,
   onModeChange,
+  onHoverGroup,
 }: {
   peakGroups: SimulatedPeakGroup[];
   nucleus: Nucleus;
@@ -308,6 +324,10 @@ function SpectrumPlot({
   /** Called with the group whose peak/label was clicked - lets the plot act
    *  as a peak picker rather than a purely decorative graph. */
   onSelectGroup: ((group: SimulatedPeakGroup) => void) | undefined;
+  /** Called with the signal under the pointer, or null on leave. Drives the
+   *  highlight on the structure diagram beside the plot, so hovering a peak
+   *  answers "which atoms are this?" without a click. */
+  onHoverGroup: ((group: SimulatedPeakGroup | null) => void) | undefined;
   /** Measured peaks to overlay, or null when no comparison is loaded. */
   experimental: PeakListRow[] | null;
   /** Labels of predicted signals that matched a measured peak. Rendered as
@@ -1036,12 +1056,20 @@ function SpectrumPlot({
                 />
               )}
               {/* The label is the one per-peak element present in both curve
-                  and sticks mode, so it's the click target that works
-                  regardless of which mode is showing. cursor:pointer and the
-                  hover treatment are in app.css. */}
+                  and sticks mode, so it's the hover AND click target that
+                  works regardless of which mode is showing. cursor:pointer and
+                  the hover treatment are in app.css.
+                  Hovering the label is the signal->structure link: the label
+                  names the signal ("C1"), so hovering it is unambiguous even
+                  where two signals' peaks nearly overlap. The curve itself is
+                  deliberately NOT a hover target - it is one continuous path,
+                  so "which peak is under the pointer" is not well defined on
+                  it, and guessing would highlight the wrong atoms. */}
               <text
                 x={placement.x}
                 y={placement.y}
+                onMouseEnter={onHoverGroup ? () => onHoverGroup(placement.group) : undefined}
+                onMouseLeave={onHoverGroup ? () => onHoverGroup(null) : undefined}
                 className={
                   "nmr-spectrum-plot__group-label" +
                   (onSelectGroup ? " nmr-spectrum-plot__group-label--clickable" : "")
@@ -1229,14 +1257,28 @@ export function NmrSpectrumView({
   predictionsH1,
   atomOrder,
   atomLabels,
+  fragment,
 }: {
   predictions: ShiftPrediction[];
   predictionsH1: H1ShiftPrediction[];
   atomOrder: string[];
   atomLabels: Map<string, string>;
+  /** The structure the predictions were made from - needed to draw the
+   *  structure beside the plot. Passed in rather than rebuilt from the atom
+   *  order, because only the caller holds the real drawn molecule. */
+  fragment: Molecule;
 }) {
     const t = useT();
   const [activeNucleus, setActiveNucleus] = useState<Nucleus>("h1");
+  // Structure diagram shown beside the plot. Off by default: the spectrum is
+  // the thing being read, and a permanent diagram would shrink the plot on a
+  // screen that's already narrow.
+  const [showStructure, setShowStructure] = useState(false);
+  // The signal currently hovered on the plot, so its atoms can be highlighted
+  // on the diagram. null means nothing hovered - deliberately an explicit
+  // "nothing is linked" rather than defaulting to the first peak, which would
+  // highlight an arbitrary atom the moment the diagram appeared.
+  const [hoveredGroup, setHoveredGroup] = useState<{ nucleus: Nucleus; group: SimulatedPeakGroup } | null>(null);
   // Curve vs sticks. Shared by both plots and read by the SVG export, so an
   // exported figure shows the same representation the user was looking at.
   const [plotMode, setPlotMode] = useState<PlotMode>("curve");
@@ -1381,17 +1423,35 @@ export function NmrSpectrumView({
   // comparison table can report an integral that matches what's on screen.
 
   /**
+   * The atom ids behind a peak group, resolved through the equivalence group
+   * the peak was built from.
+   *
+   * Shared by click-to-select and hover-to-highlight because both must answer
+   * the same question - "which atoms are this signal?" - and two copies of
+   * that mapping is exactly how a click and a hover end up pointing at
+   * different atoms, which the reader would reasonably read as a bug in the
+   * chemistry rather than in the lookup.
+   *
+   * Matching goes through equivalence_group rather than position in the peak
+   * list: the simulated groups are derived from the same equivalence grouping,
+   * so the label is the stable link between "this peak" and "these atoms".
+   */
+  const atomsForGroup = useCallback(
+    (nucleus: Nucleus, group: SimulatedPeakGroup): Set<string> => {
+      const groups = nucleus === "h1" ? h1Groups : c13Groups;
+      const match = groups.find(
+        (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels) === group.label,
+      );
+      if (!match) return new Set();
+      return new Set(
+        match.members.map((m) => atomOrder[m.atomIndex]).filter((id): id is string => Boolean(id)),
+      );
+    },
+    [h1Groups, c13Groups, atomOrder, atomLabels],
+  );
+
+  /**
    * Selects the atoms behind a clicked peak on the canvas.
-   *
-   * This is the link the spectrum was missing: peaks were labelled with atom
-   * names ("C5, C6") but inert, so there was no way to go from a signal back
-   * to the atoms that produced it. The obvious use - "which protons is that
-   * multiplet?" - needed you to read the label and hunt on the canvas by eye.
-   *
-   * Groups are matched by equivalence_group rather than by position in the
-   * peak list: the simulated groups are derived from the same equivalence
-   * grouping, so the group id is the stable link between "this peak" and
-   * "these atoms".
    *
    * Replaces rather than extends the selection: clicking a peak is a statement
    * about that signal, and leaving an unrelated previous selection in place
@@ -1399,20 +1459,25 @@ export function NmrSpectrumView({
    */
   const handleSelectGroup = useCallback(
     (nucleus: Nucleus) => (group: SimulatedPeakGroup) => {
-      const groups = nucleus === "h1" ? h1Groups : c13Groups;
-      const match = groups.find(
-        (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels) === group.label,
-      );
-      if (!match) return;
-      const ids = new Set(
-        match.members
-          .map((m) => atomOrder[m.atomIndex])
-          .filter((id): id is string => Boolean(id)),
-      );
+      const ids = atomsForGroup(nucleus, group);
       if (ids.size > 0) setSelected(ids);
     },
-    [h1Groups, c13Groups, atomOrder, atomLabels, setSelected],
+    [atomsForGroup, setSelected],
   );
+
+  /** Highlights a hovered peak's atoms on the structure diagram. */
+  const handleHoverGroup = useCallback(
+    (nucleus: Nucleus) => (group: SimulatedPeakGroup | null) => {
+      setHoveredGroup(group ? { nucleus, group } : null);
+    },
+    [],
+  );
+
+  // Atom ids the diagram should highlight, resolved from whatever is hovered.
+  const highlightedAtomIds = useMemo(() => {
+    if (!hoveredGroup) return new Set<string>();
+    return atomsForGroup(hoveredGroup.nucleus, hoveredGroup.group);
+  }, [hoveredGroup, atomsForGroup]);
 
   return (
     <div className="nmr-spectrum-view">
@@ -1434,12 +1499,47 @@ export function NmrSpectrumView({
             {t(option === "h1" ? "nmr.section1h" : "nmr.section13c")}
           </button>
         ))}
+        {/* Show/hide the structure beside the plot. Separate from the nucleus
+            switch above: that chooses which spectrum, this chooses how much
+            context to show while reading it. */}
+        <button
+          type="button"
+          className={
+            "nmr-report-shift-toggle__btn" +
+            (showStructure ? " nmr-report-shift-toggle__btn--active" : "")
+          }
+          aria-pressed={showStructure}
+          onClick={() => setShowStructure((v) => !v)}
+        >
+          {t("nmr.spectrumShowStructure")}
+        </button>
       </div>
 
       {activeNucleus === "h1" ? (
-        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
+        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} onHoverGroup={handleHoverGroup("h1")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
       ) : (
-        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
+        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} onHoverGroup={handleHoverGroup("c13")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
+      )}
+
+      {/* The structure, beside the spectrum rather than on the other tab.
+          Hovering a signal label above highlights the atoms that produced it,
+          which is the question a predicted spectrum actually raises: "which
+          protons is this multiplet?". The diagram shows no shift numbers here
+          - those are on the Structure tab - so the highlight is the only
+          thing pointing back, and it points unambiguously at one signal. */}
+      {showStructure && (
+        <div className="nmr-spectrum-view__structure">
+          <NmrStructureDiagram
+            fragment={fragment}
+            labelOf={atomLabels}
+            shiftsByAtom={NO_SHIFTS}
+            showC={false}
+            showH={false}
+            showExplicitHydrogens={false}
+            highlightedAtomIds={highlightedAtomIds}
+          />
+          <p className="nmr-spectrum-view__structure-hint">{t("nmr.spectrumStructureHint")}</p>
+        </div>
       )}
 
       <p className="nmr-report-dialog__caveat">{t("nmr.spectrumCaveat")}</p>

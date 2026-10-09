@@ -1449,6 +1449,24 @@
   stroke-width: 1.6;
 }
 
+/* An atom linked to the signal currently hovered on the spectrum.
+   Filled rather than just outlined, because the highlight has to survive
+   being drawn UNDER the atom's own shift badge or label - an outline-only
+   treatment disappears behind the text exactly when the reader is looking at
+   it. The badge itself dims instead, so the shape stays the signal. */
+.nmr-report-svg__atom--linked {
+  fill: var(--accent);
+  fill-opacity: 0.28;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.nmr-report-svg__atom-group--linked .nmr-report-svg__atom-label,
+.nmr-report-svg__atom-group--linked .nmr-report-svg__badge {
+  fill: var(--accent);
+  font-weight: 700;
+}
+
 .nmr-report-table {
   width: 100%;
   border-collapse: collapse;
@@ -1550,6 +1568,32 @@
      horizontal padding; .nmr-spectrum-view already has 20px of its
      own, so drop the toggle's extra side margin to avoid doubling it. */
   margin: 10px 0 0;
+}
+
+/* The structure shown beside the spectrum when the toggle is on.
+   Sits BELOW the plot rather than beside it on purpose: side-by-side would
+   halve the plot's width, and the plot is the thing being read - a spectrum
+   squashed to half width is harder to read than one with the structure
+   underneath it. Stacked also keeps the hover relationship obvious, since the
+   highlight is directly below the signal that caused it. */
+.nmr-spectrum-view__structure {
+  margin: 12px 0 0;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.nmr-spectrum-view__structure .nmr-report-svg {
+  max-height: 220px;
+  width: 100%;
+}
+
+.nmr-spectrum-view__structure-hint {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  text-align: center;
 }
 
 .nmr-spectrum-plot {
