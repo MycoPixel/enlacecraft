@@ -12,7 +12,11 @@ import { describe, expect, test } from "vitest";
  */
 
 /** Mirrors the component's constants and clamp. */
-const MIN_VERTICAL_ZOOM = 1;
+/** Below 1: zooming out shrinks the tallest peak and leaves headroom above it,
+ *  which is the only way to see the whole spectrum with nothing clipped. 0.25
+ *  keeps the tallest signal at a quarter of the plot height - lower than that
+ *  and the whole spectrum flattens into the baseline. */
+const MIN_VERTICAL_ZOOM = 0.25;
 const MAX_VERTICAL_ZOOM = 60;
 const VERTICAL_ZOOM_STEP = 1.15;
 
@@ -32,9 +36,25 @@ describe("clampVerticalZoom", () => {
     expect(clampVerticalZoom(1e9)).toBe(60);
   });
 
-  test("clamps to the floor, so peak height can't be shrunk away entirely", () => {
-    expect(clampVerticalZoom(0.9)).toBe(1);
-    expect(clampVerticalZoom(0)).toBe(1);
+  test("clamps to the floor, so peaks can't be shrunk out of sight", () => {
+    // The floor is below 1, not 1: the user asked to be able to make the
+    // tallest signal SMALLER, which means raising the ceiling above it. Still
+    // bounded, though - at 0.1 the tallest peak was only ~18px tall, so a few
+    // clicks flattened the whole spectrum into the baseline.
+    expect(clampVerticalZoom(0.1)).toBe(0.25);
+    expect(clampVerticalZoom(0)).toBe(0.25);
+    expect(clampVerticalZoom(-4)).toBe(0.25);
+  });
+
+  test("allows zooming out below 1, leaving headroom above the tallest peak", () => {
+    // The behaviour that was missing: with the floor at 1 the tallest signal
+    // was permanently pinned to the top of the plot and could never be made
+    // smaller. 0.5 is now reachable in both directions.
+    expect(clampVerticalZoom(0.5)).toBe(0.5);
+    let z = 1;
+    for (let i = 0; i < 6; i++) z = clampVerticalZoom(z / VERTICAL_ZOOM_STEP);
+    expect(z).toBeLessThan(1);
+    expect(z).toBeGreaterThanOrEqual(MIN_VERTICAL_ZOOM);
   });
 });
 

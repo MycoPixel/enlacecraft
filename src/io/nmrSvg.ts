@@ -16,7 +16,10 @@
  * 2. IT CAPTURES WHATEVER IS ON SCREEN. Drag-zoom, intensity zoom, the
  *    experimental overlay and the manual ppm range are all transient view state.
  *    A "figure for a report" should show the full spectrum, not wherever the
- *    user last happened to be zoomed.
+ *    user last happened to be zoomed. The curve/sticks choice IS carried over,
+ *    though - that isn't transient view state, it's a decision about how the
+ *    spectrum should be represented, and exporting sticks when the user was
+ *    looking at curves (or the reverse) would be its own surprise.
  *
  * 3. NO LABELS. The on-screen version puts atom names above peaks; a figure
  *    someone will paste into a document needs real axis ticks and units.
@@ -29,7 +32,17 @@
 
 import type { Nucleus } from "./nmrExport";
 import { niceTickStep, decimalsForStep, ticksForRange } from "./nmrAxisTicks";
-import type { SimulatedPeakGroup } from "./nmrSpectrum";
+import {
+  buildCurve,
+  DEFAULT_C13_LINEWIDTH_PPM,
+  DEFAULT_H1_LINEWIDTH_PPM,
+  type SimulatedPeakGroup,
+} from "./nmrSpectrum";
+
+/** Which shape the figure draws. Mirrors the on-screen curve/sticks toggle
+ *  (NmrSpectrumView's PlotMode) so an export matches what the user was
+ *  looking at - see spectrumToSvg. */
+export type SpectrumPlotMode = "curve" | "sticks";
 
 /** Figure size in px. Fixed so output is identical on every machine. */
 const SVG_WIDTH = 760;
@@ -38,12 +51,19 @@ const SVG_HEIGHT = 420;
 const PAD_LEFT = 56;
 const PAD_RIGHT = 16;
 const PAD_TOP = 46;
-const PAD_BOTTOM = 44;
-/** Height of the integral trace band, and where its baseline sits. */
-const INTEGRAL_HEIGHT = 46;
-const AXIS_Y = PAD_TOP + SVG_HEIGHT - PAD_TOP - PAD_BOTTOM - INTEGRAL_HEIGHT;
+/** Room under the axis for tick labels, the axis title, and the caption.
+ *  This was 44 while the integral band shared the same figure; with the band
+ *  gone the axis moved down and 44 left the axis title sitting on top of the
+ *  caption, so it needs to clear both rather than just the ticks. */
+const PAD_BOTTOM = 66;
+const AXIS_Y = SVG_HEIGHT - PAD_BOTTOM;
 const PLOT_W = SVG_WIDTH - PAD_LEFT - PAD_RIGHT;
 const PLOT_H = AXIS_Y - PAD_TOP;
+
+/** Samples across the curve. Matches the on-screen plot's 480 so an exported
+ *  figure resolves a multiplet's individual lines at the same fidelity the
+ *  user saw rather than looking visibly coarser than the screen it came from. */
+const CURVE_SAMPLES = 480;
 
 /** Text styling. A generic sans stack, so no font file has to be embedded. */
 const FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -74,12 +94,19 @@ function fmt(value: number, decimals: number): string {
  * @param title optional heading, e.g. the structure name
  * @param naturalRange the ppm window; callers pass suggestedRange(...) so the
  *   figure always shows the whole spectrum rather than a zoomed slice
+ * @param mode which shape to draw - "curve" for the continuous Lorentzian
+ *   envelope a real instrument prints, "sticks" for discrete lines. Taken from
+ *   the caller so the figure matches the plot the user was actually looking at;
+ *   the on-screen zoom is still deliberately not carried over (see the module
+ *   docstring), since that's transient view state rather than a choice about
+ *   how the spectrum should be represented.
  */
 export function spectrumToSvg(
   peakGroups: SimulatedPeakGroup[],
   nucleus: Nucleus,
   title: string,
   naturalRange: [number, number],
+  mode: SpectrumPlotMode = "curve",
 ): string {
   // A zero-width range would divide by zero and emit NaN/Infinity coordinates,
   // which renders as a blank figure with no error anywhere. suggestedRange never
@@ -93,10 +120,29 @@ export function spectrumToSvg(
   const span = maxPpm - minPpm;
   const ppmToX = (ppm: number) => PAD_LEFT + (PLOT_W * (maxPpm - ppm)) / span;
 
-  // Normalise to the tallest line so a weak signal next to a strong one is
-  // still visible - the same rule the interactive plot uses.
+  // Curve mode samples the same Lorentzian sum the on-screen plot draws, so the
+  // exported envelope has the same peak widths and the same relative heights
+  // between neighbouring signals - not just a smoothed impression of them.
+  const curvePoints =
+    mode === "curve"
+      ? buildCurve(
+          peakGroups,
+          minPpm,
+          maxPpm,
+          CURVE_SAMPLES,
+          nucleus === "h1" ? DEFAULT_H1_LINEWIDTH_PPM : DEFAULT_C13_LINEWIDTH_PPM,
+        )
+      : [];
+
+  // Normalise against whatever is actually being drawn. In curve mode that is
+  // the tallest point of the sampled envelope, NOT the tallest single line: a
+  // Lorentzian only reaches its nominal intensity exactly at its centre, so
+  // normalising against line intensities would leave the curve visibly short of
+  // the top of the plot and waste the headroom above it.
   const maxIntensity = Math.max(
-    ...peakGroups.flatMap((g) => g.lines.map((l) => l.intensity)),
+    ...(mode === "curve"
+      ? curvePoints.map((p) => p.intensity)
+      : peakGroups.flatMap((g) => g.lines.map((l) => l.intensity))),
     1e-9,
   );
   const intensityToY = (i: number) => AXIS_Y - (PLOT_H * i) / maxIntensity;
@@ -140,67 +186,51 @@ export function spectrumToSvg(
   }
 
   // --- TMS reference -----------------------------------------------------
+  // 0 ppm is the RIGHT-hand edge of an axis that runs high-to-low, so the label
+  // sits to the left of its line. Drawn to the right it overhangs the figure
+  // and gets clipped by whatever renders it.
   if (minPpm <= 0 && maxPpm >= 0) {
     const x = ppmToX(0);
     parts.push(
       `<line x1="${x.toFixed(2)}" y1="${PAD_TOP}" x2="${x.toFixed(2)}" y2="${AXIS_Y}" ` +
         `stroke="#2f5d8a" stroke-width="1" stroke-dasharray="3 3"/>`,
-      `<text x="${(x + 4).toFixed(2)}" y="${PAD_TOP + 12}" fill="#2f5d8a" font-size="10" ` +
-        `font-family="${FONT}">TMS</text>`,
+      `<text x="${(x - 4).toFixed(2)}" y="${PAD_TOP + 12}" fill="#2f5d8a" font-size="10" ` +
+        `font-family="${FONT}" text-anchor="end">TMS</text>`,
     );
   }
 
   // --- peaks -------------------------------------------------------------
-  // Drawn with a real stroke width in px, since a linewidth in ppm would render
-  // at a different visual weight than on screen. Illustrative-splitting peaks
-  // are dashed and labelled, matching the on-screen convention.
-  for (const g of peakGroups) {
-    for (const line of g.lines) {
-      const x = ppmToX(line.ppm);
-      const y = intensityToY(line.intensity);
-      parts.push(
-        `<line x1="${x.toFixed(2)}" y1="${AXIS_Y}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}" ` +
-          `stroke="#1b2027" stroke-width="1.5"${g.isIllustrative ? ' stroke-dasharray="2 2"' : ""}/>`,
-      );
-    }
-  }
-
-  // --- integral trace ----------------------------------------------------
-  const integrals = peakGroups.map((g) => ({
-    centerPpm: g.centerPpm,
-    value: g.totalIntegration,
-  }));
-  const maxIntegral = Math.max(...integrals.map((i) => i.value), 1e-9);
-  const integralTop = AXIS_Y + 10;
-  parts.push(
-    `<line x1="${PAD_LEFT}" y1="${integralTop + INTEGRAL_HEIGHT}" x2="${PAD_LEFT + PLOT_W}" ` +
-      `y2="${integralTop + INTEGRAL_HEIGHT}" stroke="#8a919c" stroke-width="1"/>`,
-  );
-  let d = "";
-  integrals
-    .slice()
-    .sort((a, b) => b.centerPpm - a.centerPpm)
-    .forEach((item, i, arr) => {
-      const x = ppmToX(item.centerPpm);
-      const y = integralTop + INTEGRAL_HEIGHT - (INTEGRAL_HEIGHT * item.value) / maxIntegral;
-      if (i === 0) {
-        d += `M ${x.toFixed(2)} ${(integralTop + INTEGRAL_HEIGHT).toFixed(2)}`;
-      } else {
-        // Rise at the midpoint between adjacent peaks, matching nmrIntegralTrace:
-        // landing on a peak would attribute the wrong area to the wrong signal.
-        const prevX = ppmToX(arr[i - 1].centerPpm);
-        const mid = (prevX + x) / 2;
-        d += ` L ${mid.toFixed(2)} ${(integralTop + INTEGRAL_HEIGHT).toFixed(2)}`;
-        d += ` L ${mid.toFixed(2)} ${y.toFixed(2)}`;
+  // Sticks are drawn with a real stroke width in px, since a linewidth in ppm
+  // would render at a different visual weight than on screen. Illustrative-
+  // splitting peaks are dashed and labelled, matching the on-screen convention.
+  if (mode === "sticks") {
+    for (const g of peakGroups) {
+      for (const line of g.lines) {
+        const x = ppmToX(line.ppm);
+        const y = intensityToY(line.intensity);
+        parts.push(
+          `<line x1="${x.toFixed(2)}" y1="${AXIS_Y}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}" ` +
+            `stroke="#1b2027" stroke-width="1.5"${g.isIllustrative ? ' stroke-dasharray="2 2"' : ""}/>`,
+        );
       }
-      d += ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
-    });
-  d += ` L ${PAD_LEFT + PLOT_W} ${(integralTop + INTEGRAL_HEIGHT).toFixed(2)}`;
-  parts.push(`<path d="${d}" fill="none" stroke="#2f5d8a" stroke-width="1.5" stroke-linejoin="round"/>`);
-  parts.push(
-    `<text x="${PAD_LEFT + PLOT_W}" y="${integralTop + INTEGRAL_HEIGHT + 14}" fill="#5b6472" ` +
-      `font-size="10" font-family="${FONT}" text-anchor="end">integral</text>`,
-  );
+    }
+  } else {
+    // The continuous envelope. Emitted as a <path> of short line segments
+    // rather than a <polyline> for the same reason: the whole point of the SVG
+    // is that it renders identically in Word/Illustrator with no stylesheet, and
+    // presentation attributes on a polyline are honoured less consistently
+    // across those renderers than an explicit path's stroke attributes are.
+    const d = curvePoints
+      .map(
+        (p, i) =>
+          `${i === 0 ? "M" : "L"} ${ppmToX(p.ppm).toFixed(2)} ${intensityToY(p.intensity).toFixed(2)}`,
+      )
+      .join(" ");
+    parts.push(
+      `<path d="${d}" fill="none" stroke="#1b2027" stroke-width="1.4" ` +
+        `stroke-linejoin="round" stroke-linecap="round"/>`,
+    );
+  }
 
   // --- titles ------------------------------------------------------------
   parts.push(

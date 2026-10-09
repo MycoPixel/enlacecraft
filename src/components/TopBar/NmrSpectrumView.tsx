@@ -16,6 +16,11 @@ import {
 } from "../../io/nmrExport";
 import { downloadBlob } from "../../io/exportImage";
 import { spectrumToSvg } from "../../io/nmrSvg";
+import {
+  formatProtons,
+  integrateRegions,
+  type IntegrationRegion,
+} from "../../io/nmrIntegrate";
 import { computeFormula } from "../../model/valence";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
 import {
@@ -33,23 +38,43 @@ const PLOT_WIDTH = 760;
 const PLOT_HEIGHT = 240;
 const PLOT_PADDING_TOP = 34; // room for group labels above the tallest peak
 const AXIS_Y = PLOT_HEIGHT - 26;
-
-/** Height of the integral trace band drawn beneath the ppm axis. */
-const INTEGRAL_HEIGHT = 46;
-/** Total SVG height: the peak plot plus the integral band. The integral has to
- *  live in the same SVG rather than a second one so it shares the exact same
- *  x -> ppm mapping - an integral in a separate chart can drift out of
- *  alignment with the peaks it belongs to, which defeats the point. */
-const TOTAL_PLOT_HEIGHT = PLOT_HEIGHT + INTEGRAL_HEIGHT;
-/** Where the integral trace starts (below the tick labels) and its baseline. */
-const INTEGRAL_TOP = PLOT_HEIGHT + 16;
-const INTEGRAL_BASE_Y = TOTAL_PLOT_HEIGHT - 6;
 const CURVE_SAMPLES = 480;
 
 type PlotMode = "curve" | "sticks";
 
+/**
+ * What a horizontal drag does.
+ *
+ * "zoom" narrows the ppm window. "integrate" draws a region and measures it -
+ * the drag gesture is deliberately the same in both, so switching tools changes
+ * what the gesture MEANS rather than making the user learn a second gesture.
+ */
+type DragTool = "zoom" | "integrate";
 
-const MIN_VERTICAL_ZOOM = 1;
+
+/**
+ * Vertical zoom is a SCALE factor applied to the tallest peak: effectiveMax =
+ * naturalMax / zoom, so zooming in shrinks the ceiling and grows the small
+ * peaks toward it.
+ *
+ * The floor is below 1 on purpose. Zooming in alone only ever works by
+ * clipping the tallest peak flat against the top, so the biggest signal stays
+ * pinned there and the plot can never show the whole set at a scale where
+ * nothing is clipped - which is what you need to compare two signals' real
+ * heights side by side, or just to see the spectrum without a hard ceiling.
+ * Going below 1 raises the ceiling above the tallest peak, shrinking
+ * everything and leaving headroom above it.
+ */
+/**
+ * Floor for zooming out. 0.25 puts the tallest peak at a quarter of the plot
+ * height, which is enough headroom to compare two signals' real relative
+ * heights - and the reason it's not lower is that at 0.1 the tallest signal
+ * was only ~18px tall, so a few clicks of the shrink button turned the whole
+ * spectrum into a flat line along the baseline. Anything you can't read is
+ * past the point of the control.
+ */
+const MIN_VERTICAL_ZOOM = 0.25;
+/** 60x up - enough to separate a small peak from a dominant neighbour. */
 const MAX_VERTICAL_ZOOM = 60;
 const VERTICAL_ZOOM_STEP = 1.15; // multiplicative per wheel tick / button press
 
@@ -274,6 +299,8 @@ function SpectrumPlot({
   onSelectGroup,
   experimental,
   matchedLabels,
+  mode,
+  onModeChange,
 }: {
   peakGroups: SimulatedPeakGroup[];
   nucleus: Nucleus;
@@ -287,11 +314,72 @@ function SpectrumPlot({
    *  connector lines so a good match is visible on the plot itself, not only
    *  as a number in a table. */
   matchedLabels: Set<string> | null;
+  /** Which shape to draw - "curve" or "sticks".
+   *
+   *  Owned by the parent rather than locally, because the SVG export has to
+   *  reproduce whichever of the two the user was looking at, and the export
+   *  handler lives above this component. Lifting it also makes the 1H and 13C
+   *  plots share one setting, so switching nucleus doesn't silently change the
+   *  representation - the toggle then reads as a property of the report, not
+   *  of whichever tab happens to be on screen. */
+  mode: PlotMode;
+  onModeChange: (mode: PlotMode) => void;
 }) {
   const t = useT();
-  const [mode, setMode] = useState<PlotMode>("curve");
   const [verticalZoom, setVerticalZoom] = useState(1);
   const [zoomRangePpm, setZoomRangePpm] = useState<[number, number] | null>(null);
+
+  // --- integration regions --------------------------------------------
+  // User-drawn windows to measure. Persisted per nucleus by the parent so
+  // switching tabs and back doesn't silently discard measurements the user
+  // took - losing a measurement because you looked at the other nucleus would
+  // be its own bug, and the regions are cheap to keep.
+  const [regions, setRegions] = useState<IntegrationRegion[]>([]);
+  // The region the user calibrated to a known H count, plus that count. Null
+  // until set, which is what keeps absolute protons honestly null rather than
+  // invented (see nmrIntegrate.ts).
+  const [referenceId, setReferenceId] = useState<string | null>(null);
+  const [referenceProtons, setReferenceProtons] = useState<string>("");
+  const [dragTool, setDragTool] = useState<DragTool>("zoom");
+  // Region index being re-dragged; its stored range is updated live so the
+  // readout tracks the pointer.
+  const draggingRegionRef = useRef<string | null>(null);
+
+  const integrationResults = useMemo(
+    () =>
+      integrateRegions(
+        peakGroups,
+        regions,
+        linewidthPpm,
+        referenceId,
+        referenceProtons === "" ? null : Number(referenceProtons),
+      ),
+    [peakGroups, regions, linewidthPpm, referenceId, referenceProtons],
+  );
+
+  const regionById = useMemo(
+    () => new Map(integrationResults.map((r) => [r.region.id, r])),
+    [integrationResults],
+  );
+
+  const addRegion = useCallback((rangePpm: [number, number]) => {
+    setRegions((prev) => [
+      ...prev,
+      { id: `int-${Date.now()}-${prev.length}`, rangePpm },
+    ]);
+  }, []);
+
+  const updateRegion = useCallback((id: string, rangePpm: [number, number]) => {
+    setRegions((prev) => prev.map((r) => (r.id === id ? { ...r, rangePpm } : r)));
+  }, []);
+
+  const removeRegion = useCallback((id: string) => {
+    setRegions((prev) => prev.filter((r) => r.id !== id));
+    // Dropping the calibrated region drops its calibration too, or the
+    // remaining regions would keep scaling against a region that no longer
+    // exists and silently report nonsense.
+    setReferenceId((cur) => (cur === id ? null : cur));
+  }, []);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragStartPpm = useRef<number | null>(null);
   const [dragCurrentPpm, setDragCurrentPpm] = useState<number | null>(null);
@@ -521,59 +609,6 @@ function SpectrumPlot({
     });
   }, [peakGroups, minPpm, maxPpm, effectiveMaxIntensity, showShiftValues]);
 
-  /**
-   * The integral trace, as an SVG path.
-   *
-   * Drawn as a step function (flat, then a vertical rise) because that's how
-   * integrals are read: the height of each flat section is that signal's area,
-   * and a sloped line would invite reading the slope as meaningful when it
-   * isn't. Normalised against the tallest integral so a weak signal next to a
-   * strong one stays visible, same rationale as the intensity zoom.
-   *
-   * Uses each group's totalIntegration - already computed in
-   * io/nmrSpectrum.ts and, until now, read by nobody. For 1H that is the proton
-   * count, so the ratios are real; for 13C it's the carbon count, which is a
-   * teaching approximation (see simulateC13Spectrum's note about real 13C
-   * heights not being proportional to carbon count).
-   */
-  const integralPath = useMemo(() => {
-    const groups = peakGroups.filter((g) => tallestLine(g) !== null);
-    if (groups.length === 0) return "";
-    const maxIntegration = Math.max(...groups.map((g) => g.totalIntegration), 1e-6);
-
-    // Ascending x: ppm decreases left-to-right, so sort by ppm descending.
-    const ordered = [...groups].sort((a, b) => {
-      const la = tallestLine(a)!;
-      const lb = tallestLine(b)!;
-      return lb.ppm - la.ppm;
-    });
-
-    const usableHeight = INTEGRAL_BASE_Y - INTEGRAL_TOP;
-    const yFor = (group: SimulatedPeakGroup) =>
-      INTEGRAL_BASE_Y - (usableHeight * group.totalIntegration) / maxIntegration;
-
-    const first = ordered[0];
-    let d = `M 0 ${INTEGRAL_BASE_Y} L ${ppmToX(tallestLine(first)!.ppm)} ${yFor(first)}`;
-    for (let i = 0; i < ordered.length; i++) {
-      const group = ordered[i];
-      const x = ppmToX(tallestLine(group)!.ppm);
-      const y = yFor(group);
-      d += ` L ${x} ${y}`;
-      // Step to the next group's level at the midpoint between them, so the
-      // rise sits between the two peaks rather than on either one.
-      const next = ordered[i + 1];
-      if (next) {
-        const nextX = ppmToX(tallestLine(next)!.ppm);
-        const midX = (x + nextX) / 2;
-        d += ` L ${midX} ${y} L ${midX} ${yFor(next)}`;
-      } else {
-        d += ` L ${PLOT_WIDTH} ${y}`;
-      }
-    }
-    d += ` L ${PLOT_WIDTH} ${INTEGRAL_BASE_Y} Z`;
-    return d;
-  }, [peakGroups, minPpm, maxPpm]);
-
   const resetZoom = () => {
     setVerticalZoom(1);
     setZoomRangePpm(null);
@@ -651,8 +686,19 @@ function SpectrumPlot({
     if (start !== null && dragCurrentPpm !== null) {
       const lo = Math.min(start, dragCurrentPpm);
       const hi = Math.max(start, dragCurrentPpm);
-      if (hi - lo >= MIN_DRAG_PPM) {
-        setZoomRangePpm([lo, hi]);
+
+      // Re-dragging an existing region updates it in place instead of adding a
+      // second overlapping one - otherwise adjusting a boundary is impossible
+      // and the plot fills up with duplicates.
+      if (draggingRegionRef.current) {
+        if (hi - lo >= MIN_DRAG_PPM) updateRegion(draggingRegionRef.current, [lo, hi]);
+        draggingRegionRef.current = null;
+      } else if (hi - lo >= MIN_DRAG_PPM) {
+        if (dragTool === "integrate") {
+          addRegion([lo, hi]);
+        } else {
+          setZoomRangePpm([lo, hi]);
+        }
       } else if (onSelectGroup && e && startClient) {
         // Not a zoom drag, so treat it as a click and pick the nearest peak.
         // This branch is the reason a click was previously swallowed outright:
@@ -691,9 +737,43 @@ function SpectrumPlot({
     endDrag();
   };
 
+  /**
+   * Press on an existing region to redraw it.
+   *
+   * Stopped from reaching the plot's own drag handler, which would otherwise
+   * interpret the press as a fresh zoom/integrate drag starting from the same
+   * point - so grabbing a boundary you wanted to move would create a second
+   * region instead of moving the first.
+   */
+  const handleRegionPointerDown = (e: ReactPointerEvent<SVGGElement>, id: string) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.stopPropagation();
+    draggingRegionRef.current = id;
+  };
+
   return (
     <div className="nmr-spectrum-plot">
       <div className="nmr-spectrum-plot__toolbar">
+        {/*
+          What a horizontal drag does. Placed before the curve/sticks toggle
+          because it's the coarser decision - "am I measuring or just looking?"
+          - and it changes how the gesture under the pointer behaves.
+        */}
+        <div className="nmr-report-shift-toggle" role="group" aria-label={t("nmr.spectrumToolLabel")}>
+          {(["zoom", "integrate"] as const).map((tool) => (
+            <button
+              key={tool}
+              type="button"
+              className={
+                "nmr-report-shift-toggle__btn" + (dragTool === tool ? " nmr-report-shift-toggle__btn--active" : "")
+              }
+              aria-pressed={dragTool === tool}
+              onClick={() => setDragTool(tool)}
+            >
+              {t(tool === "zoom" ? "nmr.spectrumToolZoom" : "nmr.spectrumToolIntegrate")}
+            </button>
+          ))}
+        </div>
         <div className="nmr-report-shift-toggle" role="group" aria-label={t("nmr.spectrumModeLabel")}>
           {(["curve", "sticks"] as const).map((option) => (
             <button
@@ -703,7 +783,7 @@ function SpectrumPlot({
                 "nmr-report-shift-toggle__btn" + (mode === option ? " nmr-report-shift-toggle__btn--active" : "")
               }
               aria-pressed={mode === option}
-              onClick={() => setMode(option)}
+              onClick={() => onModeChange(option)}
             >
               {t(option === "curve" ? "nmr.spectrumModeCurve" : "nmr.spectrumModeSticks")}
             </button>
@@ -806,7 +886,7 @@ function SpectrumPlot({
         <svg
           ref={svgRef}
           className="nmr-spectrum-plot__svg"
-          viewBox={`0 0 ${PLOT_WIDTH} ${TOTAL_PLOT_HEIGHT}`}
+          viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
           preserveAspectRatio="xMidYMid meet"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -989,25 +1069,46 @@ function SpectrumPlot({
           ))}
 
           {/*
-            Integral trace, beneath the axis. Shares this SVG (and therefore the
-            x -> ppm mapping) with the peaks above it, so each step is
-            unambiguously under the signal it belongs to.
+            Measured regions, drawn over the plot they cover. The shaded band
+            plus its two boundaries make it obvious which signal a number in
+            the table belongs to - the region is the row's identity, so it has
+            to be selectable on the plot and not just listed below it.
           */}
-          {integralPath && (
-            <>
-              <text x={0} y={INTEGRAL_TOP - 5} className="nmr-spectrum-plot__integral-label">
-                {t("nmr.spectrumIntegralLabel")}
-              </text>
-              <line
-                x1={0}
-                y1={INTEGRAL_BASE_Y}
-                x2={PLOT_WIDTH}
-                y2={INTEGRAL_BASE_Y}
-                className="nmr-spectrum-plot__integral-base"
-              />
-              <path d={integralPath} className="nmr-spectrum-plot__integral" />
-            </>
-          )}
+          {regions.map((region) => {
+            const x1 = ppmToX(region.rangePpm[1]);
+            const x2 = ppmToX(region.rangePpm[0]);
+            const result = regionById.get(region.id);
+            const isReference = referenceId === region.id;
+            return (
+              <g
+                key={region.id}
+                className={
+                  "nmr-spectrum-plot__region" + (isReference ? " nmr-spectrum-plot__region--reference" : "")
+                }
+                onPointerDown={(e) => handleRegionPointerDown(e, region.id)}
+              >
+                <rect
+                  x={Math.min(x1, x2)}
+                  y={PLOT_PADDING_TOP}
+                  width={Math.abs(x2 - x1)}
+                  height={AXIS_Y - PLOT_PADDING_TOP}
+                  className="nmr-spectrum-plot__region-fill"
+                />
+                {/* The proton count sits at the top of its own region, so
+                    several regions can be read without cross-referencing. */}
+                {result && (
+                  <text
+                    x={(x1 + x2) / 2}
+                    y={PLOT_PADDING_TOP - 4}
+                    className="nmr-spectrum-plot__region-value"
+                    textAnchor="middle"
+                  >
+                    {formatProtons(result.protons)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
 
           {isDragging && dragStartPpm.current !== null && dragCurrentPpm !== null && (
             <rect
@@ -1023,6 +1124,89 @@ function SpectrumPlot({
 
       <p className="nmr-spectrum-plot__axis-label">{t(nucleus === "h1" ? "nmr.spectrumAxisH1" : "nmr.spectrumAxisC13")}</p>
       <p className="nmr-spectrum-plot__zoom-hint">{t("nmr.spectrumZoomHint")}</p>
+
+      {regions.length > 0 && (
+        <div className="nmr-spectrum-plot__regions">
+          <p className="nmr-spectrum-plot__regions-title">{t("nmr.spectrumRegionsTitle")}</p>
+          <table className="nmr-spectrum-plot__regions-table">
+            <thead>
+              <tr>
+                <th>{t("nmr.spectrumRegionsRange")}</th>
+                <th>{t("nmr.spectrumRegionsProtons")}</th>
+                <th>{t("nmr.spectrumRegionsRatio")}</th>
+                <th>{t("nmr.spectrumRegionsRef")}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {integrationResults.map((result) => (
+                <tr key={result.region.id}>
+                  <td>
+                    {result.region.rangePpm[1].toFixed(2)} &ndash; {result.region.rangePpm[0].toFixed(2)} ppm
+                  </td>
+                  <td>
+                    {result.protons === null ? (
+                      // Not "0" - an uncalibrated integration is unknown, and
+                      // 0 would read as "no protons in this signal".
+                      <span className="nmr-spectrum-plot__region-uncalibrated">
+                        {t("nmr.spectrumRegionsUncalibrated")}
+                      </span>
+                    ) : (
+                      formatProtons(result.protons)
+                    )}
+                  </td>
+                  <td>
+                    {result.ratio === null
+                      ? "-"
+                      : `${result.ratio.toFixed(result.ratio < 10 ? 1 : 0)}`}
+                  </td>
+                  <td>
+                    <label className="nmr-spectrum-plot__region-calibrate">
+                      <input
+                        type="checkbox"
+                        checked={referenceId === result.region.id}
+                        onChange={(e) => {
+                          if (e.target.checked) setReferenceId(result.region.id);
+                          else {
+                            setReferenceId(null);
+                            setReferenceProtons("");
+                          }
+                        }}
+                        aria-label={t("nmr.spectrumRegionsRef")}
+                      />
+                      {referenceId === result.region.id && (
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          inputMode="numeric"
+                          className="nmr-spectrum-plot__control-input nmr-spectrum-plot__control-input--narrow"
+                          value={referenceProtons}
+                          onChange={(e) => setReferenceProtons(e.target.value)}
+                          placeholder="H"
+                          aria-label={t("nmr.spectrumRegionsRefCount")}
+                        />
+                      )}
+                    </label>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="nmr-spectrum-plot__region-remove"
+                      onClick={() => removeRegion(result.region.id)}
+                      aria-label={t("nmr.spectrumRegionsRemove")}
+                      title={t("nmr.spectrumRegionsRemove")}
+                    >
+                      &times;
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="nmr-spectrum-plot__regions-note">{t("nmr.spectrumRegionsNote")}</p>
+        </div>
+      )}
 
       {hasIllustrative && <p className="nmr-spectrum-plot__caveat">{t("nmr.spectrumIllustrativeCaveat")}</p>}
       {splittingUnknownCount > 0 && (
@@ -1053,6 +1237,9 @@ export function NmrSpectrumView({
 }) {
     const t = useT();
   const [activeNucleus, setActiveNucleus] = useState<Nucleus>("h1");
+  // Curve vs sticks. Shared by both plots and read by the SVG export, so an
+  // exported figure shows the same representation the user was looking at.
+  const [plotMode, setPlotMode] = useState<PlotMode>("curve");
   const setSelected = useMoleculeStore((s) => s.setSelected);
   const activeTabTitle = useMoleculeStore(
     (s) => s.tabs.find((tb) => tb.id === s.activeTabId)?.title ?? "",
@@ -1113,7 +1300,13 @@ export function NmrSpectrumView({
         // Always the FULL natural range, never the on-screen zoom: this is a
         // figure for a report, and whoever made the export was last looking at
         // some 0.3 ppm window they happened to be interested in.
-        const svg = spectrumToSvg(groups, activeNucleus, stem, suggestedRange(groups, activeNucleus));
+        const svg = spectrumToSvg(
+          groups,
+          activeNucleus,
+          stem,
+          suggestedRange(groups, activeNucleus),
+          plotMode,
+        );
         downloadBlob(new Blob([svg], { type: "image/svg+xml" }), peakListFilename(stem, activeNucleus, "svg"));
         return;
       }
@@ -1128,7 +1321,7 @@ export function NmrSpectrumView({
         name,
       );
     },
-    [activeNucleus, activeTabTitle, rowsFor, molecule, h1PeakGroups, c13PeakGroups],
+    [activeNucleus, activeTabTitle, rowsFor, molecule, h1PeakGroups, c13PeakGroups, plotMode],
   );
 
   const applyPastedPeaks = useCallback(() => {
@@ -1244,9 +1437,9 @@ export function NmrSpectrumView({
       </div>
 
       {activeNucleus === "h1" ? (
-        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} experimental={experimental} matchedLabels={matchedLabels} />
+        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
       ) : (
-        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} experimental={experimental} matchedLabels={matchedLabels} />
+        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
       )}
 
       <p className="nmr-report-dialog__caveat">{t("nmr.spectrumCaveat")}</p>

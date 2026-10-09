@@ -149,6 +149,9 @@ describe("spectrumToSvg", () => {
       "h1",
       "",
       [0, 8],
+      // Sticks mode, since per-peak lines only exist there to dash. Curve mode
+      // draws one continuous envelope and carries the caveat in its caption.
+      "sticks",
     );
     const { solid, dashed } = peakLines(out);
     expect(solid).toHaveLength(1);
@@ -159,10 +162,53 @@ describe("spectrumToSvg", () => {
     for (const el of solid) expect(el).not.toContain("dasharray");
   });
 
-  test("draws the integral trace", () => {
-    const out = spectrumToSvg(aspirinish, "h1", "", [0, 8]);
-    expect(out).toContain("<path");
-    expect(out).toContain("integral");
+  test("no longer draws an integral trace", () => {
+    // The integral band was removed from both the plot and the export. It has
+    // to stay gone here too - an exported figure is exactly where a stale
+    // integral would linger, since it is generated from its own code rather
+    // than sharing the plot's rendering.
+    const out = spectrumToSvg(aspirinish, "h1", "", [0, 8], "sticks");
+    expect(out).not.toContain("integral");
+  });
+
+  describe("curve mode", () => {
+    test("defaults to a continuous curve rather than sticks", () => {
+      // A real instrument prints an envelope, so that's what an unconfigured
+      // caller gets. Sticks stay available, but only when asked for.
+      const out = spectrumToSvg(aspirinish, "h1", "", [0, 8]);
+      expect(out).toContain("<path");
+      // No vertical peak lines rising from the baseline: the peaks are part of
+      // the curve now, not drawn as separate sticks on top of it.
+      expect(peakLines(out).solid).toHaveLength(0);
+    });
+
+    test("fills the plot height, so the tallest peak reaches the top", () => {
+      // Normalising the curve against line intensities instead of its own
+      // sampled maximum would leave it visibly short of the top, wasting the
+      // headroom and making the figure look weaker than the plot on screen.
+      const out = spectrumToSvg(aspirinish, "h1", "", [0, 8], "curve");
+      const ys = [...out.matchAll(/[ML] [\d.]+ ([\d.]+)/g)].map((m) => Number(m[1]));
+      const top = Math.min(...ys);
+      expect(top).toBeLessThan(60);
+    });
+
+    test("respects the mode - sticks mode still draws discrete lines", () => {
+      const out = spectrumToSvg(aspirinish, "h1", "", [0, 8], "sticks");
+      expect(peakLines(out).solid.length).toBeGreaterThan(0);
+      expect(out).not.toContain("<path d=");
+    });
+
+    test("uses the nucleus's own linewidth, so peak widths look right per tab", () => {
+      // 1H peaks are broad, 13C peaks are sharp; sharing one width would make
+      // one of the two nuclei look wrong in an exported figure.
+      const h1 = spectrumToSvg(aspirinish, "h1", "", [0, 8], "curve");
+      const c13 = spectrumToSvg(aspirinish, "c13", "", [0, 200], "curve");
+      const peakCount = (s: string) => (s.match(/[ML] /g) ?? []).length;
+      expect(peakCount(h1)).toBeGreaterThan(0);
+      expect(peakCount(c13)).toBeGreaterThan(0);
+      // Different sampling ranges, so the two figures can't be identical.
+      expect(h1).not.toBe(c13);
+    });
   });
 
   test("survives an empty prediction without throwing or emitting NaN", () => {

@@ -1407,6 +1407,15 @@
   dominant-baseline: central;
 }
 
+/* The hydrogen count after an atom's index ("C1H3"). Smaller and lighter than
+   the index, so the index stays the thing the eye lands on - it is what
+   identifies the atom - while the valence reads as secondary information. */
+.nmr-report-svg__atom-label-suffix {
+  font-size: 8.5px;
+  font-weight: 500;
+  fill: var(--ink-soft);
+}
+
 .nmr-report-svg__badge {
   font-size: 9.5px;
   font-weight: 600;
@@ -1627,6 +1636,107 @@
   opacity: 0.5;
   stroke: var(--accent);
   stroke-width: 0.5;
+}
+
+/* Integration regions drawn over the spectrum.
+   The band is translucent so the peaks underneath stay readable - the point of
+   the region is to say WHICH window was measured, not to hide the signal. */
+.nmr-spectrum-plot__region {
+  cursor: grab;
+}
+
+.nmr-spectrum-plot__region-fill {
+  fill: var(--accent);
+  fill-opacity: 0.1;
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The calibrated region is the one every other count is scaled against, so
+   it's marked differently - a user comparing rows needs to see at a glance
+   which one was chosen. */
+.nmr-spectrum-plot__region--reference .nmr-spectrum-plot__region-fill {
+  fill-opacity: 0.2;
+  stroke-width: 1.5;
+  stroke-dasharray: none;
+}
+
+.nmr-spectrum-plot__region-value {
+  fill: var(--ink);
+  font-size: 10px;
+  font-weight: 600;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.nmr-spectrum-plot__regions {
+  margin-top: 12px;
+}
+
+.nmr-spectrum-plot__regions-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.nmr-spectrum-plot__regions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nmr-spectrum-plot__regions-table th,
+.nmr-spectrum-plot__regions-table td {
+  padding: 3px 6px;
+  text-align: right;
+  border-bottom: 1px solid var(--grid-line);
+}
+
+.nmr-spectrum-plot__regions-table th {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+/* Uncalibrated cells. Deliberately styled as a prompt to calibrate rather
+   than as a value - it is not "no protons", it's "not measured yet". */
+.nmr-spectrum-plot__region-uncalibrated {
+  color: var(--ink-soft);
+  font-style: italic;
+  cursor: pointer;
+}
+
+.nmr-spectrum-plot__region-calibrate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.nmr-spectrum-plot__region-remove {
+  background: none;
+  border: 0;
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.nmr-spectrum-plot__region-remove:hover {
+  color: var(--ink);
+}
+
+.nmr-spectrum-plot__regions-note {
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin-top: 6px;
 }
 
 .nmr-spectrum-plot__zoom-hint {
@@ -3743,33 +3853,6 @@
 .nmr-spectrum-plot__intensity-btn:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-/* Integral trace, drawn beneath the ppm axis.
-   The step-function path is fill-only (the rise between two peaks is the
-   integral "wall"); a stroke on top of it makes the steps legible at small
-   sizes where the fill alone loses the vertical edges. */
-.nmr-spectrum-plot__integral {
-  fill: var(--ink-soft);
-  fill-opacity: 0.16;
-  stroke: var(--ink-soft);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-  stroke-linejoin: round;
-}
-
-.nmr-spectrum-plot__integral-base {
-  stroke: var(--grid-line);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.nmr-spectrum-plot__integral-label {
-  fill: var(--ink-soft);
-  font-size: 8px;
-  text-anchor: start;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 /* Inline coupling detail in the report table.
