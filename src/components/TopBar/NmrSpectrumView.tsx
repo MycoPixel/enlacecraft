@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useT } from "../../i18n/useT";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -23,6 +23,13 @@ import {
 } from "../../io/nmrIntegrate";
 import { computeFormula } from "../../model/valence";
 import { NmrStructureDiagram } from "./NmrStructureDiagram";
+import {
+  diagramBoxSize,
+  diagramExtent,
+  filterForReportDiagram,
+  heavyAtomOrder,
+  diagramSourceFragment,
+} from "../../io/nmrReportDiagram";
 import type { Molecule } from "../../types/chemistry";
 import type { AtomShifts } from "./nmrReportTypes";
 import { groupByEquivalence, equivalenceGroupLabel, type ShiftPrediction, type H1ShiftPrediction } from "../../io/nmrPredict";
@@ -65,6 +72,68 @@ type DragTool = "zoom" | "integrate";
  * component has no special case for this caller.
  */
 const NO_SHIFTS: Map<string, AtomShifts> = new Map();
+
+/**
+ * Gap between the structure overlay and the plot's edges, in CSS pixels.
+ *
+ * Duplicated here only so the drag clamping can measure from the same resting
+ * place the stylesheet puts the panel in. It MUST match the `top`/`right` on
+ * .nmr-spectrum-view__structure - see the comment on clampStructureOffset for
+ * why the clamp is expressed relative to it.
+ */
+const STRUCTURE_INSET = 8;
+
+/**
+ * Default and smallest overlay sizes, in CSS pixels of drawing box (the panel
+ * adds its own chrome on top).
+ *
+ * The default is sized to sit over a spectrum without burying it - it is a
+ * reading aid, and the spectrum is the thing being read. The floor is roughly
+ * "one atom plus a label"; below that the diagram stops being information.
+ */
+const STRUCTURE_DEFAULT_SIZE = { width: 340, height: 260 };
+const STRUCTURE_MIN_SIZE = { width: 170, height: 130 };
+
+/** The panel's own padding and border, added to the drawing box it contains. */
+const STRUCTURE_CHROME = 16;
+
+/**
+ * Keeps a proposed overlay offset inside the plot area.
+ *
+ * The panel's resting place is the CSS inset from the top-right, so an offset
+ * is a translation from there rather than an absolute position - which means
+ * the allowed travel has to be measured from that resting place too. Without
+ * this the panel could be dragged past an edge, where it would either be
+ * clipped by the plot or sit out over the toolbar with no way to get it back -
+ * both of which read as the panel having vanished.
+ *
+ * Exported as pure arithmetic (rather than only existing inside the component)
+ * because every interesting case here is a layout case, and jsdom reports
+ * zero-sized rects for everything - so a test that drove the real handlers
+ * would silently verify nothing at all.
+ */
+export function clampStructureOffset(
+  offset: { x: number; y: number },
+  layout: {
+    containerWidth: number;
+    containerHeight: number;
+    panelWidth: number;
+    panelHeight: number;
+    inset?: number;
+  },
+): { x: number; y: number } {
+  const inset = layout.inset ?? STRUCTURE_INSET;
+  const baseLeft = layout.containerWidth - inset - layout.panelWidth;
+  const minX = -baseLeft;
+  const maxY = layout.containerHeight - inset - layout.panelHeight;
+  return {
+    // When the panel is larger than the plot, a range inverts (maxX below minX,
+    // or maxY above minY). Math.min/Math.max then collapse to a single value -
+    // the panel's top-left - which is the only place it can sensibly sit.
+    x: Math.min(inset, Math.max(minX, offset.x)),
+    y: Math.max(-inset, Math.min(maxY, offset.y)),
+  };
+}
 
 
 /**
@@ -1301,15 +1370,22 @@ export function NmrSpectrumView({
   const [pasteText, setPasteText] = useState("");
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
 
+  // Predictions are indexed by the backend's heavy-atom numbering, which is a
+  // different list from `atomOrder` whenever the structure carries explicit
+  // hydrogens - see heavyAtomOrder. Every atomIndex lookup below goes through
+  // this rather than the raw prop, so the signal->atom link stays correct on
+  // structures drawn with hydrogens expanded.
+  const predictionOrder = useMemo(() => heavyAtomOrder(fragment, atomOrder), [atomOrder, fragment]);
+
   const rowsFor = useCallback(
     (nucleus: Nucleus) =>
       buildPeakList(predictions, predictionsH1, nucleus, (i) =>
         // Same fallback rule equivalenceGroupLabel uses, so an exported atom
         // name matches the one shown in the report rather than differing
         // between the two views of the same data.
-        atomLabels.get(atomOrder[i] ?? "") ?? String(i),
+        atomLabels.get(predictionOrder[i] ?? "") ?? String(i),
       ),
-    [predictions, predictionsH1, atomOrder, atomLabels],
+    [predictions, predictionsH1, predictionOrder, atomLabels],
   );
 
   // Predicted proton counts keyed by the same label the plot shows, so the
@@ -1327,12 +1403,12 @@ export function NmrSpectrumView({
   const c13Groups = useMemo(() => groupByEquivalence(predictions), [predictions]);
 
   const h1PeakGroups = useMemo(() => {
-    return simulateH1Spectrum(h1Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
-  }, [h1Groups, atomOrder, atomLabels]);
+    return simulateH1Spectrum(h1Groups, (g) => equivalenceGroupLabel(g.members, predictionOrder, atomLabels));
+  }, [h1Groups, predictionOrder, atomLabels]);
 
   const c13PeakGroups = useMemo(() => {
-    return simulateC13Spectrum(c13Groups, (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels));
-  }, [c13Groups, atomOrder, atomLabels]);
+    return simulateC13Spectrum(c13Groups, (g) => equivalenceGroupLabel(g.members, predictionOrder, atomLabels));
+  }, [c13Groups, predictionOrder, atomLabels]);
 
   const doExport = useCallback(
     (kind: "csv" | "jdx" | "svg") => {
@@ -1444,14 +1520,14 @@ export function NmrSpectrumView({
     (nucleus: Nucleus, group: SimulatedPeakGroup): Set<string> => {
       const groups = nucleus === "h1" ? h1Groups : c13Groups;
       const match = groups.find(
-        (g) => equivalenceGroupLabel(g.members, atomOrder, atomLabels) === group.label,
+        (g) => equivalenceGroupLabel(g.members, predictionOrder, atomLabels) === group.label,
       );
       if (!match) return new Set();
       return new Set(
-        match.members.map((m) => atomOrder[m.atomIndex]).filter((id): id is string => Boolean(id)),
+        match.members.map((m) => predictionOrder[m.atomIndex]).filter((id): id is string => Boolean(id)),
       );
     },
-    [h1Groups, c13Groups, atomOrder, atomLabels],
+    [h1Groups, c13Groups, predictionOrder, atomLabels],
   );
 
   /**
@@ -1482,6 +1558,248 @@ export function NmrSpectrumView({
     if (!hoveredGroup) return new Set<string>();
     return atomsForGroup(hoveredGroup.nucleus, hoveredGroup.group);
   }, [hoveredGroup, atomsForGroup]);
+
+  // How much drawing box the overlay is allowed. This is the zoom control: the
+  // diagram is fitted to it, so a bigger allowance means bigger labels on a
+  // large structure. See the resize handlers below.
+  const [structureAllowance, setStructureAllowance] = useState(STRUCTURE_DEFAULT_SIZE);
+
+  // Size for the structure overlay, scaled to the molecule rather than fixed.
+  //
+  // The previous fixed panel made a large structure unreadable: the viewBox
+  // spans the molecule, so every label shrinks along with it inside a box that
+  // never grew. diagramBoxSize grows the box with the drawing instead, and
+  // holds a floor under the scale so labels stay legible - see its docstring.
+  //
+  // The bounds are what keep this an overlay. It sits on top of the spectrum,
+  // which is the thing being read, so it may not grow until it hides the
+  // signals it is there to explain.
+  const structureBoxSize = useMemo(() => {
+    // Measured on the same molecule the diagram draws, hydrogens included -
+    // otherwise switching them on would fit the box to a skeleton and let the
+    // hydrogens spill outside it.
+    const drawn = diagramSourceFragment(fragment, showStructureHydrogens);
+    const atoms = Object.values(filterForReportDiagram(drawn, showStructureHydrogens).atoms);
+    return diagramBoxSize(diagramExtent(atoms), structureAllowance.width, structureAllowance.height);
+  }, [fragment, showStructureHydrogens, structureAllowance]);
+
+  // --- resizing the overlay --------------------------------------------
+  // The drawing is fitted to whatever space the overlay is allowed, so the
+  // overlay's size IS the zoom control: there is no separate magnification to
+  // add. A grip on the corner exposes that directly, which matters most on a
+  // large structure - those are width-bound, so their labels shrink with the
+  // overlay and no amount of internal scaling would bring them back.
+  const structureResizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
+  const [resizingStructure, setResizingStructure] = useState(false);
+
+  /**
+   * Clamps a proposed overlay size.
+   *
+   * The ceiling is a share of the plot rather than a fixed number of pixels,
+   * because the plot's own height is viewport-dependent (clamp(340px, 52vh,
+   * 620px)) and a fixed ceiling would either overflow a short window or waste
+   * a tall one. The floor keeps the drawing bigger than a single atom.
+   */
+  const clampStructureSize = useCallback((width: number, height: number) => {
+    const container = plotAreaRef.current?.getBoundingClientRect();
+    const maxWidth = container && container.width > 0 ? container.width * 0.9 : 900;
+    const maxHeight = container && container.height > 0 ? container.height * 0.9 : 620;
+    return {
+      width: Math.round(
+        Math.min(maxWidth, Math.max(STRUCTURE_MIN_SIZE.width, width)),
+      ),
+      height: Math.round(
+        Math.min(maxHeight, Math.max(STRUCTURE_MIN_SIZE.height, height)),
+      ),
+    };
+  }, []);
+
+  const handleResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.stopPropagation();
+    structureResizeRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: structureAllowance.width,
+      startHeight: structureAllowance.height,
+    };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setResizingStructure(true);
+  };
+
+  const handleResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = structureResizeRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    // The panel is anchored to the plot's top-right, so a wider panel grows
+    // LEFTWARDS: dragging the bottom-left grip left has to widen it. Height
+    // grows downwards as normal.
+    setStructureAllowance(
+      clampStructureSize(
+        drag.startWidth - (e.clientX - drag.startX),
+        drag.startHeight + (e.clientY - drag.startY),
+      ),
+    );
+  };
+
+  const endResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (structureResizeRef.current?.pointerId === e.pointerId) {
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    }
+    structureResizeRef.current = null;
+    setResizingStructure(false);
+  };
+
+  /**
+   * Arrow keys resize; Home restores the default size.
+   *
+   * stopPropagation because the panel's own arrow keys MOVE it - without this,
+   * a keypress with the grip focused would both move and resize the overlay.
+   */
+  const handleResizeKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 60 : 20;
+    let dw = 0;
+    let dh = 0;
+    if (e.key === "ArrowLeft") dw = step;
+    else if (e.key === "ArrowRight") dw = -step;
+    else if (e.key === "ArrowDown") dh = step;
+    else if (e.key === "ArrowUp") dh = -step;
+    else if (e.key === "Home") {
+      e.preventDefault();
+      e.stopPropagation();
+      setStructureAllowance(STRUCTURE_DEFAULT_SIZE);
+      return;
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
+    setStructureAllowance((prev) => clampStructureSize(prev.width + dw, prev.height + dh));
+  };
+
+  // --- repositioning the overlay ---------------------------------------
+  // Which corner the diagram sits in is a matter of what the reader is looking
+  // at: a spectrum whose signals cluster at one end leaves the other end free,
+  // and the same diagram has to move between a 1H and a 13C window. So it is
+  // draggable rather than pinned, and clamped to the plot so it can never be
+  // pushed off the edge and lost.
+  const plotAreaRef = useRef<HTMLDivElement>(null);
+  const structureRef = useRef<HTMLDivElement>(null);
+  const structureDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+  // A translation from the CSS default position (top-right), not an absolute
+  // position - so the default needs no measurement and the clamping below has a
+  // fixed origin to work from.
+  const [structureOffset, setStructureOffset] = useState({ x: 0, y: 0 });
+  const [draggingStructure, setDraggingStructure] = useState(false);
+
+  /**
+   * Keeps a proposed offset inside the plot area, reading the live layout off
+   * the two refs. All the arithmetic is in clampStructureOffset above.
+   */
+  const clampStructureOffsetToPlot = useCallback((x: number, y: number) => {
+    const container = plotAreaRef.current?.getBoundingClientRect();
+    const panel = structureRef.current?.getBoundingClientRect();
+    if (!container || !panel) return { x, y };
+    // A zero-area layout carries no information about where the panel may go -
+    // it happens on the first render before layout has run, and whenever the
+    // report is hidden. Clamping against it would compute a negative travel
+    // range and snap the panel into a corner it was never placed in, so the
+    // offset is left exactly as it was and re-checked on the next real layout.
+    if (container.width <= 0 || container.height <= 0) return { x, y };
+    if (panel.width <= 0 || panel.height <= 0) return { x, y };
+    // getBoundingClientRect is post-transform, but a translation leaves the
+    // panel's width and height untouched, so these are its layout size.
+    return clampStructureOffset(
+      { x, y },
+      {
+        containerWidth: container.width,
+        containerHeight: container.height,
+        panelWidth: panel.width,
+        panelHeight: panel.height,
+      },
+    );
+  }, []);
+
+  const handleStructurePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    // The H toggle is a control, and the corner grip is a resize handle.
+    // Neither is a drag handle: a press on the grip that also moved the panel
+    // would fight the resize it is supposed to perform.
+    if ((e.target as Element).closest("button, .nmr-spectrum-view__structure-resize")) return;
+    structureDragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: structureOffset.x,
+      originY: structureOffset.y,
+    };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setDraggingStructure(true);
+  };
+
+  const handleStructurePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = structureDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    setStructureOffset(
+      clampStructureOffsetToPlot(
+        drag.originX + (e.clientX - drag.startX),
+        drag.originY + (e.clientY - drag.startY),
+      ),
+    );
+  };
+
+  const endStructureDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (structureDragRef.current?.pointerId === e.pointerId) {
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    }
+    structureDragRef.current = null;
+    setDraggingStructure(false);
+  };
+
+  /**
+   * Arrow keys nudge the panel; Home returns it to the corner.
+   *
+   * Dragging is a pointer-only gesture, which would leave the diagram
+   * unpositionable without a mouse - the same gap the peak labels close with
+   * their Enter/Space handling. Escape is deliberately not used for the reset:
+   * the report dialog closes on it, and swallowing that here would trap anyone
+   * whose focus happened to be on the panel.
+   */
+  const handleStructureKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 40 : 16;
+    const deltas: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+    if (e.key === "Home") {
+      e.preventDefault();
+      setStructureOffset(clampStructureOffsetToPlot(0, 0));
+      return;
+    }
+    const delta = deltas[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    setStructureOffset((prev) => clampStructureOffsetToPlot(prev.x + delta[0], prev.y + delta[1]));
+  };
+
+  // Re-clamp when the panel changes size underneath a position the user chose.
+  // Showing hydrogens, or editing the molecule, can make the diagram grow; an
+  // offset that was valid a moment ago can then leave it hanging off the edge.
+  useEffect(() => {
+    setStructureOffset((prev) => clampStructureOffsetToPlot(prev.x, prev.y));
+  }, [structureBoxSize, clampStructureOffsetToPlot]);
 
   return (
     <div className="nmr-spectrum-view">
@@ -1519,50 +1837,112 @@ export function NmrSpectrumView({
         </button>
       </div>
 
-      {activeNucleus === "h1" ? (
-        <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} onHoverGroup={handleHoverGroup("h1")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
-      ) : (
-        <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} onHoverGroup={handleHoverGroup("c13")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
-      )}
+      <div className="nmr-spectrum-view__plot-area" ref={plotAreaRef}>
+        {activeNucleus === "h1" ? (
+          <SpectrumPlot peakGroups={h1PeakGroups} nucleus="h1" linewidthPpm={DEFAULT_H1_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("h1")} onHoverGroup={handleHoverGroup("h1")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
+        ) : (
+          <SpectrumPlot peakGroups={c13PeakGroups} nucleus="c13" linewidthPpm={DEFAULT_C13_LINEWIDTH_PPM} onSelectGroup={handleSelectGroup("c13")} onHoverGroup={handleHoverGroup("c13")} experimental={experimental} matchedLabels={matchedLabels} mode={plotMode} onModeChange={setPlotMode} />
+        )}
 
-      {/* The structure, beside the spectrum rather than on the other tab.
-          Hovering a signal label above highlights the atoms that produced it,
-          which is the question a predicted spectrum actually raises: "which
-          protons is this multiplet?". The diagram shows no shift numbers here
-          - those are on the Structure tab - so the highlight is the only
-          thing pointing back, and it points unambiguously at one signal. */}
-      {showStructure && (
-        <div className="nmr-spectrum-view__structure">
-          <div className="nmr-report-shift-toggle nmr-spectrum-view__structure-controls" role="group" aria-label={t("nmr.reportShiftToggleLabel")}>
-            {/* Hydrogen count per atom ("C1H3"). Lives here rather than being
-                always-on because it's redundant next to the spectrum most of
-                the time - the 1H signal's own integration already says how many
-                protons it carries. It's the case where the STRUCTURE says it
-                and the spectrum doesn't that it earns its place. */}
-            <button
-              type="button"
-              className={
-                "nmr-report-shift-toggle__btn" +
-                (showStructureHydrogens ? " nmr-report-shift-toggle__btn--active" : "")
-              }
-              aria-pressed={showStructureHydrogens}
-              onClick={() => setShowStructureHydrogens((v) => !v)}
-            >
-              {t("nmr.reportShowHydrogens")}
-            </button>
+        {/* The structure, overlaid on the top-right corner of the plot.
+            Hovering a signal label highlights the atoms that produced it,
+            which is the question a predicted spectrum actually raises: "which
+            protons is this multiplet?". The diagram shows no shift numbers here
+            - those are on the Structure tab - so the highlight is the only
+            thing pointing back, and it points unambiguously at one signal. */}
+        {showStructure && (
+          <div
+            ref={structureRef}
+            className={
+              "nmr-spectrum-view__structure" +
+              // Suppresses the text-selection that a drag across the hint text
+              // would otherwise leave behind, and swaps the cursor so the panel
+              // reads as grabbable before the user tries.
+              (draggingStructure ? " nmr-spectrum-view__structure--dragging" : "") +
+              (resizingStructure ? " nmr-spectrum-view__structure--resizing" : "")
+            }
+            style={{
+              // The panel is the window the user is resizing, so it is sized to
+              // exactly what they asked for rather than hugging the drawing.
+              // The drawing is then fitted inside it, and on a small molecule -
+              // which is already at the scale ceiling and so cannot usefully
+              // grow - the extra room simply goes to padding. Sizing the panel
+              // off the drawing instead would leave the grip apparently dead on
+              // every structure small enough not to need enlarging.
+              width: `${structureAllowance.width + STRUCTURE_CHROME}px`,
+              transform: `translate(${structureOffset.x}px, ${structureOffset.y}px)`,
+            }}
+            // Focusable so the arrow-key nudge below is reachable without a
+            // pointer; Escape is left alone so it still closes the report.
+            tabIndex={0}
+            role="group"
+            aria-label={t("nmr.spectrumStructureMove")}
+            onPointerDown={handleStructurePointerDown}
+            onPointerMove={handleStructurePointerMove}
+            onPointerUp={endStructureDrag}
+            onPointerCancel={endStructureDrag}
+            onKeyDown={handleStructureKeyDown}
+          >
+            <div className="nmr-report-shift-toggle nmr-spectrum-view__structure-controls" role="group" aria-label={t("nmr.reportShiftToggleLabel")}>
+              {/* Draws the hydrogens as their own vertices, each carrying the
+                  proton signal of the carbon it hangs off. Off by default: the
+                  overlay's job is signal -> atom, and the hydrogen detail is
+                  the Structure tab's. Worth having here for the same reason it
+                  is there - a reader asking "which protons is this multiplet?"
+                  is helped by seeing the protons - but only once asked. */}
+              <button
+                type="button"
+                title={t("nmr.reportShowHydrogensTitle")}
+                // aria-label as well as title: the button reads "H", and text
+                // content outranks title for a screen reader's accessible name,
+                // so the description has to be stated here to reach anyone not
+                // using a mouse.
+                aria-label={t("nmr.reportShowHydrogensTitle")}
+                className={
+                  "nmr-report-shift-toggle__btn" +
+                  (showStructureHydrogens ? " nmr-report-shift-toggle__btn--active" : "")
+                }
+                aria-pressed={showStructureHydrogens}
+                onClick={() => setShowStructureHydrogens((v) => !v)}
+              >
+                {t("nmr.reportShowHydrogens")}
+              </button>
+            </div>
+            <NmrStructureDiagram
+              fragment={fragment}
+              labelOf={atomLabels}
+              shiftsByAtom={NO_SHIFTS}
+              showC={false}
+              showH={false}
+              showExplicitHydrogens={showStructureHydrogens}
+              highlightedAtomIds={highlightedAtomIds}
+              boxSize={structureBoxSize}
+            />
+            <p className="nmr-spectrum-view__structure-hint">{t("nmr.spectrumStructureHint")}</p>
+
+            {/* The resize grip, on the corner the panel actually grows from.
+                Bottom-LEFT, because the panel is anchored to the plot's top-right
+                and so widens leftwards - a bottom-right grip would be pinned in
+                place while the opposite edge moved, which reads as broken. */}
+            <div
+              className="nmr-spectrum-view__structure-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t("nmr.spectrumStructureResize")}
+              title={t("nmr.spectrumStructureResize")}
+              tabIndex={0}
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={endResize}
+              onPointerCancel={endResize}
+              onKeyDown={handleResizeKeyDown}
+              // Double-click restores the default size, for when the grip has
+              // been dragged somewhere unhelpful.
+              onDoubleClick={() => setStructureAllowance(STRUCTURE_DEFAULT_SIZE)}
+            />
           </div>
-          <NmrStructureDiagram
-            fragment={fragment}
-            labelOf={atomLabels}
-            shiftsByAtom={NO_SHIFTS}
-            showC={false}
-            showH={false}
-            showExplicitHydrogens={showStructureHydrogens}
-            highlightedAtomIds={highlightedAtomIds}
-          />
-          <p className="nmr-spectrum-view__structure-hint">{t("nmr.spectrumStructureHint")}</p>
-        </div>
-      )}
+        )}
+      </div>
 
       <p className="nmr-report-dialog__caveat">{t("nmr.spectrumCaveat")}</p>
 

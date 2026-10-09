@@ -15,6 +15,7 @@ import {
   type NmrIsomerResult,
 } from "../../io/nmrPredict";
 import { translateNmrWarning } from "../../io/nmrWarnings";
+import { heavyAtomOrder } from "../../io/nmrReportDiagram";
 import { hasIgnoredValenceAtoms, hasOrganometallicContent, totalHydrogenCount } from "../../model/valence";
 import { useT } from "../../i18n/useT";
 import { NmrReportView } from "./NmrReportView";
@@ -112,6 +113,15 @@ export function NmrPredictionButton() {
   const atomLabels = useMemo(() => {
     if (state?.phase !== "result") return new Map<string, string>();
     return buildAtomLabels(state.fragment, state.atomOrder);
+  }, [state]);
+
+  // The order the backend's atomIndex refers to, which drops any explicit
+  // hydrogens - see heavyAtomOrder. Kept apart from `atomLabels` above because
+  // labels want the full order (hydrogens get their own "H1, H2..." numbering)
+  // while prediction indices must not.
+  const predictionOrder = useMemo(() => {
+    if (state?.phase !== "result") return [];
+    return heavyAtomOrder(state.fragment, state.atomOrder);
   }, [state]);
 
   const current: NmrIsomerResult | undefined =
@@ -412,7 +422,7 @@ export function NmrPredictionButton() {
                     .map((group) => (
                       <li key={group.representative.equivalenceGroup} className="nmr-result__row">
                         <span className="nmr-result__atom">
-                          {equivalenceGroupLabel(group.members, state.atomOrder, atomLabels) ||
+                          {equivalenceGroupLabel(group.members, predictionOrder, atomLabels) ||
                             t("nmr.atomLabel", { index: String(group.representative.atomIndex) })}
                         </span>
                         <span className="nmr-result__shift">
@@ -440,7 +450,7 @@ export function NmrPredictionButton() {
                       // can't have that many (or any) hydrogens as
                       // actually drawn.
                       const implausible = group.members.some((m) => {
-                        const atomId = state.atomOrder[m.atomIndex];
+                        const atomId = predictionOrder[m.atomIndex];
                         return !atomId || totalHydrogenCount(state.fragment, atomId) <= 0;
                       });
                       return (
@@ -448,7 +458,7 @@ export function NmrPredictionButton() {
                           <span className="nmr-result__atom">
                             {t("nmr.atomLabelH", {
                               label:
-                                equivalenceGroupLabel(group.members, state.atomOrder, atomLabels) ||
+                                equivalenceGroupLabel(group.members, predictionOrder, atomLabels) ||
                                 String(rep.atomIndex),
                               count: String(totalHs),
                             })}

@@ -1383,6 +1383,11 @@
 .nmr-report-svg {
   width: 100%;
   height: clamp(240px, 34vh, 380px);
+  /* A caller may size the drawing inline to the space it wants. max-width keeps
+     that from overflowing a narrower container than the one it was sized
+     against - the SVG then letterboxes rather than spilling over whatever sits
+     beside it. */
+  max-width: 100%;
   background: var(--canvas-bg, #fff);
   border: 1px solid var(--panel-border);
   border-radius: 10px;
@@ -1570,23 +1575,104 @@
   margin: 10px 0 0;
 }
 
-/* The structure shown beside the spectrum when the toggle is on.
-   Sits BELOW the plot rather than beside it on purpose: side-by-side would
-   halve the plot's width, and the plot is the thing being read - a spectrum
-   squashed to half width is harder to read than one with the structure
-   underneath it. Stacked also keeps the hover relationship obvious, since the
-   highlight is directly below the signal that caused it. */
+/* The structure shown as an overlay on the top-right corner of the plot.
+   Overlaid rather than stacked below so it's always visible without scrolling,
+   and doesn't push the spectrum down. The semi-transparent background lets
+   the peaks underneath remain partially visible. */
+.nmr-spectrum-view__plot-area {
+  position: relative;
+}
+
 .nmr-spectrum-view__structure {
-  margin: 12px 0 0;
-  padding: 10px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 140px;
+  min-height: 120px;
+  padding: 8px;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Draggable, so the panel itself is the handle. `grab` advertises that
+     before the user tries; grabbing suppresses the text selection a drag
+     across the hint text would otherwise leave behind. */
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+}
+
+.nmr-spectrum-view__structure--dragging {
+  cursor: grabbing;
+}
+
+/* Resize grip. Bottom-left, because the panel is anchored top-right and widens
+   leftwards, so that is the edge the user drags. Larger than it looks - it has
+   to be a comfortable target on a touch screen, where a precise 6px corner is
+   effectively unhittable. */
+.nmr-spectrum-view__structure-resize {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+  /* Invisible until the panel is hovered or the grip itself is focused, so it
+     doesn't sit as a permanent mark over the diagram. */
+  background: transparent;
+  border-radius: 0 0 0 6px;
+}
+
+.nmr-spectrum-view__structure-resize::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-left: 2px solid var(--ink-soft);
+  border-bottom: 2px solid var(--ink-soft);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.nmr-spectrum-view__structure:hover .nmr-spectrum-view__structure-resize::after,
+.nmr-spectrum-view__structure-resize:focus-visible::after {
+  opacity: 0.75;
+}
+
+.nmr-spectrum-view__structure-resize:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.nmr-spectrum-view__structure--resizing {
+  /* The panel is being sized, not moved, so it must not advertise itself as
+     draggable mid-gesture. */
+  cursor: nwse-resize;
+}
+
+/* Keyboard parity with the drag: the panel is focusable and nudges with the
+   arrow keys, so it isn't mouse-only. The ring is explicit because the default
+   outline on a positioned panel is easy to lose against the plot behind it. */
+.nmr-spectrum-view__structure:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .nmr-spectrum-view__structure .nmr-report-svg {
-  max-height: 220px;
-  width: 100%;
+  /* Intentionally no max-height and no width:100%. The box is sized per
+     molecule by the component (see diagramBoxSize) and set inline, which
+     overrides both. Capping it here would shrink the drawing again - the exact
+     complaint this sizing exists to fix. The base .nmr-report-svg clamp stays
+     as the fallback for a caller that passes no boxSize. */
+  flex: 0 0 auto;
 }
 
 /* The H toggle sits above the diagram inside the structure panel rather than
@@ -1595,12 +1681,12 @@
 .nmr-spectrum-view__structure-controls {
   display: flex;
   justify-content: center;
-  margin: 0 0 6px;
+  margin: 0 0 4px;
 }
 
 .nmr-spectrum-view__structure-hint {
-  margin: 6px 0 0;
-  font-size: 10.5px;
+  margin: 4px 0 0;
+  font-size: 10px;
   color: var(--ink-soft);
   text-align: center;
 }

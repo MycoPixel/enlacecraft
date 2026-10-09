@@ -25,10 +25,209 @@
 
 import type { Molecule } from "../types/chemistry";
 import { totalHydrogenCount } from "../model/valence";
+import { addExplicitHydrogens } from "../engine/explicitHydrogens";
+
+/**
+ * The subset of an exported SMILES atom order that the prediction backend's
+ * `atom_index` actually refers to: every atom that is not a hydrogen.
+ *
+ * This exists because the two index spaces are NOT the same, and assuming they
+ * are silently mislabels every shift on any structure drawn with explicit
+ * hydrogens. Verified against the running backend: `CCC` and
+ * `[H]C([H])([H])C([H])([H])C([H])([H])[H]` return byte-identical predictions
+ * numbered 0,1,2 with numHs 3,2,3 - the explicit hydrogens are dropped before
+ * the model sees the molecule, and the surviving heavy atoms are renumbered
+ * from zero. Deuterium is dropped too (`C[2H]` yields a single prediction, for
+ * the carbon), so this filters on the element rather than on the drawn-hydrogen
+ * test used elsewhere for display.
+ *
+ * Meanwhile the app's own `atomOrder` DOES contain those hydrogens, because the
+ * SMILES writer emits them as real `[H]` atoms. So mapping `atom_index` through
+ * the unfiltered order hands atom 0's shift to a hydrogen and shifts every
+ * subsequent atom by however many hydrogens precede it - which is what the
+ * `implausible` warning was built to catch, though the underlying cause is an
+ * index mismatch rather than a chemistry problem.
+ *
+ * Note this must be used ONLY to resolve prediction indices. Atom LABELS still
+ * want the full order, so hydrogens get their own "H1", "H2" numbering.
+ */
+export function heavyAtomOrder(fragment: Molecule, atomOrder: readonly string[]): string[] {
+  return atomOrder.filter((atomId) => {
+    const atom = fragment.atoms[atomId];
+    // An id the fragment doesn't have can't be classified; keep it, so a
+    // missing atom shows up as a missing label rather than shifting the rest.
+    return !atom || atom.element !== "H";
+  });
+}
+
+/**
+ * The heavy atom an explicit hydrogen is attached to, or null if there isn't
+ * one.
+ *
+ * Needed because a hydrogen carries no prediction of its own: the backend
+ * reports one 1H shift per heavy atom, covering all the protons sitting on it
+ * (`num_hs` says how many). So an explicit "H" vertex has to borrow its
+ * parent's signal, and this is the only thing that can say which parent.
+ *
+ * Null rather than a guess for the awkward cases - an unbonded hydrogen, or one
+ * bridged between two heavy atoms. A hydrogen in a bridging position is not a
+ * proton anybody can assign a shift to, and inventing a parent there would
+ * print a confident number that belongs to a different atom.
+ */
+export function hydrogenParent(molecule: Molecule, atomId: string): string | null {
+  const atom = molecule.atoms[atomId];
+  if (!atom || atom.element !== "H") return null;
+  const parents: string[] = [];
+  for (const bond of Object.values(molecule.bonds)) {
+    if (bond.a1 === atomId) parents.push(bond.a2);
+    else if (bond.a2 === atomId) parents.push(bond.a1);
+  }
+  // Exactly one heavy neighbour is a normal C-H. Anything else (none, or a
+  // bridge) is left unassigned rather than resolved to an arbitrary neighbour.
+  if (parents.length !== 1) return null;
+  const parent = parents[0];
+  return molecule.atoms[parent] && molecule.atoms[parent].element !== "H" ? parent : null;
+}
+
+/**
+ * The molecule to DRAW when hydrogens are switched on.
+ *
+ * A structure is normally drawn skeletal, so it has no explicit hydrogens at
+ * all - and a viewer that can only reveal hydrogens the user already expanded
+ * on the canvas would show nothing for the structure most people draw. So when
+ * hydrogens are wanted and the structure is skeletal, they are laid out here
+ * with the same fanning geometry the canvas's own "Explicit hydrogens" action
+ * uses, purely for display.
+ *
+ * Deliberately NOT the canvas's structural edit: the returned molecule is a
+ * throwaway used only to place circles and lines, so switching the toggle on
+ * and off leaves the real structure - and the undo history - untouched. Real
+ * hydrogens the user drew are kept as-is rather than re-fanned, so a hand-drawn
+ * H stays where they put it.
+ */
+export function moleculeWithDisplayHydrogens(molecule: Molecule): Molecule {
+  const hasExplicitH = Object.values(molecule.atoms).some((a) => a.element === "H" && !a.isotope);
+  return hasExplicitH ? molecule : addExplicitHydrogens(molecule);
+}
+
+/**
+ * The molecule the diagram will actually DRAW for a given toggle state.
+ *
+ * Exists so the drawing and the box it is fitted into cannot disagree. The
+ * diagram component sizes its viewBox from this, and each caller sizes the
+ * pixel box from the same call - and they have to, because the two are derived
+ * from the same extent. A caller that measured the un-augmented fragment while
+ * the component drew display hydrogens would fit the box to a skeleton and then
+ * have the hydrogens spill outside it.
+ */
+export function diagramSourceFragment(molecule: Molecule, showExplicitHydrogens: boolean): Molecule {
+  return showExplicitHydrogens ? moleculeWithDisplayHydrogens(molecule) : molecule;
+}
 
 export interface VisibleAtomsAndBonds {
   atoms: Molecule["atoms"];
   bonds: Molecule["bonds"];
+}
+
+/**
+ * Blank margin around the drawn atoms, in SVG user units.
+ *
+ * Lives here rather than inline in the component because the viewBox and the
+ * pixel box have to be derived from the SAME extent - see diagramExtent.
+ */
+const DIAGRAM_PAD = 30;
+
+/**
+ * Ceiling on the scale for a cramped caller - one overlaying a spectrum.
+ *
+ * 1.0 is natural size: one user unit per pixel, the same density the canvas
+ * draws atoms at, which puts an 11-unit label at a readable 11px. A little
+ * enlargement above that is welcome on a small structure, but past roughly
+ * this the circles and bonds thicken faster than the labels do and the drawing
+ * starts to look like a cartoon of itself.
+ *
+ * Callers with a panel to themselves pass a higher ceiling (or none) - see the
+ * `maxScale` argument on diagramBoxSize. The cap is really a statement about
+ * how much of the view the drawing is allowed to dominate, so it belongs to the
+ * caller rather than being baked in here.
+ *
+ * Note there is deliberately NO matching floor. A floor on the scale sounds
+ * like the fix for "large molecules render tiny", but it cannot be one: a
+ * molecule too big for the allowed box has to be shrunk to fit whatever the
+ * floor says, so a floor would only ever produce a box that overflows its
+ * container and gets clipped or overlapped. What actually fixes it is growing
+ * the box to the full space allowed.
+ */
+const MAX_DIAGRAM_SCALE = 1.5;
+
+export interface DiagramExtent {
+  width: number;
+  height: number;
+}
+
+/**
+ * The drawn extent of the diagram, in SVG user units.
+ *
+ * The single source of truth for both the viewBox and the pixel box. Deriving
+ * them separately is how the two drift apart - a viewBox fitted to slightly
+ * different padding than the box was sized for silently letterboxes or clips
+ * the drawing, and it reads as "the diagram is off-centre" rather than as the
+ * arithmetic bug it is.
+ *
+ * Computed from the atoms as actually drawn (i.e. AFTER hydrogen filtering),
+ * so hiding hydrogens doesn't leave a permanently empty margin.
+ */
+export function diagramExtent(atoms: readonly { x: number; y: number }[]): DiagramExtent {
+  if (atoms.length === 0) return { width: 100, height: 100 };
+  const xs = atoms.map((a) => a.x);
+  const ys = atoms.map((a) => a.y);
+  return {
+    width: Math.max(1, Math.max(...xs) - Math.min(...xs) + DIAGRAM_PAD * 2),
+    height: Math.max(1, Math.max(...ys) - Math.min(...ys) + DIAGRAM_PAD * 2),
+  };
+}
+
+/**
+ * The pixel box to draw an extent of this size into.
+ *
+ * The box grows with the molecule until it fills the space allowed, which is
+ * the actual fix for "the drawing is tiny on a big molecule". SVG text is sized
+ * in viewBox units and the viewBox spans the molecule, so a fixed pixel box
+ * makes every atom label shrink as the structure grows - a 30-atom structure
+ * ends up with indices smaller than the text beside it. Filling the box instead
+ * gives the drawing every pixel the caller can spare.
+ *
+ * `maxWidth`/`maxHeight` bound how much of the surrounding view the diagram may
+ * cover; a caller with a panel to itself can pass far larger numbers than one
+ * overlaying a spectrum. A molecule too large for its allowance is drawn as
+ * large as that allowance permits - there is no way around that, since the
+ * labels have to share the pixels the atoms do.
+ *
+ * The aspect ratio is preserved exactly. Scaling each axis independently to
+ * "fill" the box would misreport the drawing's proportions, and the SVG's own
+ * letterboxing would then undo it - so the box is derived from ONE scale and
+ * both axes follow from it.
+ *
+ * `maxScale` caps how far a SMALL molecule may be enlarged, which is a question
+ * about the caller's surroundings rather than about the drawing: a diagram
+ * overlaying a spectrum stays modest so it doesn't bury the peaks, while one
+ * with a whole column to itself is free to fill it. Defaults to the cramped
+ * overlay's ceiling; pass a higher number (or Infinity) when there is room.
+ */
+export function diagramBoxSize(
+  extent: DiagramExtent,
+  maxWidth: number,
+  maxHeight: number,
+  maxScale: number = MAX_DIAGRAM_SCALE,
+): DiagramExtent {
+  const fit = Math.min(maxWidth / extent.width, maxHeight / extent.height);
+  const scale = Math.min(fit, maxScale);
+  // floor(), not round(): rounding up could push the box a pixel past the
+  // allowance the caller is relying on to keep it clear of its neighbours.
+  return {
+    width: Math.max(1, Math.floor(extent.width * scale)),
+    height: Math.max(1, Math.floor(extent.height * scale)),
+  };
 }
 
 /**

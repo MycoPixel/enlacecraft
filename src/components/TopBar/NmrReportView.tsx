@@ -10,6 +10,13 @@ import { buildAtomLabels } from "../../io/nmrPredict";
 import { totalHydrogenCount } from "../../model/valence";
 import { NmrSpectrumView } from "./NmrSpectrumView";
 import { NmrStructureDiagram } from "./NmrStructureDiagram";
+import {
+  diagramBoxSize,
+  diagramExtent,
+  filterForReportDiagram,
+  heavyAtomOrder,
+  diagramSourceFragment,
+} from "../../io/nmrReportDiagram";
 import type { AtomShifts } from "./nmrReportTypes";
 
 /**
@@ -89,20 +96,42 @@ export function NmrReportView({
   const showC = visibleShifts === "both" || visibleShifts === "c13";
   const showH = visibleShifts === "both" || visibleShifts === "h1";
 
-  // Whether hydrogens are shown on the structure diagram. Does TWO things,
-  // because they are two halves of one question ("where are the hydrogens?"):
+  // Whether hydrogens are drawn on the structure diagram. This is what answers
+  // "where are the hydrogens?", and it decides one thing: whether the proton
+  // signal is drawn on the hydrogen or on the carbon it hangs off.
   //
-  //  - Adds a hydrogen count to each heavy atom's label ("C1" -> "C1H3"),
-  //    reading out the implicit valence. This is the part that matters: a
-  //    structure is normally drawn skeletal, so it has NO explicit H atoms at
-  //    all, and the count is the only place the proton number appears.
-  //  - Reveals explicitly-drawn H atoms, which are otherwise hidden because
-  //    they crowd the skeleton and their own labels ("H2") sit confusingly
-  //    next to 1H shift badges reading "2.34".
+  //  - ON: each hydrogen is drawn as its own vertex carrying the 1H signal it
+  //    produced, and its carbon drops that badge - one signal in one place, so
+  //    a carbon can't appear to have a proton shift of its own. Hydrogens are
+  //    laid out for display even when the structure is skeletal, so this works
+  //    on the structure people normally draw.
+  //  - OFF: the hydrogens are collapsed into a count on the carbon's label
+  //    ("C1" -> "C1H3"), and the carbon carries the 1H badge, because that is
+  //    then the only place the signal can be shown.
   //
   // Defaults to OFF so the default diagram stays as compact as it was. The
   // button reads "H" to match the canvas's equivalent control.
   const [showExplicitHydrogens, setShowExplicitHydrogens] = useState(false);
+
+  // Pixel box for the Structure tab's diagram.
+  //
+  // This tab gives the drawing a whole column to itself, so it can afford far
+  // more room than the overlay on the Spectrum tab - which is the point: the
+  // diagram is what ties the table's numbers to positions on the molecule, and
+  // on a large structure the old fixed height shrank the atom labels until
+  // they were smaller than the table text beside them. diagramBoxSize grows
+  // the box with the drawing instead.
+  //
+  // The scale ceiling is higher here (3x rather than the overlay's 1.5x)
+  // because a small molecule should fill the column it has; the overlay has to
+  // stay modest or it buries the peaks it is annotating. The width stays under
+  // the grid column so the drawing can never spill over the table beside it.
+  const structureBoxSize = useMemo(() => {
+    // Same molecule the diagram draws, so the box fits what is on screen.
+    const drawn = diagramSourceFragment(fragment, showExplicitHydrogens);
+    const atoms = Object.values(filterForReportDiagram(drawn, showExplicitHydrogens).atoms);
+    return diagramBoxSize(diagramExtent(atoms), 560, 760, 3);
+  }, [fragment, showExplicitHydrogens]);
 
   useEffect(() => {
     if (!open) return;
@@ -116,13 +145,19 @@ export function NmrReportView({
   // Per-element running counter, in atomOrder's traversal order, so
   // labels read like "C1, C2, C3..." / "O1, O2..." - shared with
   // NmrPredictionButton's compact list so the same atom shows the
-  // same label in both places.
+  // same label in both places. Built from the FULL order, so drawn
+  // hydrogens get their own "H1, H2..." numbering.
   const labelOf = useMemo(() => buildAtomLabels(fragment, atomOrder), [atomOrder, fragment]);
+
+  // Predictions are indexed by the backend's heavy-atom numbering, which is a
+  // different list from atomOrder whenever the structure carries explicit
+  // hydrogens - see heavyAtomOrder for why, and for what goes wrong without it.
+  const predictionOrder = useMemo(() => heavyAtomOrder(fragment, atomOrder), [atomOrder, fragment]);
 
   const shiftsByAtom = useMemo(() => {
     const map = new Map<string, AtomShifts>();
     for (const p of predictions) {
-      const atomId = atomOrder[p.atomIndex];
+      const atomId = predictionOrder[p.atomIndex];
       if (!atomId) continue;
       const entry = map.get(atomId) ?? {};
       entry.c13 = p.predictedShiftPpm;
@@ -130,7 +165,7 @@ export function NmrReportView({
       map.set(atomId, entry);
     }
     for (const p of predictionsH1) {
-      const atomId = atomOrder[p.atomIndex];
+      const atomId = predictionOrder[p.atomIndex];
       if (!atomId) continue;
       const entry = map.get(atomId) ?? {};
       entry.h1 = {
@@ -144,7 +179,7 @@ export function NmrReportView({
       map.set(atomId, entry);
     }
     return map;
-  }, [predictions, predictionsH1, atomOrder, fragment]);
+  }, [predictions, predictionsH1, predictionOrder, fragment]);
 
   if (!open) return null;
 
@@ -276,6 +311,12 @@ export function NmrReportView({
           */}
           <button
             type="button"
+            title={t("nmr.reportShowHydrogensTitle")}
+            // aria-label, not just title: the button's own text is "H", and
+            // text content wins over title when a screen reader computes the
+            // accessible name — so without this the descriptive wording is
+            // sighted-mouse-only and the control announces as a bare "H".
+            aria-label={t("nmr.reportShowHydrogensTitle")}
             className={
               "nmr-report-shift-toggle__btn" +
               (showExplicitHydrogens ? " nmr-report-shift-toggle__btn--active" : "")
@@ -297,6 +338,7 @@ export function NmrReportView({
             showC={showC}
             showH={showH}
             showExplicitHydrogens={showExplicitHydrogens}
+            boxSize={structureBoxSize}
           />
 
           <table className="nmr-report-table">
