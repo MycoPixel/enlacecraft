@@ -222,25 +222,35 @@ export function usedValence(mol: Molecule, atomId: string): number {
 }
 
 /**
- * Total hydrogens actually attached to this atom as drawn — implicit
- * (see implicitH) plus any explicit H atoms bonded to it as their own
- * atom. Used to sanity-check an external tool's claim that some number
- * of protons belong to a given atom (e.g. an NMR prediction service's
- * atom_index) against what's actually structurally possible here — an
- * ether oxygen or a fully-substituted quaternary carbon can never
- * legitimately have H1 shifts attributed to it, so a mismatch there is
- * a reliable, unambiguous sign of an atom-identification problem
- * upstream (a stale/incorrect index mapping, or the service re-deriving
- * a different atom order internally) rather than real chemistry -
- * unlike an unusual-but-real shift *value*, which this can't and
+ * Total hydrogens attached to this atom as drawn.
+ *
+ * implicitH alone is already the answer, because it works out the unused
+ * valence AFTER counting every bond the atom has - including bonds to
+ * hydrogens the user drew explicitly as their own atoms. A methyl drawn with
+ * all three H explicit reports 3, not 6.
+ *
+ * Used to sanity-check an external tool's claim that some number of protons
+ * belong to a given atom (e.g. an NMR prediction service's atom_index)
+ * against what's actually structurally possible here — an ether oxygen or a
+ * fully-substituted quaternary carbon can never legitimately have H1 shifts
+ * attributed to it, so a mismatch there is a reliable, unambiguous sign of an
+ * atom-identification problem upstream (a stale/incorrect index mapping, or
+ * the service re-deriving a different atom order internally) rather than real
+ * chemistry - unlike an unusual-but-real shift *value*, which this can't and
  * shouldn't try to judge.
  */
 export function totalHydrogenCount(mol: Molecule, atomId: string): number {
-  const explicit = bondsOfAtom(mol, atomId).filter((b) => {
-    const otherId = b.a1 === atomId ? b.a2 : b.a1;
-    return mol.atoms[otherId]?.element === "H";
-  }).length;
-  return implicitH(mol, atomId) + explicit;
+  // implicitH already subtracts every used valence, including the bonds to
+  // those explicit H atoms - so adding `explicit` on top counted each
+  // explicitly-drawn hydrogen twice. A carbon drawn with two explicit H came
+  // out as CH4 (2 implicit + 2 counted again), and a methyl drawn with all
+  // three explicit as CH6.
+  //
+  // The count itself is unaffected for the common skeletal case, and both
+  // previous callers only tested `> 0`, so nothing user-visible depended on
+  // the wrong number - but any caller that reads it as a proton COUNT needs
+  // it to actually be one.
+  return implicitH(mol, atomId);
 }
 
 export function implicitH(mol: Molecule, atomId: string): number {

@@ -7,6 +7,7 @@ import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { translateNmrWarning } from "../../io/nmrWarnings";
 import type { NmrIsomerResult } from "../../io/nmrPredict";
 import { buildAtomLabels } from "../../io/nmrPredict";
+import { filterForReportDiagram, hydrogenSuffixForLabel } from "../../io/nmrReportDiagram";
 import { totalHydrogenCount } from "../../model/valence";
 import { NmrSpectrumView } from "./NmrSpectrumView";
 
@@ -104,6 +105,21 @@ export function NmrReportView({
   const showC = visibleShifts === "both" || visibleShifts === "c13";
   const showH = visibleShifts === "both" || visibleShifts === "h1";
 
+  // Whether hydrogens are shown on the structure diagram. Does TWO things,
+  // because they are two halves of one question ("where are the hydrogens?"):
+  //
+  //  - Adds a hydrogen count to each heavy atom's label ("C1" -> "C1H3"),
+  //    reading out the implicit valence. This is the part that matters: a
+  //    structure is normally drawn skeletal, so it has NO explicit H atoms at
+  //    all, and the count is the only place the proton number appears.
+  //  - Reveals explicitly-drawn H atoms, which are otherwise hidden because
+  //    they crowd the skeleton and their own labels ("H2") sit confusingly
+  //    next to 1H shift badges reading "2.34".
+  //
+  // Defaults to OFF so the default diagram stays as compact as it was. The
+  // button reads "H" to match the canvas's equivalent control.
+  const [showExplicitHydrogens, setShowExplicitHydrogens] = useState(false);
+
   // Atom currently under the pointer, if it has a shift showing - while
   // hovered, that atom's shift number(s) swap back to its plain label
   // (e.g. "C3") so the user can identify it without losing the shift
@@ -152,8 +168,15 @@ export function NmrReportView({
     return map;
   }, [predictions, predictionsH1, atomOrder, fragment]);
 
-  const atoms = Object.values(fragment.atoms);
-  const bonds = Object.values(fragment.bonds);
+  // Explicit hydrogens are filtered out of the drawing when toggled off, along
+  // with any bond that touches one - see nmrReportDiagram.ts for why each of
+  // those three rules exists.
+  const { atoms: atomsById, bonds: bondsById } = useMemo(
+    () => filterForReportDiagram(fragment, showExplicitHydrogens),
+    [fragment, showExplicitHydrogens],
+  );
+  const atoms = useMemo(() => Object.values(atomsById), [atomsById]);
+  const bonds = useMemo(() => Object.values(bondsById), [bondsById]);
 
   const viewBox = useMemo(() => {
     if (atoms.length === 0) return "0 0 100 100";
@@ -290,6 +313,22 @@ export function NmrReportView({
               )}
             </button>
           ))}
+          {/*
+            Separate from the shift toggle above: that chooses which isotope's
+            numbers to annotate with, this chooses whether H atoms are drawn at
+            all. Same control type for familiarity, different question.
+          */}
+          <button
+            type="button"
+            className={
+              "nmr-report-shift-toggle__btn" +
+              (showExplicitHydrogens ? " nmr-report-shift-toggle__btn--active" : "")
+            }
+            aria-pressed={showExplicitHydrogens}
+            onClick={() => setShowExplicitHydrogens((v) => !v)}
+          >
+            {t("nmr.reportShowHydrogens")}
+          </button>
         </div>
         )}
 
@@ -324,6 +363,9 @@ export function NmrReportView({
               const label = labelOf.get(atom.id);
               const shifts = shiftsByAtom.get(atom.id);
               if (!label) return null;
+              const hSuffix = showExplicitHydrogens
+                ? hydrogenSuffixForLabel(fragment, atom.id)
+                : null;
 
               const hasC = shifts?.c13 !== undefined && showC;
               const hasH = shifts?.h1 !== undefined && showH;
@@ -384,6 +426,15 @@ export function NmrReportView({
                   ) : (
                     <text x={atom.x} y={atom.y} className="nmr-report-svg__atom-label">
                       {label}
+                      {/* Hydrogen count as a subscript, so the label reads
+                          "C1H3" rather than a bare "C1" - see
+                          hydrogenSuffixForLabel for why this is the default
+                          toggle's whole job. */}
+                      {hSuffix && (
+                        <tspan className="nmr-report-svg__atom-label-suffix" dy="3">
+                          {hSuffix}
+                        </tspan>
+                      )}
                     </text>
                   )}
                 </g>
