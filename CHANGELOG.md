@@ -41,10 +41,23 @@ meant reading a label and hunting for the atoms by eye.
 Hovering and clicking resolve atoms through the same lookup, so they can't
 disagree about which signal belongs to which atoms.
 
-An H toggle inside the structure panel adds each atom's hydrogen count
-(`C1H2`, `O1H`). Off by default next to a ¹H spectrum, where the signal's own
-integration already says it — but there's no proton count anywhere on the ¹³C
-tab, which is exactly where it's needed.
+An H toggle inside the structure panel draws the hydrogens as their own
+vertices, each carrying the ¹H signal of the carbon it hangs off — `C1H2`,
+`O1H`, or a separate H you can hover. Off by default next to a ¹H spectrum,
+where the signal's own integration already says it — but there's no proton
+count anywhere on the ¹³C tab, which is exactly where it's needed.
+
+The overlay also:
+
+- **Moves**: drag it anywhere over the plot, clamped so it can't be pushed off
+  an edge, with arrow keys for the same thing.
+- **Resizes**, and its size is the zoom — the drawing is fitted to whatever box
+  you give it. Drag the bottom-left corner; `Home` resets.
+- Is **bigger than it was** for large structures, which are width-bound and
+  were drawing at well under a tenth of natural size.
+- Puts the ¹H signal in exactly one place: on the drawn hydrogens when they're
+  shown, on the carbon when they aren't. A carbon no longer appears to have a
+  proton shift of its own.
 
 ### Spectrum fixes
 
@@ -66,9 +79,27 @@ compared directly.
 **The report's H toggle did nothing** on any structure you'd actually draw.
 It filtered hydrogens the user drew explicitly, but structures are normally
 drawn skeletal — the hydrogens are implicit, so there was nothing for it to
-act on. It now reports the count on each label instead.
+act on. It now draws them (see *Structure beside the spectrum* above), and
+falls back to a count on the label when they're not drawn.
 
 ### Fixes
+
+**Predicted shifts were assigned to the wrong atoms** on any structure drawn
+with explicit hydrogens. The backend drops those hydrogens and renumbers only
+heavy atoms, while the app's own atom order keeps them — so prediction 0
+landed on a hydrogen and every later atom was shifted by however many came
+before it. Explicit-H ethanol showed its CH₃ with the CH₂'s shift. The
+`implausible` warning was built to catch this, but the cause is an index
+mismatch rather than a chemistry problem. Verified end to end against the live
+backend; affects the Structure tab, the spectrum overlay, and the compact list.
+
+**Copied and exported images came with a wide white border**, big enough to
+trim by hand before pasting into a document. The margin was a fraction of the
+molecule (18% of the larger dimension), and the crop was measured on the live
+canvas — so a bond preview or hover ring under the cursor, stripped before
+rasterizing, still framed the picture. Margin is now a fixed 6 units. White
+border drops from ~55–65% of the image to ~10–20%. Also fixes off-screen
+positioning leaking into exported `.svg` files and into print/Save-as-PDF.
 
 **Hydrogen counts were double-counted.** An atom with hydrogens drawn
 explicitly reported its implicit count *plus* the explicit ones, so a methyl
