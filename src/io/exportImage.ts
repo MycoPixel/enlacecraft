@@ -7,15 +7,48 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.remove();
 }
 
-const EXPORT_PADDING_MIN = 24;
-const EXPORT_PADDING_RATIO = 0.18;
+/**
+ * Margin left around the drawing, in molecule units.
+ *
+ * Small, deliberately. getBBox() already returns the geometry's own extent —
+ * atom circles, bond endpoints, laid-out text boxes — so this margin only has
+ * to cover what geometry does NOT include:
+ *
+ *  - Half a stroke width. getBBox ignores stroke, and bonds are drawn at about
+ *    1.6-1.8 units, so ~1 unit per side.
+ *  - Arrowhead markers, sized in stroke-width units, which overhang a bond's
+ *    endpoint by roughly 3 units at the largest size.
+ *  - A highlighted bond's underlay, stroked 7 units with round caps and so
+ *    reaching 3.5 units past each end. This is the largest overhang in the
+ *    drawing, and unlike the previews it is deliberately exported, so the
+ *    margin has to cover it.
+ *  - The occasional glyph that pokes past its text box (italic serifs, a
+ *    superscript isotope mass number) - a unit or two.
+ *
+ * Six units clears all of that. The previous values (a 24-unit floor, and 18%
+ * of the larger dimension) were what put a visible white border around every
+ * pasted image: a 100-unit molecule exported at 148 units wide — half again as
+ * much image as drawing — and a large one carried 36% of its width as margin.
+ * Pasting that into a document meant trimming it by hand every time. Note the
+ * margin is a fixed number of units precisely so that it stays negligible next
+ * to a molecule, instead of scaling with one and re-creating the problem.
+ */
+const EXPORT_PADDING_MIN = 6;
+/** Fraction of the larger dimension, so a very spread-out drawing keeps a
+ *  proportional safety margin without the margin dominating the image. */
+const EXPORT_PADDING_RATIO = 0.02;
+
 /** World units to raster pixels. Fixed, so export quality never depends on
- * the current on-screen zoom level (a molecule zoomed out to look tiny on
- * screen still exports at full resolution). */
+ *  the current on-screen zoom level (a molecule zoomed out to look tiny on
+ *  screen still exports at full resolution). */
 const PIXELS_PER_UNIT = 8;
 /** Hard ceiling on raster dimensions so a very spread-out drawing can't blow
- * past browser canvas size limits. */
+ *  past browser canvas size limits. */
 const MAX_RASTER_DIMENSION = 8000;
+
+/** Used when there is nothing measurable to export, rather than an empty or
+ *  zero-sized frame. */
+const EMPTY_BOUNDS: ExportBounds = { x: -90, y: -90, width: 180, height: 180 };
 
 export interface ExportBounds {
   x: number;
@@ -24,31 +57,8 @@ export interface ExportBounds {
   height: number;
 }
 
-/**
- * Tight bounding box of the actual drawing (atoms, bonds, annotations) in
- * molecule-space, read straight off the live `[data-export-content]` group.
- * Because that group carries the pan/zoom transform rather than being
- * affected by it, this box is the same regardless of how far the user has
- * panned or zoomed the canvas — which is what lets export crop closely
- * around a small molecule sitting in a huge canvas instead of exporting
- * whatever empty region the viewport currently shows.
- */
-function getExportBounds(svg: SVGSVGElement): ExportBounds {
-  const content = svg.querySelector<SVGGraphicsElement>("[data-export-content]");
-  let box: { x: number; y: number; width: number; height: number } | null = null;
-  if (content) {
-    try {
-      const b = content.getBBox();
-      if (b.width > 0 || b.height > 0) box = b;
-    } catch {
-      // getBBox can throw if the element isn't rendered; fall through.
-    }
-  }
-  if (!box) {
-    // Nothing drawn yet — export a small fixed square rather than the
-    // enormous offscreen background rect.
-    return { x: -90, y: -90, width: 180, height: 180 };
-  }
+/** Grows a measured box by the export margin on every side. */
+function padBounds(box: { x: number; y: number; width: number; height: number }): ExportBounds {
   const padding = Math.max(EXPORT_PADDING_MIN, Math.max(box.width, box.height) * EXPORT_PADDING_RATIO);
   return {
     x: box.x - padding,
@@ -56,6 +66,84 @@ function getExportBounds(svg: SVGSVGElement): ExportBounds {
     width: box.width + padding * 2,
     height: box.height + padding * 2,
   };
+}
+
+/**
+ * Clones the canvas SVG into a standalone, export-ready copy: dynamic colors
+ * and fonts resolved to literal values, editor-only UI stripped (grid
+ * background, selection highlights, hover previews, marquee — anything marked
+ * data-export-exclude), the pan/zoom transform dropped, and the app's own
+ * styling attributes removed.
+ *
+ * The bounding box is measured on THIS clone rather than on the live canvas,
+ * and that ordering is the point. Transient UI — bond and chain previews, hover
+ * rings — sits inside `[data-export-content]` and is removed above, but it is
+ * very much present on the live canvas. Measuring the live group therefore
+ * framed the export around a ghost the user could see and the exported image
+ * never contained, padding the picture with white space that grew with wherever
+ * the pointer happened to be resting. Measuring after the strip means the frame
+ * is derived from exactly the pixels that get written.
+ */
+function prepareExportClone(svg: SVGSVGElement): SVGSVGElement {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  // Both inlining passes index-align against the live tree, so they must run
+  // before anything is removed (see their own doc comments).
+  inlineDynamicColors(svg, clone);
+  inlineFonts(svg, clone);
+  clone.querySelectorAll("[data-export-exclude]").forEach((el) => el.remove());
+  // The bounding box is measured in the molecule's own untransformed
+  // coordinate space, but the cloned markup still carries the live canvas's
+  // pan/zoom transform on its ancestor group. Left in place, that transform
+  // would shift and rescale the content relative to a viewBox that assumes
+  // no pan/zoom at all — at typical zoom levels this pushes the molecule
+  // outside the cropped frame entirely, exporting a blank image. Resetting
+  // it to identity makes the export always reflect the molecule's natural
+  // layout regardless of how the canvas happens to be panned/zoomed on screen.
+  clone.querySelectorAll("[data-export-viewport]").forEach((el) => el.removeAttribute("transform"));
+  clone.removeAttribute("style");
+  clone.removeAttribute("class");
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  return clone;
+}
+
+/**
+ * Measures the clone's `[data-export-content]` box, attaching it off-screen for
+ * the duration because getBBox() needs real layout to resolve text.
+ *
+ * The generous fixed viewBox is only there to give the clone a sane coordinate
+ * space to lay text out in; it cannot clip the measurement, since getBBox
+ * reports geometry rather than the visible region.
+ *
+ * Always detaches, including on throw — a measuring clone left in the document
+ * would be a full-size invisible duplicate of the canvas sitting in the page.
+ */
+function measureContentBox(clone: SVGSVGElement): { x: number; y: number; width: number; height: number } | null {
+  const content = clone.querySelector<SVGGraphicsElement>("[data-export-content]");
+  if (!content) return null;
+  clone.setAttribute("width", "2000");
+  clone.setAttribute("height", "2000");
+  clone.setAttribute("viewBox", "-1000 -1000 2000 2000");
+  clone.style.position = "fixed";
+  clone.style.left = "-99999px";
+  clone.style.top = "0";
+  clone.style.pointerEvents = "none";
+  document.body.appendChild(clone);
+  try {
+    const b = content.getBBox();
+    if (b.width > 0 || b.height > 0) return { x: b.x, y: b.y, width: b.width, height: b.height };
+    return null;
+  } catch {
+    // getBBox can throw if the element isn't rendered; treat as unmeasurable.
+    return null;
+  } finally {
+    clone.remove();
+    // The positioning above is only for measuring. Leaving it on would
+    // serialize `position: fixed; left: -99999px` straight into an exported
+    // .svg file, where it would shift the drawing off the page. prepareExportClone
+    // already cleared the clone's own styling, so dropping the attribute here
+    // restores exactly the state callers expect to receive.
+    clone.removeAttribute("style");
+  }
 }
 
 /**
@@ -111,11 +199,10 @@ function inlineFonts(liveSvg: SVGSVGElement, clone: SVGSVGElement): void {
 }
 
 /**
- * Builds a standalone, tightly-cropped export clone of the canvas SVG:
- * dynamic colors resolved to literal values, editor-only UI stripped (grid
- * background, selection highlights, hover previews, marquee — anything
- * marked data-export-exclude), and the viewBox set to the molecule's actual
- * content instead of whatever the on-screen canvas happens to measure.
+ * Builds a standalone, tightly-cropped export clone of the canvas SVG: editor-
+ * only UI stripped, dynamic colors and fonts resolved, and the viewBox set to
+ * the drawing's actual content rather than whatever the on-screen canvas
+ * happens to measure.
  *
  * `backgroundColor` of `null` means transparent (no background rect added).
  */
@@ -123,23 +210,11 @@ export function buildExportClone(
   svg: SVGSVGElement,
   backgroundColor: string | null
 ): { clone: SVGSVGElement; bounds: ExportBounds } {
-  const bounds = getExportBounds(svg);
-  const clone = svg.cloneNode(true) as SVGSVGElement;
-  inlineDynamicColors(svg, clone);
-  inlineFonts(svg, clone);
-  clone.querySelectorAll("[data-export-exclude]").forEach((el) => el.remove());
-  // The bounding box above is measured in the molecule's own untransformed
-  // coordinate space, but the cloned markup still carries the live canvas's
-  // pan/zoom transform on its ancestor group. Left in place, that transform
-  // would shift and rescale the content relative to a viewBox that assumes
-  // no pan/zoom at all — at typical zoom levels this pushes the molecule
-  // outside the cropped frame entirely, exporting a blank image. Resetting
-  // it to identity makes the export always reflect the molecule's natural
-  // layout regardless of how the canvas happens to be panned/zoomed on screen.
-  clone.querySelectorAll("[data-export-viewport]").forEach((el) => el.removeAttribute("transform"));
-  clone.removeAttribute("style");
-  clone.removeAttribute("class");
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  const clone = prepareExportClone(svg);
+  // Measured on the stripped clone, so transient UI still on the live canvas
+  // can't inflate the frame — see prepareExportClone's doc comment.
+  const box = measureContentBox(clone);
+  const bounds = box ? padBounds(box) : { ...EMPTY_BOUNDS };
   clone.setAttribute("viewBox", `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
   if (backgroundColor) {
     clone.insertAdjacentHTML(
@@ -243,14 +318,7 @@ export function exportSelectionPNGBlob(
   backgroundColor: string | null = null,
   pixelsPerUnit = PIXELS_PER_UNIT
 ): Promise<Blob | null> {
-  const measureSvg = svg.cloneNode(true) as SVGSVGElement;
-  inlineDynamicColors(svg, measureSvg);
-  inlineFonts(svg, measureSvg);
-  measureSvg.querySelectorAll("[data-export-exclude]").forEach((el) => el.remove());
-  measureSvg.querySelectorAll("[data-export-viewport]").forEach((el) => el.removeAttribute("transform"));
-  measureSvg.removeAttribute("style");
-  measureSvg.removeAttribute("class");
-  measureSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  const measureSvg = prepareExportClone(svg);
 
   const content = measureSvg.querySelector("[data-export-content]");
   if (content) {
@@ -266,30 +334,11 @@ export function exportSelectionPNGBlob(
     });
   }
 
-  // Attach off-screen at a generous fixed viewBox so the filtered content's
-  // true rendered extent (label text, wedge widths, annotation boxes, etc.)
-  // can be measured with getBBox — the same technique buildExportClone's
-  // caller relies on, just applied to this filtered subset.
-  measureSvg.setAttribute("width", "2000");
-  measureSvg.setAttribute("height", "2000");
-  measureSvg.setAttribute("viewBox", "-1000 -1000 2000 2000");
-  measureSvg.style.position = "fixed";
-  measureSvg.style.left = "-99999px";
-  measureSvg.style.top = "0";
-  document.body.appendChild(measureSvg);
-
-  let bounds: ExportBounds;
-  try {
-    const box = content ? (content as SVGGraphicsElement).getBBox() : null;
-    if (box && (box.width > 0 || box.height > 0)) {
-      const padding = Math.max(EXPORT_PADDING_MIN, Math.max(box.width, box.height) * EXPORT_PADDING_RATIO);
-      bounds = { x: box.x - padding, y: box.y - padding, width: box.width + padding * 2, height: box.height + padding * 2 };
-    } else {
-      bounds = { x: -90, y: -90, width: 180, height: 180 };
-    }
-  } catch {
-    bounds = { x: -90, y: -90, width: 180, height: 180 };
-  }
+  // Measured only after the selection filter above, so the frame is derived
+  // from the fragment being copied and nothing else — the same reason
+  // prepareExportClone measures a stripped clone.
+  const box = measureContentBox(measureSvg);
+  const bounds = box ? padBounds(box) : { ...EMPTY_BOUNDS };
 
   const rawWidth = Math.max(1, Math.round(bounds.width * pixelsPerUnit));
   const rawHeight = Math.max(1, Math.round(bounds.height * pixelsPerUnit));
