@@ -105,6 +105,13 @@ npm run preview    # serve the production build locally
 
 <br/>
 
+## Changelog
+
+Release notes are in [CHANGELOG.md](CHANGELOG.md) — what's new in each version,
+and what changed underneath it.
+
+<br/>
+
 ## Project structure
 
 The app is deliberately layered so each concern can be worked on (or replaced) independently:

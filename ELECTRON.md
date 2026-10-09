@@ -298,6 +298,58 @@ Once published, an already-running older copy of the app checks on its next
 launch, downloads the update in the background, and shows "Restart to
 update" in the status bar once it's ready.
 
+## Building both platforms by hand (no CI)
+
+The workflow is manual now (see the trigger notes in `build.yml`), so building
+on your own machine is the normal path rather than a fallback. The one thing
+that makes this easy to get wrong:
+
+**`resources/` holds ONE platform's frozen backends at a time.** All three are
+Linux ELF binaries after `freeze_in_container.sh` / `freeze_structure3d.sh` /
+`freeze_iupac.sh`, and all three are `.exe` + `.dll` after
+`freeze_windows.ps1`. The same folder is `extraResources` for both builds, so
+freezing for one platform DESTROYS the other's.
+
+That fails loudly rather than silently: `scripts/check-backends.mjs` runs as
+`predist` and checks for the platform-specific names (`nmrgraph_server` vs
+`nmrgraph_server.exe`, `jre/lib/server/libjvm.so` vs `jre/bin/server/jvm.dll`),
+so building Windows against Linux resources aborts with a list of what's
+missing instead of shipping a broken installer.
+
+So, per platform:
+
+    # Linux
+    ./python/freeze_in_container.sh && ./python/freeze_structure3d.sh && ./python/freeze_iupac.sh
+    npm run dist:linux
+
+    # Windows (in PowerShell), on the Windows machine
+    .\python\freeze_windows.ps1        # freezes all three
+    npm run dist:win
+
+Each platform must be built from a clone at the **same version**, or they end
+up as two separate releases instead of one with both installers.
+
+If you need to go back and forth, keep the outputs aside rather than letting
+each freeze overwrite the other:
+
+    mv resources/nmrgraph_server ../nmrgraph_linux     # before freezing on Windows
+    mv ../nmrgraph_linux resources/nmrgraph_server     # and back again
+
+### What to upload
+
+`dist:*` leaves the installer **and** its manifest in `release/`:
+
+| Platform | Files |
+|---|---|
+| Linux | `EnlaceCraft-<v>.AppImage`, `latest-linux.yml`, `*.AppImage.blockmap` |
+| Windows | `EnlaceCraft-Setup-<v>.exe`, `latest.yml`, `*.exe.blockmap` |
+
+Upload all of them to the same release. The `.yml` is what `electron-updater`
+actually reads — an installer with no matching manifest is silently never
+offered as an update, which looks exactly like "the update check doesn't
+work". The `.blockmap` enables differential downloads; without it updates
+still work, they just re-download the whole installer.
+
 ## Adding features later
 
 There's only one app — you keep editing the same `src/` files as always.
