@@ -33,12 +33,19 @@ export interface Embed3DResult {
    * mainly useful for comparing conformers of the *same* molecule against
    * each other, not as an absolute quality number on its own. */
   energyKcalMol?: number;
+  /** Which conformer was produced — see Embed3DWithMethodResult's field of
+   * the same name. */
+  conformerIndexAchieved: number;
 }
 
 export interface Embed3DWithMethodResult {
   molfile: string;
   energyKcalMol?: number;
   converged?: boolean;
+  /** The conformer actually produced. Normally equal to the requested index;
+   * lower once the generator has run out of distinct torsion sets for this
+   * structure, which it reports rather than erroring on. */
+  conformerIndexAchieved: number;
 }
 
 /**
@@ -56,26 +63,32 @@ export interface Embed3DWithMethodResult {
  * function, moved here once a second caller needed the exact same
  * chaining logic rather than reimplementing it.
  *
- * `seed` is forwarded to embedMolecule3D (including into the xtb path's
- * MMFF94 starting geometry). It defaults to 1 so that re-running on an
- * unchanged molecule is deterministic — the 3D view must not jump to an
- * unrelated conformer every time it re-renders. The panel's "new conformer"
- * button is what varies it deliberately; see embedMolecule3D's own doc
- * comment on seeding.
+ * `conformerIndex` is forwarded to embedMolecule3D (including into the xtb
+ * path's MMFF94 starting geometry). It defaults to 0 — the most likely
+ * torsion set — so re-running on an unchanged molecule is stable and the 3D
+ * view never jumps to an unrelated conformer on every re-render. The panel's
+ * "new conformer" button is what advances it deliberately; see
+ * embedMolecule3D's own comment for why this is an index rather than a
+ * random seed.
  */
 export async function embedMolecule3DWithMethod(
   molecule: Molecule,
   method: Embed3DMethod,
-  seed = 1,
+  conformerIndex = 0,
 ): Promise<Embed3DWithMethodResult> {
   if (method !== "xtb") {
-    return embedMolecule3D(molecule, method, seed);
+    return embedMolecule3D(molecule, method, conformerIndex);
   }
 
-  const starting = await embedMolecule3D(molecule, "mmff94", seed);
+  const starting = await embedMolecule3D(molecule, "mmff94", conformerIndex);
   const totalCharge = Object.values(molecule.atoms).reduce((sum, a) => sum + a.charge, 0);
   const refined = await refineWithXtb(starting.molfile, totalCharge);
-  return { molfile: refined.molfile, energyKcalMol: refined.energyKcalMol, converged: refined.converged };
+  return {
+    molfile: refined.molfile,
+    energyKcalMol: refined.energyKcalMol,
+    converged: refined.converged,
+    conformerIndexAchieved: starting.conformerIndexAchieved,
+  };
 }
 
 /**
@@ -99,7 +112,7 @@ export async function embedMolecule3DWithMethod(
 export async function embedMolecule3D(
   mol: Molecule,
   method: Exclude<Embed3DMethod, "xtb">,
-  seed = 1,
+  conformerIndex = 0,
 ): Promise<Embed3DResult> {
   if (Object.keys(mol.atoms).length === 0) {
     throw new Embed3DError("EMPTY", "Nothing drawn yet");
@@ -125,20 +138,53 @@ export async function embedMolecule3D(
     throw new Embed3DError("DISCONNECTED_OR_UNSUPPORTED", "Could not parse this structure for 3D generation");
   }
 
-  // getOneConformerAsMolecule saturates open valences with explicit H
-  // atoms and searches likely torsion sets (starting from the most
-  // probable, based on OpenChemLib's torsion-preference statistics) for
-  // one that's free of atom collisions. Deterministic per seed, so
-  // re-running on an unchanged molecule doesn't make the 3D view jitter
-  // between unrelated conformers on every re-render.
-  const generator = new ConformerGenerator(seed);
-  const conformer = generator.getOneConformerAsMolecule(oclMol);
+  // Conformer selection.
+  //
+  // An earlier version of this called getOneConformerAsMolecule(seed) and
+  // treated the seed as "which conformer you get". That does not work:
+  // measured over 10 seeds, butane through decane all returned the *same*
+  // geometry every time, and so did hexane under MMFF94 — the seed is not a
+  // conformer index, and for any molecule with real conformational freedom it
+  // changes nothing at all. (Ethane and propane did vary, but only in the
+  // methyl hydrogens' rotation about an axis that is degenerate anyway.)
+  //
+  // The proper API is the two-step one below: initializeConformers() builds a
+  // generator that remembers which torsion combinations it has already
+  // handed out, and each getNextConformerAsMolecule() then returns a genuinely
+  // new one. conformerIndex 0 is the most likely torsion set — the same thing
+  // the old one-shot call returned — and each further index walks on from
+  // there.
+  //
+  // The generator is rebuilt from scratch on every call and the earlier
+  // conformers re-walked, which is O(index). Fine for the handful of clicks
+  // this supports, and simpler than caching a generator across edits, which
+  // would have to be invalidated whenever the drawing changed.
+  //
+  // ONE generator, initialized once, then walked: getNextConformer only knows
+  // which torsion combinations it has already handed out because they were
+  // all taken from this same instance. Re-initializing inside the loop (an
+  // earlier version of this did) restarts the enumeration every time and so
+  // always returns conformer #0 — measured, that gave exactly one distinct
+  // geometry for every molecule tried.
+  const generator = new ConformerGenerator(1);
+  let conformer: OCLMolecule | null = null;
+  let conformerIndexAchieved = 0;
+  if (generator.initializeConformers(oclMol)) {
+    for (let i = 0; i <= conformerIndex; i++) {
+      const next = generator.getNextConformerAsMolecule();
+      // null means the strategy has no further torsion sets for this
+      // structure; keep the last one we did get rather than failing.
+      if (!next) break;
+      conformer = next;
+      conformerIndexAchieved = i;
+    }
+  }
   if (!conformer) {
     throw new Embed3DError("EMBED_FAILED", "Could not generate a collision-free 3D conformer for this structure");
   }
 
   if (method === "quick") {
-    return { molfile: conformer.toMolfile() };
+    return { molfile: conformer.toMolfile(), conformerIndexAchieved };
   }
 
   // MMFF94s ("static", the variant recommended for energy comparisons /
@@ -147,9 +193,8 @@ export async function embedMolecule3D(
   // tools for this exact "sketch -> plausible 3D structure" step.
   const ff = new ForceFieldMMFF94(conformer, ForceFieldMMFF94.MMFF94S);
   ff.minimise({ maxIts: 2000 });
-  const energyKcalMol = ff.getTotalEnergy();
 
-  return { molfile: conformer.toMolfile(), energyKcalMol };
+  return { molfile: conformer.toMolfile(), energyKcalMol: ff.getTotalEnergy(), conformerIndexAchieved };
 }
 
 /**
@@ -182,4 +227,68 @@ export async function mmff94SinglePointEnergy(molfile: string): Promise<number |
   } catch {
     return null;
   }
+}
+
+/**
+ * Refines an *existing* 3D structure — one that came from an imported file
+ * rather than from the 2D drawing.
+ *
+ * This is the same chemistry embedMolecule3D already runs for a drawn
+ * structure, applied to coordinates that already exist. The distinction
+ * matters: embedding invents a geometry, while this only relaxes the one you
+ * brought. Bonds, bond orders and charges are read back out of the molfile by
+ * OpenChemLib, so an imported structure's connectivity survives refinement
+ * rather than being rebuilt from a formula.
+ *
+ * "quick" is a no-op and returns the input unchanged — the honest meaning of
+ * "don't touch my coordinates", which is exactly what someone who imported a
+ * file from a database wants to be able to ask for.
+ */
+export async function refineStructure3D(
+  molfile: string,
+  method: Embed3DMethod,
+): Promise<{ molfile: string; energyKcalMol?: number; converged?: boolean }> {
+  await ensureOclResourcesLoaded();
+
+  if (method === "quick") return { molfile };
+
+  let oclMol: OCLMolecule;
+  try {
+    oclMol = OCLMolecule.fromMolfile(molfile);
+  } catch {
+    throw new Embed3DError("DISCONNECTED_OR_UNSUPPORTED", "Could not read this structure for refinement");
+  }
+
+  if (method === "mmff94") {
+    try {
+      // MMFF94 has nothing to say about an atom with unfilled valences, and
+      // imported files frequently omit hydrogens (a bare skeletal .mol, most
+      // PDB entries' heavy-atom-only variants). Saturate first — this is what
+      // the drawn-structure path gets for free, because the conformer
+      // generator adds them itself, so without it the same molecule would
+      // refine from a drawing but fail when imported.
+      oclMol.addImplicitHydrogens();
+      const ff = new ForceFieldMMFF94(oclMol, ForceFieldMMFF94.MMFF94S);
+      ff.minimise({ maxIts: 2000 });
+      return { molfile: oclMol.toMolfile(), energyKcalMol: ff.getTotalEnergy() };
+    } catch {
+      // Force-field parameters are missing for some elements (metals, some
+      // main-group outliers). Say so plainly instead of surfacing a library
+      // error, and suggest the other method rather than leaving the panel
+      // stuck on a stale structure.
+      throw new Embed3DError("DISCONNECTED_OR_UNSUPPORTED", "No force-field parameters for part of this structure — try GFN2-xTB instead");
+    }
+  }
+
+  // xtb. Saturating valences here too, for the same reason — and xTB needs a
+  // whole molecule to compute anything meaningful for.
+  oclMol.addImplicitHydrogens();
+
+  // The charge is read from the file rather than assumed to be zero: a
+  // zwitterion or an ion pair imported from a database would otherwise be
+  // refined as the neutral species and come back as a different molecule.
+  let totalCharge = 0;
+  for (let i = 0; i < oclMol.getAtoms(); i++) totalCharge += oclMol.getAtomCharge(i);
+  const refined = await refineWithXtb(molfile, totalCharge);
+  return { molfile: refined.molfile, energyKcalMol: refined.energyKcalMol, converged: refined.converged };
 }

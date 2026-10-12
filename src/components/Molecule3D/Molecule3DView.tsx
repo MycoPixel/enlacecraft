@@ -4,7 +4,8 @@ import * as $3Dmol from "3dmol";
 import type { GLShape } from "3dmol/build/types/GLShape";
 import type { Label } from "3dmol/build/types/Label";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { embedMolecule3DWithMethod, mmff94SinglePointEnergy, Embed3DError } from "../../io/embed3d";
+import { embedMolecule3DWithMethod, refineStructure3D, mmff94SinglePointEnergy, Embed3DError } from "../../io/embed3d";
+import type { Embed3DMethod } from "../../io/embed3d";
 import { XtbRefineError } from "../../io/xtbRefine";
 import { exportXyz } from "../../io/xyz";
 import { downloadBlob } from "../../io/exportImage";
@@ -163,12 +164,15 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   styleRef.current = style;
   colorSchemeRef.current = colorScheme;
 
-  // Which conformer to generate. Held in state (not derived from anything,
-  // so it starts at 1) and *only* changed by the "new conformer" button —
-  // deliberately not persisted, since a stale seed from a previous session
+  // Which conformer to generate: 0 is the most likely torsion set, and each
+  // press of "new conformer" advances to the next genuinely distinct one.
+  // Deliberately not persisted — a remembered index from a previous session
   // would silently make the first structure drawn differ from what this user
   // saw last time, for no reason they could explain.
-  const [conformerSeed, setConformerSeed] = useState(1);
+  const [conformerIndex, setConformerIndex] = useState(0);
+  // Set when the generator runs out of distinct torsion sets for this
+  // structure, so the button can say so instead of silently doing nothing.
+  const [conformersExhausted, setConformersExhausted] = useState(false);
   // Transient feedback for the link tool — e.g. that the clicked atom was a
   // generated hydrogen with no 2D counterpart. Kept local rather than in the
   // store because it's purely about the last click.
@@ -180,14 +184,17 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // would silently throw the import away on the next edit. Cleared by
   // dismissing the banner.
   const [importedName, setImportedName] = useState<string | null>(null);
+  /** True while a method click is refining an imported structure rather than
+   * re-embedding the drawing. Shares the seeding flag's spinner. */
   // Conformer search can take a while, and unlike the debounced
   // regenerate-from-an-edit there's no ongoing edit driving it — the button
   // explicitly asks for this work, so it's worth a brief disabled state so a
   // double-click can't queue two expensive embeddings.
   const [seeding, setSeeding] = useState(false);
-  const reseed = () => {
+  const nextConformer = () => {
     setSeeding(true);
-    setConformerSeed((prev) => prev + 1);
+    setConformersExhausted(false);
+    setConformerIndex((prev) => prev + 1);
   };
   const t = useT();
 
@@ -381,7 +388,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   function dismissImport() {
     setState({ phase: "empty" });
     setImportedName(null);
-    setConformerSeed((prev) => prev + 1);
+    setConformerIndex((prev) => prev + 1);
   }
 
   function clearPendingMarkers() {
@@ -724,21 +731,28 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     setRotateState({ phase: "picking" });
   }
 
+  /** Abandons every in-progress tool interaction: pending atom picks,
+   * measurements, and any rotate-bond axis selection.
+   *
+   * Hoisted out of the regenerate effect because three callers need it now —
+   * the effect, handleImportFile, and refineImport — and as a nested function
+   * it was invisible to the other two.
+   */
+  function resetToolState() {
+    pendingRef.current = [];
+    pendingShapesRef.current = [];
+    setPendingCount(0);
+    setMeasurements([]);
+    rotatePendingRef.current = [];
+    axisShapesRef.current = [];
+    setRotatePendingCount(0);
+    setRotateError(null);
+    setRotateState({ phase: "picking" });
+    resetRotateEnergyState();
+  }
+
   useEffect(() => {
     clearTimeout(debounceRef.current);
-
-    function resetToolState() {
-      pendingRef.current = [];
-      pendingShapesRef.current = [];
-      setPendingCount(0);
-      setMeasurements([]);
-      rotatePendingRef.current = [];
-      axisShapesRef.current = [];
-      setRotatePendingCount(0);
-      setRotateError(null);
-      setRotateState({ phase: "picking" });
-      resetRotateEnergyState();
-    }
 
     // An imported structure isn't tied to the 2D drawing, so a molecule edit
     // must not regenerate over it — that would replace the import with a
@@ -761,7 +775,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     const thisRun = ++runIdRef.current;
 
     debounceRef.current = setTimeout(() => {
-      embedMolecule3DWithMethod(molecule, method, conformerSeed)
+      embedMolecule3DWithMethod(molecule, method, conformerIndex)
         .then((result) => {
           if (runIdRef.current !== thisRun) return; // superseded by a newer edit
 
@@ -783,6 +797,11 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
           // Rebuild the 2D<->3D serial mapping alongside the structure it
           // describes; a stale mapping would highlight the wrong atom.
           serialToAtomIdRef.current = buildSerialToAtomId(molecule).serialToAtomId;
+          // The generator returns its best available conformer once its
+          // torsion sets run out, so an index past the end is not an error —
+          // but it is worth telling the user the button has nothing left to
+          // give rather than leaving them pressing it for no change.
+          setConformersExhausted(conformerIndex > 0 && result.conformerIndexAchieved < conformerIndex);
           resetToolState();
           setState({
             phase: "ready",
@@ -806,7 +825,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
 
     return () => clearTimeout(debounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [molecule, method, hasAtoms, conformerSeed, importedName]);
+  }, [molecule, method, hasAtoms, conformerIndex, importedName]);
 
   const recenter = () => viewerRef.current?.zoomTo();
 
@@ -853,6 +872,46 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     return lastMolfileRef.current;
   }
 
+  /**
+   * Re-refines the imported structure with a different method. Separate from
+   * the regenerate effect, which is deliberately inert while an import is
+   * showing (there is no drawing to embed) — this runs the same force fields
+   * over the coordinates that came from the file.
+   */
+  async function refineImport(nextMethod: Embed3DMethod) {
+    const source = lastMolfileRef.current;
+    if (!source) return;
+    setMethod(nextMethod);
+    setSeeding(true);
+    setState({ phase: "loading" });
+    try {
+      const refined = await refineStructure3D(source, nextMethod);
+      const viewer = viewerRef.current;
+      if (viewer) {
+        viewer.removeAllModels();
+        // Geometry is unchanged in identity but different in fact, so any
+        // measurement or axis pick made against the old coordinates is stale.
+        viewer.removeAllShapes();
+        viewer.removeAllLabels();
+        viewer.addModel(refined.molfile, "mol");
+        applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
+        viewer.zoomTo();
+        viewer.render();
+      }
+      lastMolfileRef.current = refined.molfile;
+      resetToolState();
+      setState({
+        phase: "ready",
+        method: nextMethod,
+        energyKcalMol: refined.energyKcalMol,
+        converged: refined.converged,
+      });
+    } catch (err) {
+      setState({ phase: "error", message: embedErrorMessage(err, t) });
+    }
+  }
+
+
   function doExportMol3D() {
     const molfile = currentMolfile();
     if (!molfile) return;
@@ -878,15 +937,41 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       <div className="molecule-3d-panel__header">
         <span className="molecule-3d-panel__title">{t("view3d.title")}</span>
         <div className="molecule-3d-panel__method">
-          <MethodButton active={method === "quick"} onClick={() => setMethod("quick")} label={t("view3d.methodQuick")} />
-          <MethodButton active={method === "mmff94"} onClick={() => setMethod("mmff94")} label={t("view3d.methodMmff94")} />
-          <MethodButton active={method === "xtb"} onClick={() => setMethod("xtb")} label={t("view3d.methodXtb")} />
+          {/* With a drawing behind them these choose how it becomes 3D. With
+              an imported structure on screen there is no drawing to embed, so
+              they instead re-refine the imported coordinates — which is the
+              genuinely useful thing to do with a structure you brought in,
+              and is why they aren't simply disabled here. */}
+          <MethodButton
+            active={method === "quick"}
+            onClick={() => (importedName ? refineImport("quick") : setMethod("quick"))}
+            label={t("view3d.methodQuick")}
+            title={importedName ? t("view3d.methodRefinesImport") : undefined}
+          />
+          <MethodButton
+            active={method === "mmff94"}
+            onClick={() => (importedName ? refineImport("mmff94") : setMethod("mmff94"))}
+            label={t("view3d.methodMmff94")}
+            title={importedName ? t("view3d.methodRefinesImport") : undefined}
+          />
+          <MethodButton
+            active={method === "xtb"}
+            onClick={() => (importedName ? refineImport("xtb") : setMethod("xtb"))}
+            label={t("view3d.methodXtb")}
+            title={importedName ? t("view3d.methodRefinesImport") : undefined}
+          />
         </div>
         <div className="molecule-3d-panel__actions">
           <ToolButton
-            title={t("view3d.newConformer")}
-            disabled={state.phase !== "ready" || seeding || !!importedName}
-            onClick={reseed}
+            title={
+              importedName
+                ? t("view3d.newConformerUnavailable")
+                : conformersExhausted
+                  ? t("view3d.newConformerExhausted")
+                  : t("view3d.newConformer")
+            }
+            disabled={state.phase !== "ready" || seeding || !!importedName || conformersExhausted}
+            onClick={nextConformer}
           >
             {seeding ? <Loader2 size={15} className="compound-search__spinner" /> : <Shuffle size={15} />}
           </ToolButton>
@@ -975,6 +1060,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         {importedName && (
           <span className="molecule-3d-panel__import-banner">
             {t("view3d.importedBanner", { name: importedName })}
+            <span className="molecule-3d-panel__import-note">{t("view3d.importedRefineHint")}</span>
             <button type="button" onClick={dismissImport} title={t("view3d.dismissImport")}>
               <X size={12} />
             </button>
@@ -1244,12 +1330,28 @@ function embedErrorMessage(err: unknown, t: ReturnType<typeof useT>): string {
   return t("view3d.errorGeneric");
 }
 
-function MethodButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+function MethodButton({
+  active,
+  onClick,
+  label,
+  disabled,
+  title,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  disabled?: boolean;
+  /** Shown as a native tooltip; also the accessible description when the
+   * button is disabled and so cannot explain itself on hover. */
+  title?: string;
+}) {
   return (
     <button
       type="button"
       className={`molecule-3d-panel__method-btn ${active ? "molecule-3d-panel__method-btn--active" : ""}`}
       aria-pressed={active}
+      disabled={disabled}
+      title={title}
       onClick={onClick}
     >
       {label}
