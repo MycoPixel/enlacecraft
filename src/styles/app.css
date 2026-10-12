@@ -2169,6 +2169,43 @@
   background: var(--canvas-bg);
   touch-action: none;
   cursor: crosshair;
+  /* The canvas is a drawing surface, not a document: dragging across it
+     should pan, marquee or draw a bond, never paint a browser text
+     selection. Without this, dragging to place a bond sweeps a selection
+     highlight over whatever text it crosses — most visibly the live
+     length/angle readout, whose accent-coloured digits end up inverted on a
+     blue background and are then genuinely hard to read, which is what
+     made the readout look like it was glitching mid-drag.
+
+     Only atom labels were previously protected (`.atom-label`), which left
+     the readouts, charge badges, isotope prefixes and stereo labels all
+     selectable. Applied at the root instead, then re-opened below for the
+     one place text genuinely is editable. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The live length/angle readout. Spelled out at the component as well as on
+   `.canvas`, because this is the one piece of canvas text that sits directly
+   under the cursor while dragging — the one place an accidental selection is
+   actually disruptive, since the selection highlight inverts accent-coloured
+   digits on a light box and makes the reading unreadable at the exact moment
+   it is meant to be read. */
+.drag-readout__text {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Text that is genuinely editable re-enables its own selection — the
+   annotation box is contentEditable, and both the caret and
+   AnnotationToolbar's "current font size" lookup depend on a real DOM
+   selection existing inside it. */
+.canvas .annotation-text,
+.canvas input,
+.canvas textarea,
+.canvas [contenteditable] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ---------- 3D structure panel ---------- */
@@ -4388,4 +4425,30 @@
 
 .molecule-3d-panel__import-banner button:hover {
   color: var(--ink);
+}
+
+/* Filename shown under the Save entry, so a plain Save's destination is
+   visible before it's pressed rather than only in the status bar after. */
+.export-dropdown__item-detail {
+  display: block;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+/* Secondary line under the imported-file banner. States outright that the
+   generation methods don't apply, because disabled buttons with only a
+   hover tooltip are easy to mistake for a bug on a small control. */
+.molecule-3d-panel__import-note {
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  opacity: 0.8;
+}
+
+.molecule-3d-panel__method-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

@@ -58,7 +58,16 @@ export function DragReadout({ from, to, offset = 14 }: DragReadoutProps) {
         stroke="var(--panel-border)"
         strokeWidth={1}
       />
-      <text x={labelX} y={labelY} textAnchor="middle" dominantBaseline="central" fontSize={10} fontWeight={600} fill="var(--accent)">
+      <text
+        className="drag-readout__text"
+        x={labelX}
+        y={labelY}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={10}
+        fontWeight={600}
+        fill="var(--accent)"
+      >
         {label}
       </text>
     </g>
