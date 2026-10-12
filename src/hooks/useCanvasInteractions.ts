@@ -1,6 +1,6 @@
 import { useCallback, useRef, type RefObject } from "react";
 import type { Annotation, Molecule, Point, RingAttachment, RingTemplate, FunctionalGroupAttachment, FunctionalGroupTemplate } from "../types/chemistry";
-import { useMoleculeStore } from "../store/useMoleculeStore";
+import { useMoleculeStore, snapStepRadians } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect, atomsInPolygon, annotationsInPolygon, MIN_HIT_PX_PRECISE, MIN_HIT_PX_TOUCH } from "../engine/hitTest";
 import { bestNewAngle } from "../engine/bondAngles";
 import { neighborIds } from "../model/valence";
@@ -25,6 +25,15 @@ type DragState =
   | { mode: "lasso"; base: Set<string>; annotationBase: Set<string>; points: Point[] }
   | { mode: "arrow-draw"; start: Point }
   | { mode: "bracket-draw"; start: Point };
+
+/** The user's angle-snapping preference, in radians, read fresh from the
+ * store at each use rather than captured in a hook dependency. Every call
+ * site here is inside an imperative pointer/key handler that already reads
+ * `store` (or getState()) directly to avoid stale closures, so this follows
+ * the same pattern. */
+function snapStep(): number {
+  return snapStepRadians(useMoleculeStore.getState().snapAngleDegrees);
+}
 
 /**
  * Owns all pointer interaction logic for the canvas: tool dispatch, dragging
@@ -751,7 +760,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
             targetBondId = nearBond;
           } else {
             const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-            const ang = bestNewAngle(store.molecule, drag.from, desired, angleFree(e));
+            const ang = bestNewAngle(store.molecule, drag.from, desired, angleFree(e), snapStep());
             previewPoint = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
           }
         }
@@ -766,7 +775,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       // the cursor's actually moved away from the press point, then it
       // snaps to 30° (Shift for the exact freeform angle instead).
       const movedEnough = dist(drag.center, pt) > 12;
-      store.setFunctionalGroupDesiredAngle(movedEnough ? (angleFree(e) ? angleOf(drag.center, pt) : snapAngle(angleOf(drag.center, pt))) : null);
+      store.setFunctionalGroupDesiredAngle(movedEnough ? (angleFree(e) ? angleOf(drag.center, pt) : snapAngle(angleOf(drag.center, pt), snapStep())) : null);
       store.setStatus("status.dragFunctionalGroup");
       return;
     }
@@ -774,7 +783,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "chain") {
       const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
       const anchor: Point = fromAtom ? { x: fromAtom.x, y: fromAtom.y } : drag.start;
-      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, angleFree(e));
+      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, angleFree(e), snapStep());
       store.setChainPreview(points.length > 0 ? { from: drag.from, anchor, points } : null);
       store.setStatus("status.dragChain");
       return;
@@ -783,7 +792,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "arrow-draw") {
       const end = angleFree(e) || dist(drag.start, pt) <= 8
         ? pt
-        : polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt)));
+        : polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt), snapStep()));
       store.setArrowPreview({ x1: drag.start.x, y1: drag.start.y, x2: end.x, y2: end.y });
       store.setStatus("status.dragArrow");
       return;
@@ -927,7 +936,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         toAtom = hitAtom;
       } else {
         const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-        const ang = bestNewAngle(molecule, from, desired, angleFree(e));
+        const ang = bestNewAngle(molecule, from, desired, angleFree(e), snapStep());
         const p = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
         toAtom = store.addAtom(p, "C");
       }
@@ -958,7 +967,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         return;
       }
       const hitAtom = pickAtom(molecule, pt, from, 16);
-      const toAtom = hitAtom ?? store.addAtom(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), angleFree(e))), "C");
+      const toAtom = hitAtom ?? store.addAtom(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), angleFree(e), snapStep())), "C");
       store.addBond(from, toAtom, 1, "none");
       store.setStatus("status.ready");
       return;
@@ -978,7 +987,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const pt = clientToWorld(e.clientX, e.clientY);
       const fromAtom = drag.from ? store.molecule.atoms[drag.from] : null;
       const anchor: Point = fromAtom ? { x: fromAtom.x, y: fromAtom.y } : drag.start;
-      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, angleFree(e));
+      const points = computeChainPoints(store.molecule, drag.from ?? "", anchor, pt, angleFree(e), snapStep());
       store.addChain(drag.from, anchor, points);
       store.setStatus("status.ready");
       return;
@@ -995,7 +1004,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       } else if (angleFree(e)) {
         end = pt; // free angle — same Shift-to-bypass convention as bonds
       } else {
-        end = polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt)));
+        end = polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt), snapStep()));
       }
       const id = store.addArrowAnnotation(drag.start, end, store.arrowVariant, store.arrowBarb, store.arrowHeadSize);
       store.setSelectedAnnotationIds(new Set([id]));

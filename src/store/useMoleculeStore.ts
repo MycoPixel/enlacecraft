@@ -13,7 +13,14 @@ import { bracketPairLayout } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS, REACTIVE_SITE_PRESETS } from "../model/constants";
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
 import { parseAtomLabel } from "../model/atomLabelParser";
+import { collapseToGroup, findCollapsibleGroups } from "../model/groupCollapse";
 import type { Embed3DMethod } from "../io/embed3d";
+import {
+  STRUCTURE3D_STYLES,
+  STRUCTURE3D_COLOR_SCHEMES,
+  type Structure3DStyle,
+  type Structure3DColorScheme,
+} from "../components/Molecule3D/structureStyle";
 
 const HISTORY_LIMIT = 100;
 
@@ -27,6 +34,50 @@ const LANG_STORAGE_KEY = "enlacecraft-lang";
 const SIDEBAR_WIDTH_STORAGE_KEY = "enlacecraft-sidebar-width";
 const ONBOARDING_STORAGE_KEY = "enlacecraft-onboarding-seen";
 const AUTO_IUPAC_STORAGE_KEY = "enlacecraft-auto-iupac";
+const STRUCTURE3D_STYLE_STORAGE_KEY = "enlacecraft-structure3d-style";
+const STRUCTURE3D_COLOR_STORAGE_KEY = "enlacecraft-structure3d-color";
+const SNAP_ANGLE_STORAGE_KEY = "enlacecraft-snap-angle";
+
+/** The selectable angle-snapping increments, in degrees. 0 is "Off" and maps
+ * onto snapAngle's non-positive "don't snap" behaviour. Stored as the number
+ * itself so the value in the store is directly usable as radians via
+ * SNAP_ANGLE_OPTIONS / snapStepRadians. */
+export const SNAP_ANGLE_OPTIONS = [0, 15, 30, 45, 60] as const;
+export type SnapAngleDegrees = (typeof SNAP_ANGLE_OPTIONS)[number];
+
+/** Converts a stored snap-angle preference into the radians step the pure
+ * geometry/engine helpers take. 0 stays 0, which snapAngle treats as "don't
+ * snap" rather than dividing by zero. */
+export function snapStepRadians(degrees: number): number {
+  return degrees > 0 ? (degrees * Math.PI) / 180 : 0;
+}
+
+/** Reads the persisted angle-snapping preference, rejecting anything not in
+ * SNAP_ANGLE_OPTIONS so a hand-edited or stale value can't put the snapping
+ * into a state the UI has no way to represent (or undo). */
+function detectSnapAngle(): SnapAngleDegrees {
+  try {
+    const saved = parseInt(localStorage.getItem(SNAP_ANGLE_STORAGE_KEY) ?? "", 10);
+    if ((SNAP_ANGLE_OPTIONS as readonly number[]).includes(saved)) return saved as SnapAngleDegrees;
+  } catch {
+    // localStorage unavailable — fall through to the default.
+  }
+  return 30;
+}
+
+/** Reads a persisted 3D view preference, guarding against both an
+ * unavailable localStorage and a stale/unknown value from an older build
+ * (someone who had a representation that has since been removed, or hand-
+ * edited the key). Falls back to the default in both cases. */
+function detectStructure3DPreference<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved && (allowed as readonly string[]).includes(saved)) return saved as T;
+  } catch {
+    // localStorage unavailable (e.g. privacy mode) — fall through to default.
+  }
+  return fallback;
+}
 const DEFAULT_SIDEBAR_WIDTH = 112;
 const MIN_SIDEBAR_WIDTH = 88;
 const MAX_SIDEBAR_WIDTH = 280;
@@ -291,11 +342,26 @@ interface MoleculeStore {
    * start drawing at free angles.
    */
   freeAngle: boolean;
+  /** Angle-snapping increment in degrees for newly drawn bonds/chains, 0 =
+   * off. Separate from freeAngle: that's a momentary per-drag Shift
+   * override, this is a persistent preference. Threaded into the pure
+   * model/engine helpers as radians (snapStepRadians) so those stay free of
+   * store access. */
+  snapAngleDegrees: SnapAngleDegrees;
+  setSnapAngleDegrees: (deg: SnapAngleDegrees) => void;
   /** Whether the 3D structure panel is docked next to the 2D canvas. Off
    * by default (a secondary view most edits don't need open) and never
    * persisted — always starts closed, same as any other transient panel
    * state. See components/Molecule3D/Molecule3DView.tsx. */
   show3DView: boolean;
+  /** The atom (by 2D id) currently linked between the 3D view and the 2D
+   * canvas — set by clicking an atom in the 3D panel's link tool, or by
+   * selecting an atom on the canvas while the panel has it open. The canvas
+   * draws a ring on it so the correspondence is visible on both sides at
+   * once. See components/Molecule3D/atomLink.ts for how a 3D serial is
+   * resolved back to a 2D atom. */
+  linkedAtomId: string | null;
+  setLinkedAtomId: (id: string | null) => void;
   /** Which 3D generation method the panel uses — see io/embed3d.ts.
    * "quick" is a fast, collision-free conformer with no energy
    * minimisation; "mmff94" additionally relaxes it against a real force
@@ -303,6 +369,14 @@ interface MoleculeStore {
    * panel toggles/molecule edits within a session, same as any other view
    * preference here. */
   embed3DMethod: Embed3DMethod;
+  /** How the 3D structure is drawn (ball-and-stick, space-filling, ...).
+   * Unlike the generation method this is a pure view preference, so unlike
+   * show3DView it *is* persisted — someone who always wants space-filling
+   * shouldn't have to re-pick it every session. See
+   * components/Molecule3D/structureStyle.ts. */
+  structure3DStyle: Structure3DStyle;
+  /** Element coloring used by the 3D viewer; see structureStyle.ts. */
+  structure3DColorScheme: Structure3DColorScheme;
   /** Current on-screen pixel size of the canvas <svg>, kept in sync by MoleculeCanvas via ResizeObserver. */
   canvasSize: { width: number; height: number };
 
@@ -357,6 +431,12 @@ interface MoleculeStore {
    * one-step "Duplicate" a right-click menu needs, as opposed to
    * copy-then-separately-paste. */
   duplicateSelection: () => void;
+  /** Collapses every recognizable abbreviated group in the current
+   * selection into a single labeled vertex, one group per connected
+   * fragment. Returns how many were collapsed so the UI can report it (and
+   * stay silent when there was nothing to do). See model/groupCollapse.ts —
+   * matching is by topology *and* implicit-hydrogen count, never by formula. */
+  collapseSelectionToGroups: () => number;
   toggleShowHydrogens: () => void;
   toggleFreeAngle: () => void;
   /** Real structural edit, not a view toggle: on the atom count going up
@@ -375,6 +455,8 @@ interface MoleculeStore {
   toggleMonochromeAtoms: () => void;
   toggle3DView: () => void;
   setEmbed3DMethod: (method: Embed3DMethod) => void;
+  setStructure3DStyle: (style: Structure3DStyle) => void;
+  setStructure3DColorScheme: (scheme: Structure3DColorScheme) => void;
   setCanvasSize: (size: { width: number; height: number }) => void;
   selectAll: () => void;
   clearSelection: () => void;
@@ -708,6 +790,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     bondPreview: null,
     atomMoveAnchor: null,
     arrowPreview: null,
+    // The 3D<->2D atom link is a transient view link like the rest of these:
+    // it points at an atom id in one specific drawing, so carrying it across
+    // a tab switch would point at nothing (or, worse, at an unrelated atom
+    // that happens to share the id).
+    linkedAtomId: null,
   });
 
   return {
@@ -769,9 +856,13 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     contextMenu: null,
     showHydrogens: false,
   freeAngle: false,
+    snapAngleDegrees: detectSnapAngle(),
     monochromeAtoms: true,
     show3DView: false,
+    linkedAtomId: null,
     embed3DMethod: "quick",
+    structure3DStyle: detectStructure3DPreference(STRUCTURE3D_STYLE_STORAGE_KEY, STRUCTURE3D_STYLES.map((s) => s.id), "ball-and-stick"),
+    structure3DColorScheme: detectStructure3DPreference(STRUCTURE3D_COLOR_STORAGE_KEY, STRUCTURE3D_COLOR_SCHEMES, "element"),
     canvasSize: { width: 800, height: 600 },
 
     setTool: (t) => set((s) => ({ tool: t, pendingMapAtom: s.tool === "map-number" && t !== "map-number" ? null : s.pendingMapAtom })),
@@ -907,7 +998,46 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
     toggleMonochromeAtoms: () => set((s) => ({ monochromeAtoms: !s.monochromeAtoms })),
     toggle3DView: () => set((s) => ({ show3DView: !s.show3DView })),
+    collapseSelectionToGroups: () => {
+      const { molecule, selected, annotations } = get();
+      const ids = [...selected];
+      if (ids.length === 0) return 0;
+      const matches = findCollapsibleGroups(molecule, { candidateIds: ids });
+      if (matches.length === 0) return 0;
+      const before: Snapshot = { molecule, annotations };
+      // Largest match per component first, so a Boc isn't partially eaten by
+      // an OMe matched inside it on an earlier pass.
+      let next = molecule;
+      for (const match of matches) next = collapseToGroup(next, match);
+      set({ molecule: next, selected: new Set<string>(), linkedAtomId: null, past: [...get().past, before], future: [] });
+      return matches.length;
+    },
+    setLinkedAtomId: (id) => set({ linkedAtomId: id }),
+    setSnapAngleDegrees: (deg) => {
+      set({ snapAngleDegrees: deg });
+      try {
+        localStorage.setItem(SNAP_ANGLE_STORAGE_KEY, String(deg));
+      } catch {
+        // localStorage unavailable — preference just won't survive a reload.
+      }
+    },
     setEmbed3DMethod: (method) => set({ embed3DMethod: method }),
+    setStructure3DStyle: (style) => {
+      set({ structure3DStyle: style });
+      try {
+        localStorage.setItem(STRUCTURE3D_STYLE_STORAGE_KEY, style);
+      } catch {
+        // localStorage unavailable — preference just won't survive a reload.
+      }
+    },
+    setStructure3DColorScheme: (scheme) => {
+      set({ structure3DColorScheme: scheme });
+      try {
+        localStorage.setItem(STRUCTURE3D_COLOR_STORAGE_KEY, scheme);
+      } catch {
+        // localStorage unavailable — preference just won't survive a reload.
+      }
+    },
     setCanvasSize: (size) => set({ canvasSize: size }),
     selectAll: () => set((s) => ({ selected: new Set(Object.keys(s.molecule.atoms)) })),
     clearSelection: () => set({ selected: new Set() }),
@@ -1465,7 +1595,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       const { molecule, selected } = get();
       const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
       if (ids.length === 0) return;
-      commit((mol) => M.cleanUpAtoms(mol, ids));
+      commit((mol) => M.cleanUpAtoms(mol, ids, snapStepRadians(get().snapAngleDegrees)));
     },
 
     moveAtomsTransient: (moves) => {

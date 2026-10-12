@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser, Rotate3d, Activity, Play, Pause, Repeat, Download } from "lucide-react";
+import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser, Rotate3d, Activity, Play, Pause, Repeat, Download, Palette, Shuffle, Link2, Upload } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import type { GLShape } from "3dmol/build/types/GLShape";
 import type { Label } from "3dmol/build/types/Label";
@@ -12,6 +12,17 @@ import { distanceAngstrom, angleDegrees, type Point3 } from "./measure";
 import { parseV2000, serializeV2000, findRotatableHalf, rotateHalf, type XyzAtom, type XyzBond } from "./rotateBond";
 import { scanTorsion, summarizeTorsionScan, type TorsionPoint, type TorsionSummary } from "./torsionScan";
 import { TorsionEnergyChart } from "./TorsionEnergyChart";
+import { atomIdForSerial, buildSerialToAtomId } from "./atomLink";
+import { importStructure3D } from "../../io/importStructure3d";
+import {
+  buildStructureStyle,
+  STRUCTURE3D_STYLES,
+  STRUCTURE3D_COLOR_SCHEMES,
+  styleLabelKey,
+  colorLabelKey,
+  type Structure3DStyle,
+  type Structure3DColorScheme,
+} from "./structureStyle";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
 
@@ -71,7 +82,7 @@ type ViewState =
   | { phase: "error"; message: string }
   | { phase: "ready"; method: "quick" | "mmff94" | "xtb"; energyKcalMol?: number; converged?: boolean };
 
-type ToolMode = "off" | "distance" | "angle" | "rotate";
+type ToolMode = "off" | "distance" | "angle" | "rotate" | "link";
 
 interface PendingAtom extends Point3 {
   serial: number;
@@ -103,8 +114,18 @@ function formatSignedDelta(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 }
 
-function applyDefaultStyle(viewer: ReturnType<typeof $3Dmol.createViewer>) {
-  viewer.setStyle({}, { stick: { radius: 0.14 }, sphere: { scale: 0.28 } });
+/** Applies the currently-selected representation + coloring to whatever
+ * model is loaded. Kept as a module-level function taking the viewer
+ * explicitly (rather than reading the store) so the several call sites —
+ * after a regenerate, after a style change, and after the rotate-bond tool
+ * swaps the model out — all share one definition of "what the user's chosen
+ * style looks like" and none of them can drift from the others. */
+function applyCurrentStyle(
+  viewer: ReturnType<typeof $3Dmol.createViewer>,
+  style: Structure3DStyle,
+  colorScheme: Structure3DColorScheme
+) {
+  viewer.setStyle({}, buildStructureStyle(style, colorScheme));
 }
 
 /**
@@ -124,6 +145,50 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   const theme = useMoleculeStore((s) => s.theme);
   const method = useMoleculeStore((s) => s.embed3DMethod);
   const setMethod = useMoleculeStore((s) => s.setEmbed3DMethod);
+  const style = useMoleculeStore((s) => s.structure3DStyle);
+  const setStyle = useMoleculeStore((s) => s.setStructure3DStyle);
+  const colorScheme = useMoleculeStore((s) => s.structure3DColorScheme);
+  const linkedAtomId = useMoleculeStore((s) => s.linkedAtomId);
+  const setLinkedAtomId = useMoleculeStore((s) => s.setLinkedAtomId);
+  const setSelected = useMoleculeStore((s) => s.setSelected);
+  const setColorScheme = useMoleculeStore((s) => s.setStructure3DColorScheme);
+  // Mirrors of the two style preferences, so the several imperative call
+  // sites below (rotate-bond's model swap, the debounced regenerate — neither
+  // of which re-runs on a style change) can apply whatever the *current*
+  // preference is rather than whatever it happened to be when they were
+  // defined. The dedicated effect further down is what makes a change visible
+  // without waiting for the next regenerate.
+  const styleRef = useRef(style);
+  const colorSchemeRef = useRef(colorScheme);
+  styleRef.current = style;
+  colorSchemeRef.current = colorScheme;
+
+  // Which conformer to generate. Held in state (not derived from anything,
+  // so it starts at 1) and *only* changed by the "new conformer" button —
+  // deliberately not persisted, since a stale seed from a previous session
+  // would silently make the first structure drawn differ from what this user
+  // saw last time, for no reason they could explain.
+  const [conformerSeed, setConformerSeed] = useState(1);
+  // Transient feedback for the link tool — e.g. that the clicked atom was a
+  // generated hydrogen with no 2D counterpart. Kept local rather than in the
+  // store because it's purely about the last click.
+  const [linkMessage, setLinkMessage] = useState<string | null>(null);
+  // Set when the displayed structure came from an imported file rather than
+  // being generated from the 2D drawing. An imported structure has no 2D
+  // atom counterpart at all, so both the regenerate-on-edit path and the
+  // 3D<->2D link are suppressed while it's showing — otherwise the panel
+  // would silently throw the import away on the next edit. Cleared by
+  // dismissing the banner.
+  const [importedName, setImportedName] = useState<string | null>(null);
+  // Conformer search can take a while, and unlike the debounced
+  // regenerate-from-an-edit there's no ongoing edit driving it — the button
+  // explicitly asks for this work, so it's worth a brief disabled state so a
+  // double-click can't queue two expensive embeddings.
+  const [seeding, setSeeding] = useState(false);
+  const reseed = () => {
+    setSeeding(true);
+    setConformerSeed((prev) => prev + 1);
+  };
   const t = useT();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -140,11 +205,25 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // and coordinates for whichever bond gets picked as an axis. Not
   // React state: nothing needs to re-render when it changes on its own.
   const lastMolfileRef = useRef<string | null>(null);
+  // 2D atom ids in the order exportMol wrote them, which is what the 3D
+  // model's serials index into. Rebuilt alongside each embed; see
+  // atomLink.ts for why this positional correspondence holds.
+  const serialToAtomIdRef = useRef<string[]>([]);
 
   const [state, setState] = useState<ViewState>({ phase: "empty" });
   const [toolMode, setToolMode] = useState<ToolMode>("off");
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [styleMenuOpen, setStyleMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const styleMenuRef = useRef<HTMLDivElement>(null);
+
+  // Clear the seeding flag once the new conformer has actually landed, so the
+  // button re-enables whether the run succeeded or failed. Tied to
+  // state.phase rather than the promise so a run superseded by a newer edit
+  // (see runIdRef) can't leave the button stuck disabled.
+  useEffect(() => {
+    if (state.phase === "ready" || state.phase === "error") setSeeding(false);
+  }, [state.phase]);
 
   // --- Measurement tool state -------------------------------------
   // pendingRef holds atoms clicked so far for the *in-progress*
@@ -212,15 +291,30 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // CSS gives the panel a fixed layout height, so there's no race with
   // the panel still being 0x0 on first paint.
   useEffect(() => {
-    if (!containerRef.current) return;
-    const viewer = $3Dmol.createViewer(containerRef.current, {
+    const container = containerRef.current;
+    if (!container) return;
+    const viewer = $3Dmol.createViewer(container, {
       backgroundColor: theme === "dark" ? "#1b1e24" : "#ffffff",
     });
     viewerRef.current = viewer;
-    const onResize = () => viewer.resize();
-    window.addEventListener("resize", onResize);
+
+    // Observe the *container*, not just the window. This panel is docked
+    // next to the 2D canvas and is drag-resizable (App.tsx owns
+    // panel3DWidth), so its width changes without any window resize event
+    // ever firing. Listening only to window resize left the WebGL canvas at
+    // its old size while the surrounding panel resized, so dragging the
+    // divider cropped or offset the molecule until the window itself was
+    // resized. A ResizeObserver catches every way the container can change
+    // size — divider drag, window resize, sidebar collapse — and is the same
+    // approach MoleculeCanvas already uses to track the 2D canvas.
+    //
+    // The initial observation fires immediately with the same size
+    // createViewer already read, which is a harmless no-op resize.
+    const observer = new ResizeObserver(() => viewer.resize());
+    observer.observe(container);
+
     return () => {
-      window.removeEventListener("resize", onResize);
+      observer.disconnect();
       viewerRef.current = null;
       // 3Dmol has no explicit dispose(); dropping the container (this
       // component unmounting) is what releases the WebGL context.
@@ -235,7 +329,60 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     viewerRef.current?.render();
   }, [theme]);
 
+  // Switching representation or coloring is a pure view change — it must
+  // take effect immediately rather than waiting for the next molecule edit
+  // to trigger a regenerate (which would needlessly re-embed the structure
+  // and throw away the current camera angle). setStyle replaces the style of
+  // the already-loaded model in place, so this is cheap.
+  //
+  // Skipped when a rotate-bond rotation is applied: that effect already
+  // re-adds the rotated model styled with the current preference on every
+  // angle tick, and letting this one also fire would just redraw twice.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || state.phase !== "ready") return;
+    if (toolMode === "rotate" && rotateState.phase === "active") return;
+    applyCurrentStyle(viewer, style, colorScheme);
+    viewer.render();
+  }, [style, colorScheme, state.phase, toolMode, rotateState.phase]);
+
   const hasAtoms = Object.keys(molecule.atoms).length > 0;
+
+  /** Loads a structure file into the viewer in place of the generated one. */
+  async function handleImportFile(file: File) {
+    try {
+      const text = await file.text();
+      const molfile = importStructure3D(file.name, text);
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.removeAllModels();
+      viewer.removeAllShapes();
+      viewer.removeAllLabels();
+      viewer.addModel(molfile, "mol");
+      applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
+      viewer.zoomTo();
+      viewer.render();
+      lastMolfileRef.current = molfile;
+      // An imported structure isn't derived from the 2D drawing, so there is
+      // no serial correspondence to offer and no conformer seed to re-roll.
+      serialToAtomIdRef.current = [];
+      setImportedName(file.name);
+      setLinkedAtomId(null);
+      setState({ phase: "ready", method });
+    } catch (err) {
+      setState({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** Discards an imported structure and returns to the generated one. Clearing
+   * importedName alone isn't enough — the regenerate effect has no other
+   * dependency that would change to make it re-run — so a zero-length seed
+   * bump forces it. */
+  function dismissImport() {
+    setState({ phase: "empty" });
+    setImportedName(null);
+    setConformerSeed((prev) => prev + 1);
+  }
 
   function clearPendingMarkers() {
     const viewer = viewerRef.current;
@@ -264,7 +411,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     if (!viewer) return;
     viewer.removeAllModels();
     viewer.addModel(serializeV2000(atoms, bonds), "mol");
-    applyDefaultStyle(viewer);
+    applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
     viewer.render();
   }
 
@@ -376,6 +523,31 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       return;
     }
 
+    // toolMode === "link": click an atom to select its counterpart on the
+    // 2D canvas. Purely a selection bridge — no geometry is drawn in 3D
+    // here; the canvas is what renders the highlight. Clicking the same atom
+    // again clears the link, since a link you can only set but not unset is
+    // a trap when you're comparing atoms.
+    if (toolMode === "link") {
+      viewer.setClickable({}, true, (atom: PendingAtom) => {
+        const atomId = atomIdForSerial(serialToAtomIdRef.current, atom.serial);
+        if (!atomId) {
+          // A generated hydrogen has no 2D counterpart; saying so beats
+          // silently doing nothing.
+          setLinkMessage(t("view3d.linkNoMatch"));
+          return;
+        }
+        setLinkMessage(null);
+        // Clicking the already-linked atom unlinks it, so the mode has a way
+        // back to "nothing highlighted" without needing a separate clear.
+        const clearing = linkedAtomId === atomId;
+        setLinkedAtomId(clearing ? null : atomId);
+        setSelected(clearing ? new Set() : new Set([atomId]));
+      });
+      viewer.render();
+      return;
+    }
+
     // toolMode === "rotate" && rotateState.phase === "picking"
     viewer.setClickable({}, true, (atom: PendingAtom) => {
       if (rotatePendingRef.current.some((a) => a.serial === atom.serial)) return;
@@ -445,7 +617,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     const molfile = serializeV2000(rotated, rotateState.bonds);
     viewer.removeAllModels();
     viewer.addModel(molfile, "mol");
-    applyDefaultStyle(viewer);
+    applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
     // No zoomTo() here, deliberately - this redraws the same structure
     // at a new angle, not a new structure; keeping the camera exactly
     // where it was is what makes the rotation actually readable as
@@ -568,9 +740,15 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       resetRotateEnergyState();
     }
 
+    // An imported structure isn't tied to the 2D drawing, so a molecule edit
+    // must not regenerate over it — that would replace the import with a
+    // generated structure without being asked.
+    if (importedName) return;
+
     if (!hasAtoms) {
       setState({ phase: "empty" });
       lastMolfileRef.current = null;
+      serialToAtomIdRef.current = [];
       viewerRef.current?.removeAllModels();
       viewerRef.current?.removeAllShapes();
       viewerRef.current?.removeAllLabels();
@@ -583,7 +761,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     const thisRun = ++runIdRef.current;
 
     debounceRef.current = setTimeout(() => {
-      embedMolecule3DWithMethod(molecule, method)
+      embedMolecule3DWithMethod(molecule, method, conformerSeed)
         .then((result) => {
           if (runIdRef.current !== thisRun) return; // superseded by a newer edit
 
@@ -597,11 +775,14 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
             viewer.removeAllShapes();
             viewer.removeAllLabels();
             viewer.addModel(result.molfile, "mol");
-            applyDefaultStyle(viewer);
+            applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
             viewer.zoomTo();
             viewer.render();
           }
           lastMolfileRef.current = result.molfile;
+          // Rebuild the 2D<->3D serial mapping alongside the structure it
+          // describes; a stale mapping would highlight the wrong atom.
+          serialToAtomIdRef.current = buildSerialToAtomId(molecule).serialToAtomId;
           resetToolState();
           setState({
             phase: "ready",
@@ -613,6 +794,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         .catch((err) => {
           if (runIdRef.current !== thisRun) return;
           lastMolfileRef.current = null;
+          serialToAtomIdRef.current = [];
           viewerRef.current?.removeAllModels();
           viewerRef.current?.removeAllShapes();
           viewerRef.current?.removeAllLabels();
@@ -624,23 +806,32 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
 
     return () => clearTimeout(debounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [molecule, method, hasAtoms]);
+  }, [molecule, method, hasAtoms, conformerSeed, importedName]);
 
   const recenter = () => viewerRef.current?.zoomTo();
 
-  // Closes the export dropdown on an outside click — the panel isn't
-  // inside any scrolling/clipping ancestor (unlike the top bar's own
-  // ExportMenu, see ExportMenu.tsx's doc comment), so this can stay a
-  // plain absolutely-positioned dropdown with no portal needed.
+  const onImportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset the input so picking the same file twice in a row still fires a
+    // change event (browsers won't re-fire for an unchanged value).
+    e.target.value = "";
+    if (file) void handleImportFile(file);
+  };
+
+  // Closes the export / style dropdowns on an outside click, and each menu
+  // opening closes the other — they're both absolutely-positioned dropdowns
+  // anchored to the header's action buttons, so neither needs a portal.
+  // Whichever is open is the one that stays open; clicking its own trigger
+  // button is handled by that button's onClick toggling it shut.
   useEffect(() => {
-    if (!exportMenuOpen) return;
+    if (!exportMenuOpen && !styleMenuOpen) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (exportMenuRef.current?.contains(e.target as Node)) return;
-      setExportMenuOpen(false);
+      if (!exportMenuRef.current?.contains(e.target as Node)) setExportMenuOpen(false);
+      if (!styleMenuRef.current?.contains(e.target as Node)) setStyleMenuOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [exportMenuOpen]);
+  }, [exportMenuOpen, styleMenuOpen]);
 
   /** The molfile for whatever geometry is actually on screen right now —
    * if the rotate-bond tool has an active rotation applied, that rotated
@@ -692,6 +883,53 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
           <MethodButton active={method === "xtb"} onClick={() => setMethod("xtb")} label={t("view3d.methodXtb")} />
         </div>
         <div className="molecule-3d-panel__actions">
+          <ToolButton
+            title={t("view3d.newConformer")}
+            disabled={state.phase !== "ready" || seeding || !!importedName}
+            onClick={reseed}
+          >
+            {seeding ? <Loader2 size={15} className="compound-search__spinner" /> : <Shuffle size={15} />}
+          </ToolButton>
+          <div className="molecule-3d-export-menu" ref={styleMenuRef}>
+            <ToolButton
+              title={t("view3d.style")}
+              active={styleMenuOpen}
+              disabled={state.phase !== "ready"}
+              onClick={() => { setExportMenuOpen(false); setStyleMenuOpen((o) => !o); }}
+            >
+              <Palette size={15} />
+            </ToolButton>
+            {styleMenuOpen && (
+              <div className="molecule-3d-export-menu__dropdown molecule-3d-export-menu__dropdown--wide">
+                <div className="molecule-3d-panel__style-section">
+                  <span className="molecule-3d-panel__style-label">{t("view3d.styleRepresentation")}</span>
+                  <div className="molecule-3d-panel__method">
+                    {STRUCTURE3D_STYLES.map((s) => (
+                      <MethodButton
+                        key={s.id}
+                        active={style === s.id}
+                        onClick={() => setStyle(s.id)}
+                        label={t(styleLabelKey(s.id))}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="molecule-3d-panel__style-section">
+                  <span className="molecule-3d-panel__style-label">{t("view3d.styleColorScheme")}</span>
+                  <div className="molecule-3d-panel__method">
+                    {STRUCTURE3D_COLOR_SCHEMES.map((scheme) => (
+                      <MethodButton
+                        key={scheme}
+                        active={colorScheme === scheme}
+                        onClick={() => setColorScheme(scheme)}
+                        label={t(colorLabelKey(scheme))}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
           <ToolButton title={t("view3d.recenter")} onClick={recenter}>
             <RotateCcw size={15} />
           </ToolButton>
@@ -699,7 +937,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
             <ToolButton
               title={t("view3d.export")}
               disabled={state.phase !== "ready"}
-              onClick={() => setExportMenuOpen((o) => !o)}
+              onClick={() => { setStyleMenuOpen(false); setExportMenuOpen((o) => !o); }}
             >
               <Download size={15} />
             </ToolButton>
@@ -729,6 +967,19 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="molecule-3d-panel__measure-row">
+        <label className="molecule-3d-panel__import">
+          <Upload size={13} />
+          {t("view3d.importStructure")}
+          <input type="file" accept=".xyz,.pdb,.ent,.mol,.sdf" onChange={onImportChange} />
+        </label>
+        {importedName && (
+          <span className="molecule-3d-panel__import-banner">
+            {t("view3d.importedBanner", { name: importedName })}
+            <button type="button" onClick={dismissImport} title={t("view3d.dismissImport")}>
+              <X size={12} />
+            </button>
+          </span>
+        )}
         <div className="molecule-3d-panel__method">
           <ToolButton
             title={t("view3d.measureDistance")}
@@ -754,7 +1005,20 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
           >
             <Rotate3d size={15} />
           </ToolButton>
+          <ToolButton
+            title={t("view3d.linkAtom")}
+            active={toolMode === "link"}
+            disabled={state.phase !== "ready"}
+            onClick={() => selectToolMode("link")}
+          >
+            <Link2 size={15} />
+          </ToolButton>
         </div>
+        {toolMode === "link" && (
+          <span className="molecule-3d-panel__measure-hint">
+            {linkMessage ?? t("view3d.linkHint")}
+          </span>
+        )}
         {measureHint && <span className="molecule-3d-panel__measure-hint">{measureHint}</span>}
         {measurements.length > 0 && (
           <button type="button" className="molecule-3d-panel__measure-clear" onClick={clearAllMeasurements}>

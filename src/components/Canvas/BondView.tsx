@@ -1,6 +1,7 @@
 import type { Atom, Bond } from "../../types/chemistry";
 import { insetSegment } from "../../model/geometry";
 import { isMetalLike } from "../../model/valence";
+import { memo } from "react";
 
 interface BondViewProps {
   bond: Bond;
@@ -21,7 +22,15 @@ interface BondViewProps {
   r2?: number;
 }
 
-export function BondView({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1 = 0, r2 = 0 }: BondViewProps) {
+/**
+ * Memoized: every prop here is either a stable object identity (the bond and
+ * its two atoms are reused untouched by the immutable reducers in
+ * model/molecule.ts) or a primitive, so a draw can only re-render the bonds
+ * it actually affected instead of every bond on the canvas. See
+ * MoleculeContent's doc comment in MoleculeCanvas.tsx for the wider reason
+ * this matters.
+ */
+export const BondView = memo(function BondView({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1 = 0, r2 = 0 }: BondViewProps) {
   if (!a1 || !a2) return null;
   const strokes = <BondStrokes bond={bond} a1={a1} a2={a2} resolvedSide={resolvedSide} hideForAromaticCircle={hideForAromaticCircle} r1={r1} r2={r2} />;
   if (!bond.highlightColor) return strokes;
@@ -36,7 +45,7 @@ export function BondView({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1
       {strokes}
     </g>
   );
-}
+});
 
 function BondStrokes({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1 = 0, r2 = 0 }: Required<Pick<BondViewProps, "bond" | "a1" | "a2">> & Pick<BondViewProps, "resolvedSide" | "hideForAromaticCircle" | "r1" | "r2">) {
 

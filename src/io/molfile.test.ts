@@ -198,3 +198,75 @@ describe("importMol: real-world file quirks", () => {
     expect(Object.keys(mol.atoms)).toHaveLength(2);
   });
 });
+
+describe("optional property round-trips (M MAP / M HIG)", () => {
+  function chainWithExtras() {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a1", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: 40, y: 0 }, "C");
+    mol = addBond(mol, "b1", "a1", "a2");
+    return {
+      ...mol,
+      atoms: {
+        a1: { ...mol.atoms.a1, mapNumber: 1, highlightColor: "#ffd60a" },
+        a2: { ...mol.atoms.a2, mapNumber: 2, highlightColor: "#0a84ff" },
+      },
+    };
+  }
+
+  test("atom map numbers survive an export/import round trip", () => {
+    const mol = importMol(exportMol(chainWithExtras()));
+    expect(mol.atoms[Object.keys(mol.atoms)[0]].mapNumber).toBe(1);
+    expect(mol.atoms[Object.keys(mol.atoms)[1]].mapNumber).toBe(2);
+  });
+
+  test("highlight colors survive an export/import round trip", () => {
+    const mol = importMol(exportMol(chainWithExtras()));
+    const colors = Object.values(mol.atoms).map((a) => a.highlightColor);
+    expect(colors).toContain("#ffd60a");
+    expect(colors).toContain("#0a84ff");
+  });
+
+  test("a molecule with no map numbers or highlights writes neither property block", () => {
+    const text = exportMol(chainWithExtras2());
+    expect(text).not.toContain("M  MAP");
+    expect(text).not.toContain("M  HIG");
+    expect(text).not.toContain("M  HCOL");
+  });
+
+  test("repeated colors share one HCOL entry", () => {
+    let mol = chainWithExtras2();
+    mol = { ...mol, atoms: { ...mol.atoms, a1: { ...mol.atoms.a1, highlightColor: "#34c759" } } };
+    mol = { ...mol, atoms: { ...mol.atoms, a2: { ...mol.atoms.a2, highlightColor: "#34c759" } } };
+    const text = exportMol(mol);
+    expect(text).toContain("M  HCOL  1");
+    expect(text).toContain("34c759");
+  });
+
+  test("a HIG entry referencing an undefined color is ignored rather than turned black", () => {
+    // Hand-written third-party files can legitimately contain one or the
+    // other; importing must not crash or paint the wrong atoms.
+    const text = [
+      "no_name",
+      "  test",
+      "",
+      "  2  1  0  0  0  0  0  0  0  0999 V2000",
+      "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0",
+      "    1.5000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0",
+      "  1  2  1  0",
+      "M  HIG001  1  7",
+      "M  END",
+    ].join("\n");
+    const mol = importMol(text);
+    expect(Object.values(mol.atoms).every((a) => a.highlightColor === undefined)).toBe(true);
+  });
+});
+
+/** Plain two-carbon chain with no optional properties. */
+function chainWithExtras2() {
+  let mol = emptyMolecule();
+  mol = addAtom(mol, "a1", { x: 0, y: 0 }, "C");
+  mol = addAtom(mol, "a2", { x: 40, y: 0 }, "C");
+  mol = addBond(mol, "b1", "a1", "a2");
+  return mol;
+}

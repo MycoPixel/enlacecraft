@@ -2285,6 +2285,34 @@
   padding: 4px 0;
 }
 
+/* The representation/coloring picker holds two labelled rows of buttons
+   rather than the export menu's flat list of items, so it needs to be wide
+   enough to let a row of style buttons wrap instead of overflowing the
+   docked panel. */
+.molecule-3d-export-menu__dropdown--wide {
+  min-width: 240px;
+  padding: 8px;
+  gap: 10px;
+}
+
+.molecule-3d-panel__style-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.molecule-3d-panel__style-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.molecule-3d-panel__style-section .molecule-3d-panel__method {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .molecule-3d-panel__measure-row {
   display: flex;
   align-items: center;
@@ -4258,4 +4286,106 @@
 
 [data-theme="dark"] .nmr-spectrum-view__match--extra .nmr-spectrum-view__delta {
   color: #ff8a80;
+}
+
+.snap-angle-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.snap-angle-picker__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.snap-angle-picker__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.snap-angle-picker__option {
+  flex: 1 1 auto;
+  min-width: 38px;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.snap-angle-picker__option:hover {
+  background: var(--hover);
+}
+
+.snap-angle-picker__option--active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 600;
+}
+
+.molecule-3d-panel__import {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 3px 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.molecule-3d-panel__import:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+/* Visually hidden but still keyboard-reachable — a bare "display: none"
+   input would drop the control out of the tab order entirely. */
+.molecule-3d-panel__import input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.molecule-3d-panel__import-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.molecule-3d-panel__import-banner button {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.molecule-3d-panel__import-banner button:hover {
+  color: var(--ink);
 }

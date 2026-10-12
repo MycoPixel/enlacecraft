@@ -105,3 +105,72 @@ describe("useKeyboardShortcuts - element quick-keys", () => {
     expect(useMoleculeStore.getState().tool).toBe("lasso");
   });
 });
+
+describe("useKeyboardShortcuts - duplicate", () => {
+  function twoAtomSelection() {
+    let mol = addAtom(emptyMolecule(), "a1", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: 40, y: 0 }, "C");
+    act(() => {
+      useMoleculeStore.setState({ molecule: mol, selected: new Set(["a1", "a2"]), atomEditTarget: null });
+    });
+  }
+
+  function pressWithCtrl(key: string) {
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true }));
+    });
+  }
+
+  test("Ctrl+D duplicates the selected atoms", () => {
+    twoAtomSelection();
+    pressWithCtrl("d");
+    // Two original atoms plus their two duplicates.
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(4);
+  });
+
+  test("Ctrl+D is undoable as a single step", () => {
+    twoAtomSelection();
+    pressWithCtrl("d");
+    act(() => useMoleculeStore.getState().undo());
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(2);
+  });
+
+  test("Ctrl+D with an empty selection does nothing rather than throwing", () => {
+    act(() => {
+      useMoleculeStore.setState({ molecule: emptyMolecule(), selected: new Set(), atomEditTarget: null });
+    });
+    pressWithCtrl("d");
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(0);
+  });
+
+  test("Meta+D (macOS) behaves the same as Ctrl+D", () => {
+    twoAtomSelection();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "d", metaKey: true, bubbles: true, cancelable: true }));
+    });
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(4);
+  });
+
+  test("Ctrl+D is preventDefault'd so the browser's bookmark handler doesn't fire", () => {
+    twoAtomSelection();
+    const event = new KeyboardEvent("keydown", { key: "d", ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  test("bare d is not a duplicate shortcut and stays available to element typing", () => {
+    const atomId = oneAtomMoleculeWithHover();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "d", bubbles: true, cancelable: true }));
+    });
+    // No duplication...
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(1);
+    // ...and d isn't in the element quick-key table either, so the atom is
+    // untouched. (d is the bond tool's *tool* shortcut only when nothing is
+    // targeted; here an atom is hovered, so the element path wins and finds
+    // no match for "d".)
+    expect(useMoleculeStore.getState().molecule.atoms[atomId].element).toBe("C");
+  });
+});

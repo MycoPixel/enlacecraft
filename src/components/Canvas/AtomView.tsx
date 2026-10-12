@@ -1,14 +1,16 @@
-import type { Atom, Molecule } from "../../types/chemistry";
-import { atomLabelInfo, hasEastBond, hSuffixPlacement } from "../../model/valence";
-import { defaultLonePairPosition } from "../../model/lonePairs";
+import type { Atom } from "../../types/chemistry";
 import { ELEMENT_COLOR } from "../../model/constants";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, memo, type RefObject } from "react";
+import type { AtomRenderContext } from "./atomRenderContext";
 
 interface AtomViewProps {
   atom: Atom;
-  mol: Molecule;
+  /** Everything this atom needs that depends on the rest of the molecule —
+   * precomputed by computeAtomRenderContexts so `mol` doesn't have to be
+   * passed down and defeat memoization. */
+  ctx: AtomRenderContext;
   selected: boolean;
   overValent: boolean;
   svgRef: RefObject<SVGSVGElement>;
@@ -39,10 +41,18 @@ function formatLabelWithSubscripts(text: string): Array<{ text: string; subscrip
   return parts;
 }
 
-export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewProps) {
+/**
+ * Memoized so that an edit touching one atom doesn't re-render every other
+ * atom on the canvas: `atom` is reused untouched by the immutable reducers
+ * in model/molecule.ts, and `selected`/`overValent` are primitives. Note
+ * Every prop is now a stable reference for as long as it's semantically
+ * unchanged: `atom` is reused untouched by the immutable reducers in
+ * model/molecule.ts, and `ctx` is explicitly identity-preserved across
+ * recomputes by computeAtomRenderContexts. So an edit that changes one atom
+ * now re-renders that atom alone, rather than all of them.
+ */
+export const AtomView = memo(function AtomView({ atom, ctx, selected, overValent, svgRef }: AtomViewProps) {
   const t = useT();
-  const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
-  const atomLabelRevealTargets = useMoleculeStore((s) => s.atomLabelRevealTargets);
   const monochrome = useMoleculeStore((s) => s.monochromeAtoms);
   const view = useMoleculeStore((s) => s.view);
   const setAtomChargeOffset = useMoleculeStore((s) => s.setAtomChargeOffset);
@@ -56,10 +66,12 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   const setAtomLabelOf = useMoleculeStore((s) => s.setAtomLabelOf);
   const isPendingMapAtom = useMoleculeStore((s) => s.pendingMapAtom === atom.id);
   const editing = labelEditTarget === atom.id;
-  const { visible: showLabel, text, hSuffix, isotopePrefix } = atomLabelInfo(mol, atom.id, showHydrogens, atomLabelRevealTargets.has(atom.id));
+  const { showLabel, labelText: text, hSuffix, isotopePrefix, suffixPlacement, groupAnchorEnd } = ctx;
   const color = overValent ? "var(--danger)" : monochrome ? "var(--ink)" : ELEMENT_COLOR[atom.element] || "var(--ink)";
   const labelParts = useMemo(() => formatLabelWithSubscripts(text), [text]);
   const hSuffixParts = useMemo(() => (hSuffix ? formatLabelWithSubscripts(hSuffix) : []), [hSuffix]);
+  const suffixOnLeft = suffixPlacement === "left";
+  const suffixVertical = suffixPlacement === "top" || suffixPlacement === "bottom";
   // The suffix normally renders straight out to one side, along the
   // horizontal (see its <text> below), matching convention ("OH", "NH2").
   // But if a bond happens to leave this atom in roughly that same
@@ -71,14 +83,10 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   // zigzag), leaving no horizontal opening at all; for those this drops
   // the suffix above or below instead, into whichever of those is
   // actually the open side (e.g. below the N at the bottom of a chain's
-  // "V"). hSuffixPlacement finds the widest actual gap around the atom
-  // and picks whichever of the four sides that gap is closest to.
-  const suffixPlacement = useMemo(() => {
-    if (!hSuffix) return "right";
-    return hSuffixPlacement(mol, atom.id);
-  }, [hSuffix, mol, atom.id]);
-  const suffixOnLeft = suffixPlacement === "left";
-  const suffixVertical = suffixPlacement === "top" || suffixPlacement === "bottom";
+  // "V"). ctx.suffixPlacement was worked out by hSuffixPlacement, which
+  // finds the widest actual gap around the atom and picks whichever of the
+  // four sides that gap is closest to.
+  //
   // Group labels ("COOH", "OMe", ...) are multiple characters wide, and
   // unlike a plain element symbol they represent a specific chain of
   // atoms starting from whichever end is actually bonded to the rest of
@@ -92,10 +100,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
   // heads east - the user's own workaround for that (typing the group
   // backwards, e.g. "HOOC", so the attaching "C" is still the character
   // nearest the bond) only works if the anchor also flips to match.
-  const groupAnchorEnd = useMemo(() => {
-    if (!atom.group) return false;
-    return hasEastBond(mol, atom.id);
-  }, [atom.group, mol, atom.id]);
+  // ctx.groupAnchorEnd carries that hasEastBond answer in.
   // The element symbol's *actual* rendered half-width, measured via
   // getBBox rather than estimated from character count — a flat
   // per-character estimate badly undershoots for some glyphs (an "O" is
@@ -344,6 +349,12 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
       onPointerUp={onAtomPointerUp}
       onPointerLeave={clearLongPress}
     >
+      {ctx.linked && (
+        // Ring shown when the 3D panel's link tool points at this atom.
+        // Deliberately distinct from the selection fill above: this answers
+        // "which atom am I looking at in 3D?", not "what's selected?".
+        <circle r="17" fill="none" stroke="var(--accent)" strokeWidth="2" data-export-exclude="true" className="atom-3d-link" />
+      )}
       {atom.highlightColor && (
         <circle r="11" fill={atom.highlightColor} opacity={0.4} className="atom-highlight" />
       )}
@@ -521,7 +532,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
       )}
       {!!atom.lonePairs && Array.from({ length: atom.lonePairs }, (_, i) => {
         const override = atom.lonePairOffsets?.[i];
-        const pos = override ?? defaultLonePairPosition(mol, atom.id, i, atom.lonePairs!);
+        const pos = override ?? ctx.lonePairPositions[i] ?? { x: 0, y: -11 };
         return (
           <g
             key={i}
@@ -544,7 +555,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
           style={{ cursor: "grab" }}
         >
           <RadicalDot
-            base={defaultLonePairPosition(mol, atom.id, atom.lonePairs ?? 0, (atom.lonePairs ?? 0) + 1)}
+            base={ctx.radicalBase}
             color={color}
             offsetX={atom.radicalOffsetX ?? 0}
             offsetY={atom.radicalOffsetY ?? 0}
@@ -581,7 +592,7 @@ export function AtomView({ atom, mol, selected, overValent, svgRef }: AtomViewPr
       )}
     </g>
   );
-}
+});
 
 /** Renders one lone pair's two dots at local position (x, y), splitting
  * them tangentially (perpendicular to the direction from the atom center

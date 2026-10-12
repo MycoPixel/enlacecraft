@@ -13,7 +13,7 @@ import type { Element } from "../types/chemistry";
  *   any element, a short
  *   condensed formula (CH3, COOH), or a placeholder label (R, R1, R')
  *   Ctrl/Cmd+Z = undo   Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y = redo
- *   Ctrl/Cmd+A = select all
+ *   Ctrl/Cmd+A = select all   Ctrl/Cmd+D = duplicate selection
  *   Escape = clear selection / cancel atom or label edit
  *   Delete / Backspace = delete selection (or selected annotation)
  *
@@ -37,6 +37,7 @@ export function useKeyboardShortcuts() {
   const setTool = useMoleculeStore((s) => s.setTool);
   const deleteSelection = useMoleculeStore((s) => s.deleteSelection);
   const selectAll = useMoleculeStore((s) => s.selectAll);
+  const duplicateSelection = useMoleculeStore((s) => s.duplicateSelection);
   const clearSelection = useMoleculeStore((s) => s.clearSelection);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
@@ -137,6 +138,16 @@ export function useKeyboardShortcuts() {
         selectAll();
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+        // Ctrl/Cmd+D duplicates the selection offset down-right by 24px (the
+        // same offset the context menu's Duplicate action uses). Not left to
+        // the browser's own bookmark handler because preventDefault here is
+        // what stops it — worth being explicit that this is a real override,
+        // not just a shortcut the page happens to also listen for.
+        e.preventDefault();
+        duplicateSelection();
+        return;
+      }
       if (e.key === "Escape") {
         clearSelection();
         setAtomEditTarget(null);
@@ -216,5 +227,5 @@ export function useKeyboardShortcuts() {
         pendingElementTimerRef.current = null;
       }
     };
-  }, [undo, redo, setTool, deleteSelection, selectAll, clearSelection, toggleShowHydrogens, rotateSelection, atomEditTarget, selected, hoverAtomId, setAtomEditTarget, setLabelEditTarget, setAtomLabelRevealTargets, setAtomElementOf, selectedAnnotationIds, deleteAnnotations, setSelectedAnnotationIds]);
+  }, [undo, redo, setTool, deleteSelection, selectAll, duplicateSelection, clearSelection, toggleShowHydrogens, rotateSelection, atomEditTarget, selected, hoverAtomId, setAtomEditTarget, setLabelEditTarget, setAtomLabelRevealTargets, setAtomElementOf, selectedAnnotationIds, deleteAnnotations, setSelectedAnnotationIds]);
 }

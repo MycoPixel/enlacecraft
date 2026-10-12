@@ -22,6 +22,7 @@ import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { HighlightColorPicker } from "./HighlightColorPicker";
+import { SnapAnglePicker } from "./SnapAnglePicker";
 import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon } from "./MarkIcons";
 import { useT } from "../../i18n/useT";
 import type { ArrowHeadSize, ArrowVariant, BracketVariant } from "../../types/chemistry";
@@ -527,6 +528,7 @@ export function Sidebar() {
         <ToolButton title={t("tool.zoomOut")} onClick={() => zoomBy(1 / 1.2)}><ZoomOut size={17} /></ToolButton>
         <ToolButton title={t("tool.resetView")} onClick={resetView}><MoveDiagonal size={17} /></ToolButton>
       </div>
+      <SnapAnglePicker />
 
       {/* A hairline before Clear sets it apart as the one destructive
           action down here among view controls, so it doesn't read as just

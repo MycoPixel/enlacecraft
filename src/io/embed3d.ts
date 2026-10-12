@@ -55,16 +55,24 @@ export interface Embed3DWithMethodResult {
  * option) - originally lived only in the former as a private
  * function, moved here once a second caller needed the exact same
  * chaining logic rather than reimplementing it.
+ *
+ * `seed` is forwarded to embedMolecule3D (including into the xtb path's
+ * MMFF94 starting geometry). It defaults to 1 so that re-running on an
+ * unchanged molecule is deterministic — the 3D view must not jump to an
+ * unrelated conformer every time it re-renders. The panel's "new conformer"
+ * button is what varies it deliberately; see embedMolecule3D's own doc
+ * comment on seeding.
  */
 export async function embedMolecule3DWithMethod(
   molecule: Molecule,
   method: Embed3DMethod,
+  seed = 1,
 ): Promise<Embed3DWithMethodResult> {
   if (method !== "xtb") {
-    return embedMolecule3D(molecule, method);
+    return embedMolecule3D(molecule, method, seed);
   }
 
-  const starting = await embedMolecule3D(molecule, "mmff94");
+  const starting = await embedMolecule3D(molecule, "mmff94", seed);
   const totalCharge = Object.values(molecule.atoms).reduce((sum, a) => sum + a.charge, 0);
   const refined = await refineWithXtb(starting.molfile, totalCharge);
   return { molfile: refined.molfile, energyKcalMol: refined.energyKcalMol, converged: refined.converged };

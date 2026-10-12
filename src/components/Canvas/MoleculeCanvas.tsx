@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useMemo } from "react";
+import { forwardRef, memo, useEffect, useMemo } from "react";
 import { useMoleculeStore, effectiveCanvasBackground } from "../../store/useMoleculeStore";
 import { useCanvasInteractions } from "../../hooks/useCanvasInteractions";
 import { AtomView } from "./AtomView";
@@ -10,6 +10,7 @@ import { BracketAnnotationView, bracketPath } from "./BracketAnnotationView";
 import { AnnotationToolbar } from "./AnnotationToolbar";
 import { DragReadout } from "./DragReadout";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
+import { useAtomRenderContexts } from "./atomRenderContext";
 import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
 import { ringBondIds, ringCircleGeometry } from "../../engine/aromaticRings";
 import { previewRingLoops } from "../../engine/ringPlacement";
@@ -17,7 +18,7 @@ import { previewFunctionalGroupSegments } from "../../engine/functionalGroupPlac
 import { bracketPairLayout } from "../../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, RING_TEMPLATES } from "../../model/constants";
 import { FUNCTIONAL_GROUP_TEMPLATES } from "../../model/functionalGroupTemplates";
-import type { Atom, BracketAnnotation, RingAttachment, FunctionalGroupAttachment } from "../../types/chemistry";
+import type { Annotation, Atom, BracketAnnotation, RingAttachment, FunctionalGroupAttachment, Molecule } from "../../types/chemistry";
 
 export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(_props, ref) {
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -35,6 +36,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const annotations = useMoleculeStore((s) => s.annotations);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const editingTextId = useMoleculeStore((s) => s.editingTextId);
+  const linkedAtomId = useMoleculeStore((s) => s.linkedAtomId);
   const arrowPreview = useMoleculeStore((s) => s.arrowPreview);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const arrowHeadSize = useMoleculeStore((s) => s.arrowHeadSize);
@@ -53,25 +55,6 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
 
   const svgRef = ref as React.RefObject<SVGSVGElement>;
   const { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onWheel, onDoubleClick, onPointerLeave, onRotateHandleDown, onContextMenu } = useCanvasInteractions(svgRef);
-
-  // Aromatic ring circles the person has toggled on (see
-  // AromaticRingDisplay's own doc comment) -- one memo for which bonds
-  // should skip their own double-line rendering, one for the circles
-  // themselves to draw on top.
-  const aromaticCircleBondIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const r of Object.values(molecule.aromaticRingDisplays)) {
-      for (const bid of ringBondIds(molecule, r.atomIds)) ids.add(bid);
-    }
-    return ids;
-  }, [molecule]);
-  const aromaticCircles = useMemo(
-    () =>
-      Object.values(molecule.aromaticRingDisplays)
-        .map((r) => ({ id: r.id, geometry: ringCircleGeometry(molecule, r.atomIds) }))
-        .filter((c): c is { id: string; geometry: NonNullable<ReturnType<typeof ringCircleGeometry>> } => !!c.geometry),
-    [molecule]
-  );
 
   // Hover preview for the ring tool: exactly the same attachment resolution
   // useCanvasInteractions uses on click, so what you see hovering is what
@@ -211,59 +194,18 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
           data-export-exclude, or living outside this group entirely) never
           leak into exported files.
         */}
-        <g data-export-content="true">
-          {Object.values(molecule.bonds).map((b) => (
-            <g key={b.id} data-bond-id={b.id}>
-              <BondView
-                bond={b}
-                a1={molecule.atoms[b.a1]}
-                a2={molecule.atoms[b.a2]}
-                resolvedSide={b.order === 2 ? resolveDoubleBondSide(molecule, b) : undefined}
-                hideForAromaticCircle={aromaticCircleBondIds.has(b.id)}
-                r1={atomLabelRadius(molecule, b.a1, showHydrogens, atomLabelRevealTargets.has(b.a1))}
-                r2={atomLabelRadius(molecule, b.a2, showHydrogens, atomLabelRevealTargets.has(b.a2))}
-              />
-            </g>
-          ))}
-          {aromaticCircles.map(({ id, geometry }) => (
-            <circle
-              key={id}
-              cx={geometry.cx}
-              cy={geometry.cy}
-              r={geometry.r}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              pointerEvents="none"
-            />
-          ))}
-          {Object.values(molecule.hapticBonds).map((hb) => (
-            <HapticBondView
-              key={hb.id}
-              metal={molecule.atoms[hb.metalAtomId]}
-              ringAtoms={hb.ringAtomIds.map((id) => molecule.atoms[id]).filter((a): a is Atom => !!a)}
-              r1={atomLabelRadius(molecule, hb.metalAtomId, showHydrogens, atomLabelRevealTargets.has(hb.metalAtomId))}
-            />
-          ))}
-          {Object.values(molecule.atoms).map((a) => (
-            <AtomView key={a.id} atom={a} mol={molecule} selected={selected.has(a.id)} overValent={isOverValent(molecule, a.id)} svgRef={svgRef} />
-          ))}
-          {Object.values(annotations).map((ann) =>
-            ann.kind === "arrow" ? (
-              <ArrowAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={view.scale} />
-            ) : ann.kind === "bracket" ? (
-              <BracketAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={view.scale} />
-            ) : (
-              <TextAnnotationView
-                key={ann.id}
-                annotation={ann}
-                selected={selectedAnnotationIds.has(ann.id)}
-                editing={editingTextId === ann.id}
-                viewScale={view.scale}
-              />
-            )
-          )}
-        </g>
+        <MoleculeContent
+          molecule={molecule}
+          selected={selected}
+          showHydrogens={showHydrogens}
+          atomLabelRevealTargets={atomLabelRevealTargets}
+          svgRef={svgRef}
+          annotations={annotations}
+          selectedAnnotationIds={selectedAnnotationIds}
+          editingTextId={editingTextId}
+          viewScale={view.scale}
+          linkedAtomId={linkedAtomId}
+        />
         {arrowPreview && (
           <>
             <line
@@ -594,5 +536,139 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
     </svg>
     <AnnotationToolbar />
     </>
+  );
+});
+
+interface MoleculeContentProps {
+  molecule: Molecule;
+  selected: Set<string>;
+  showHydrogens: boolean;
+  atomLabelRevealTargets: Set<string>;
+  svgRef: React.RefObject<SVGSVGElement>;
+  annotations: Record<string, Annotation>;
+  selectedAnnotationIds: Set<string>;
+  editingTextId: string | null;
+  viewScale: number;
+  /** The atom the 3D panel's link tool points at; see linkedAtomId in the store. */
+  linkedAtomId: string | null;
+}
+
+/**
+ * Everything inside the `data-export-content` group — the atoms, bonds and
+ * annotations that are actual drawing content, as opposed to the transient
+ * hover/preview/marquee UI MoleculeCanvas draws around them.
+ *
+ * Split out and memoized purely for performance. Nothing in here depends on
+ * pointer position, but MoleculeCanvas above subscribes to hoverAtomId /
+ * hoverBondId / hoverPoint / the various previews — all of which change on
+ * every single mouse move. Without this boundary, sweeping the cursor across
+ * a large structure re-rendered every atom and every bond in the document on
+ * each move, which is the dominant cost while merely *looking* at a drawing
+ * rather than editing it.
+ *
+ * Every prop is deliberately a stable identity for as long as it's
+ * meaningfully unchanged (a molecule object, a Set the store only replaces on
+ * real change, a ref), so the shallow compare React.memo does actually hits.
+ * That in turn lets the React.memo'd AtomView/BondView below bail out on
+ * edits that only touch one atom: model/molecule.ts rebuilds the atoms/bonds
+ * maps immutably but reuses the individual atom and bond objects it didn't
+ * touch, so an unchanged atom arrives here as the very same object.
+ */
+const MoleculeContent = memo(function MoleculeContent({
+  molecule,
+  selected,
+  showHydrogens,
+  atomLabelRevealTargets,
+  svgRef,
+  annotations,
+  selectedAnnotationIds,
+  editingTextId,
+  viewScale,
+  linkedAtomId,
+}: MoleculeContentProps) {
+  // Aromatic ring circles the person has toggled on (see
+  // AromaticRingDisplay's own doc comment) -- one memo for which bonds
+  // should skip their own double-line rendering, one for the circles
+  // themselves to draw on top. Both are derived purely from the molecule,
+  // so they belong here rather than in MoleculeCanvas: they'd only ever
+  // recompute on a real edit, and hovering shouldn't invalidate them.
+  const aromaticCircleBondIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of Object.values(molecule.aromaticRingDisplays)) {
+      for (const bid of ringBondIds(molecule, r.atomIds)) ids.add(bid);
+    }
+    return ids;
+  }, [molecule]);
+  const aromaticCircles = useMemo(
+    () =>
+      Object.values(molecule.aromaticRingDisplays)
+        .map((r) => ({ id: r.id, geometry: ringCircleGeometry(molecule, r.atomIds) }))
+        .filter((c): c is { id: string; geometry: NonNullable<ReturnType<typeof ringCircleGeometry>> } => !!c.geometry),
+    [molecule]
+  );
+
+  // Per-atom label/lone-pair geometry, hoisted out of AtomView so it doesn't
+  // have to take the whole molecule as a prop (which would be a new object on
+  // every edit, defeating its React.memo). Unchanged atoms get their previous
+  // context object back by reference, so editing one atom only re-renders
+  // that one.
+  const atomContexts = useAtomRenderContexts(molecule, showHydrogens, atomLabelRevealTargets, linkedAtomId);
+
+  return (
+    <g data-export-content="true">
+      {Object.values(molecule.bonds).map((b) => (
+        <g key={b.id} data-bond-id={b.id}>
+          <BondView
+            bond={b}
+            a1={molecule.atoms[b.a1]}
+            a2={molecule.atoms[b.a2]}
+            resolvedSide={b.order === 2 ? resolveDoubleBondSide(molecule, b) : undefined}
+            hideForAromaticCircle={aromaticCircleBondIds.has(b.id)}
+            r1={atomContexts.get(b.a1)?.labelRadius ?? 0}
+            r2={atomContexts.get(b.a2)?.labelRadius ?? 0}
+          />
+        </g>
+      ))}
+      {aromaticCircles.map(({ id, geometry }) => (
+        <circle
+          key={id}
+          cx={geometry.cx}
+          cy={geometry.cy}
+          r={geometry.r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          pointerEvents="none"
+        />
+      ))}
+      {Object.values(molecule.hapticBonds).map((hb) => (
+        <HapticBondView
+          key={hb.id}
+          metal={molecule.atoms[hb.metalAtomId]}
+          ringAtoms={hb.ringAtomIds.map((id) => molecule.atoms[id]).filter((a): a is Atom => !!a)}
+          r1={atomContexts.get(hb.metalAtomId)?.labelRadius ?? 0}
+        />
+      ))}
+      {Object.values(molecule.atoms).map((a) => {
+        const ctx = atomContexts.get(a.id);
+        if (!ctx) return null;
+        return <AtomView key={a.id} atom={a} ctx={ctx} selected={selected.has(a.id)} overValent={isOverValent(molecule, a.id)} svgRef={svgRef} />;
+      })}
+      {Object.values(annotations).map((ann) =>
+        ann.kind === "arrow" ? (
+          <ArrowAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
+        ) : ann.kind === "bracket" ? (
+          <BracketAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
+        ) : (
+          <TextAnnotationView
+            key={ann.id}
+            annotation={ann}
+            selected={selectedAnnotationIds.has(ann.id)}
+            editing={editingTextId === ann.id}
+            viewScale={viewScale}
+          />
+        )
+      )}
+    </g>
   );
 });

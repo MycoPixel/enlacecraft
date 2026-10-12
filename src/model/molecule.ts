@@ -1035,7 +1035,7 @@ function regularRingTargets(mol: Molecule, ringWalk: string[], fixed: Map<string
  * — same honest gap as an irregular bridged ring above: a full
  * constraint solver is out of scope here.
  */
-export function cleanUpAtoms(mol: Molecule, atomIds: string[]): Molecule {
+export function cleanUpAtoms(mol: Molecule, atomIds: string[], snapStep: number = Math.PI / 6): Molecule {
   const atoms = { ...mol.atoms };
 
   for (const component of connectedComponents(mol, atomIds)) {
@@ -1132,7 +1132,7 @@ export function cleanUpAtoms(mol: Molecule, atomIds: string[]): Molecule {
           // starts a brand new segment, axis taken from this bond's own
           // current direction exactly as every bond was placed before
           // zigzag alternation existed.
-          const axis = snapAngle(angleOf(curAtom, nbAtom));
+          const axis = snapAngle(angleOf(curAtom, nbAtom), snapStep);
           angle = axis;
           nextZigzag = { axis, deviation: 0, isSegmentStart: true };
         } else if (zigzag.isSegmentStart) {

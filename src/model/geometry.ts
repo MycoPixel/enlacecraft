@@ -8,8 +8,16 @@ export const angleOf = (a: Point, b: Point): number =>
   Math.atan2(b.y - a.y, b.x - a.x);
 
 /** Snap an angle (radians) to the nearest multiple of `step` (default 30°). */
+/**
+ * Rounds `rad` to the nearest multiple of `step`.
+ *
+ * A `step` of 0 (or any non-positive value) means "no snapping" and returns
+ * the angle untouched — that's what the user's "Off" snap preference maps to.
+ * Guarding here rather than at every call site means callers can pass a
+ * possibly-zero step straight through without each one re-checking it.
+ */
 export const snapAngle = (rad: number, step: number = Math.PI / 6): number =>
-  Math.round(rad / step) * step;
+  step > 0 ? Math.round(rad / step) * step : rad;
 
 /**
  * Shortest signed angular difference `to - from`, normalized to

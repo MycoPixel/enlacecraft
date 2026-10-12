@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Trash2, Copy, ClipboardPaste, CopyPlus, Plus, Minus, Zap, Palette,
+  Trash2, Copy, ClipboardPaste, CopyPlus, Combine, Plus, Minus, Zap, Palette,
   RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit, Circle, Tag,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { findCollapsibleGroups } from "../../model/groupCollapse";
 import { useT } from "../../i18n/useT";
 import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import type { BondOrder, BondStereo } from "../../types/chemistry";
@@ -56,6 +57,14 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const setBondDative = useMoleculeStore((s) => s.setBondDative);
   const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
   const duplicateSelection = useMoleculeStore((s) => s.duplicateSelection);
+  const collapseSelectionToGroups = useMoleculeStore((s) => s.collapseSelectionToGroups);
+  // Whether the collapse item should be enabled at all: matching walks the
+  // selection's graph on every render of this menu, so it's computed once
+  // here rather than left to the click handler to discover there's nothing
+  // to do (which would leave the item looking broken rather than disabled).
+  const canCollapseToGroup = useMoleculeStore((s) =>
+    s.selected.size > 0 && findCollapsibleGroups(s.molecule, { candidateIds: [...s.selected] }).length > 0
+  );
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
   const resetRotation = useMoleculeStore((s) => s.resetRotation);
   const rotationSession = useMoleculeStore((s) => s.rotationSession);
@@ -291,6 +300,14 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
               </button>
               <button className="context-menu__item" onClick={() => { cleanUpSelection(); close(); }}>
                 <Wand2 size={15} /> {t("tool.cleanUpLabel")}
+              </button>
+              <button
+                className="context-menu__item"
+                disabled={!canCollapseToGroup}
+                title={canCollapseToGroup ? undefined : t("contextMenu.collapseNoMatch")}
+                onClick={() => { collapseSelectionToGroups(); close(); }}
+              >
+                <Combine size={15} /> {t("contextMenu.collapseToGroup")}
               </button>
               <button className="context-menu__item" onClick={() => { addChargeBracket(selected); close(); }}>
                 <Brackets size={15} /> {t("contextMenu.addChargeBracket")}

@@ -44,13 +44,17 @@ export function computeChainPoints(
   fromAtomId: string,
   fromPoint: Point,
   toPoint: Point,
-  snapMainAngle: boolean = false
+  snapMainAngle: boolean = false,
+  // Snap step in radians for the backbone's main angle; 0 means "don't
+  // snap". Threaded in (rather than read from the store) to keep this module
+  // pure — the caller passes the user's snap-angle preference.
+  snapStep: number = Math.PI / 12
 ): Point[] {
   const d = dist(fromPoint, toPoint);
   if (d <= DRAG_THRESHOLD) return [];
 
   let mainAngle = angleOf(fromPoint, toPoint);
-  if (snapMainAngle) mainAngle = snapAngle(mainAngle, Math.PI / 12);
+  if (snapMainAngle) mainAngle = snapAngle(mainAngle, snapStep);
   const numSegments = Math.max(1, Math.round(d / STEP));
 
   // Which side the zig-zag starts on: whichever of the two candidate first

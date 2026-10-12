@@ -113,8 +113,74 @@ export function exportMol(mol: Molecule, name = "molecule"): string {
     out += `${String(orderCode).padStart(3)}${String(stereoCode).padStart(3)}  0  0  0\n`;
   }
 
+  // --- Optional properties -----------------------------------------
+  // Written between the bond block and M  END, in the order a CTfile
+  // reader expects (any order is legal, but grouping them keeps diffs of
+  // two exports of the same molecule readable).
+
+  // Atom map numbers, as "M  MAP": a count then 3-char (atom index, map
+  // number) pairs. This is the legacy V2000 carrier for reaction atom
+  // mapping. Worth being precise about its limits: the current BIOVIA spec
+  // documents atom-atom mapping as a V3000 atom-block field (aamap), and
+  // this M  MAP line is a widely-honoured-but-technically-V2000-era
+  // convention — RDKit, for one, reads it but writes V3000. It is written
+  // here because it's what most V2000 tooling in the wild understands, and
+  // because our own importer reads it back, so an EnlaceCraft -> molfile ->
+  // EnlaceCraft round trip preserves the numbers exactly.
+  const mappedAtoms = atomIds
+    .map((id, i) => ({ index: i + 1, mapNumber: mol.atoms[id].mapNumber }))
+    .filter((a): a is { index: number; mapNumber: number } => typeof a.mapNumber === "number");
+  if (mappedAtoms.length > 0) {
+    out += `M  MAP${String(mappedAtoms.length).padStart(3)}`;
+    for (const { index, mapNumber } of mappedAtoms) {
+      out += `${String(index).padStart(3)}${String(mapNumber).padStart(3)}`;
+    }
+    out += "\n";
+  }
+
+  // Highlight colors, as "M  HIG" + "M  HCOL". HIG lists each highlighted
+  // atom with a color index; HCOL defines what each index means. Same
+  // caveat as M  MAP: highlighting is formally a V3000 collection block
+  // (MDLV30/HILITE), and these two V2000 lines are the legacy carrier that
+  // a fair amount of tooling still understands. Imported back below so the
+  // round trip is lossless within this app.
+  const highlightedAtoms = atomIds
+    .map((id, i) => ({ index: i + 1, color: mol.atoms[id].highlightColor }))
+    .filter((a): a is { index: number; color: string } => typeof a.color === "string" && !!a.color);
+  if (highlightedAtoms.length > 0) {
+    // Distinct colors in first-use order; HIG refers to them by 1-based
+    // index into this list.
+    const palette: string[] = [];
+    for (const { color } of highlightedAtoms) {
+      if (!palette.includes(color)) palette.push(color);
+    }
+    out += `M  HIG${String(highlightedAtoms.length).padStart(3)}`;
+    for (const { index, color } of highlightedAtoms) {
+      out += `${String(index).padStart(3)}${String(palette.indexOf(color) + 1).padStart(3)}`;
+    }
+    out += "\n";
+    out += `M  HCOL${String(palette.length).padStart(3)}`;
+    for (const color of palette) {
+      const { r, g, b } = hexToRgb(color);
+      out += `${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+    }
+    out += "\n";
+  }
+
   out += "M  END\n";
   return out;
+}
+
+/** "#rrggbb" -> integer components. Tolerates a missing leading # and
+ * short hex; returns black for anything unparseable rather than throwing,
+ * since a highlight color is decoration and shouldn't be able to fail an
+ * export. */
+function hexToRgb(color: string): { r: number; g: number; b: number } {
+  const hex = color.replace(/^#/, "");
+  const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+  const n = parseInt(full.slice(0, 6), 16);
+  if (!Number.isFinite(n)) return { r: 0, g: 0, b: 0 };
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
 }
 
 export function importMol(text: string): Molecule {
@@ -257,6 +323,69 @@ export function importMol(text: string): Molecule {
         mol.atoms[atomId] = { ...mol.atoms[atomId], charge: chargeValue };
       }
     }
+  }
+
+  // Atom map numbers ("M  MAP") and highlight colors ("M  HIG" + "M  HCOL"),
+  // matching what exportMol writes. Both are collected first and applied
+  // after the property scan, because HCOL defines the palette that HIG
+  // indexes into and is therefore free to appear on either side of it in a
+  // third-party file — resolving as we go would break that ordering.
+  const mapNumbers: { atomId: string; mapNumber: number }[] = [];
+  const highlights: { atomId: string; colorIndex: number }[] = [];
+  let highlightPalette: string[] = [];
+
+  for (let i = 4 + natoms + nbonds; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || line.startsWith("M  END")) break;
+
+    if (line.startsWith("M  MAP")) {
+      const count = parseInt(line.slice(6, 9), 10) || 0;
+      for (let k = 0; k < count; k++) {
+        const base = 9 + k * 6;
+        const atomIndex = parseInt(line.slice(base, base + 3), 10);
+        const mapNumber = parseInt(line.slice(base + 3, base + 6), 10);
+        const atomId = ids[atomIndex - 1];
+        if (atomId && mol.atoms[atomId] && Number.isFinite(mapNumber)) {
+          mapNumbers.push({ atomId, mapNumber });
+        }
+      }
+    } else if (line.startsWith("M  HIG")) {
+      const count = parseInt(line.slice(6, 9), 10) || 0;
+      for (let k = 0; k < count; k++) {
+        const base = 9 + k * 6;
+        const atomIndex = parseInt(line.slice(base, base + 3), 10);
+        const colorIndex = parseInt(line.slice(base + 3, base + 6), 10);
+        const atomId = ids[atomIndex - 1];
+        if (atomId && mol.atoms[atomId] && Number.isFinite(colorIndex)) {
+          highlights.push({ atomId, colorIndex });
+        }
+      }
+    } else if (line.startsWith("M  HCOL")) {
+      // "M  HCOL" is seven characters, one longer than the other property
+      // keywords, so its count field starts at column 7 rather than 6.
+      const count = parseInt(line.slice(7, 10), 10) || 0;
+      highlightPalette = [];
+      for (let k = 0; k < count; k++) {
+        const hex = line.slice(10 + k * 6, 10 + (k + 1) * 6).trim();
+        if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+          highlightPalette.push(`#${hex.toLowerCase()}`);
+        } else {
+          // Keep indices aligned with what HIG references rather than
+          // shifting every later color by one.
+          highlightPalette.push("#000000");
+        }
+      }
+    }
+  }
+
+  for (const { atomId, mapNumber } of mapNumbers) {
+    if (mol.atoms[atomId]) mol.atoms[atomId] = { ...mol.atoms[atomId], mapNumber };
+  }
+  for (const { atomId, colorIndex } of highlights) {
+    const color = highlightPalette[colorIndex - 1];
+    // A HIG entry with no matching HCOL definition can't be colored; leave
+    // the atom alone rather than inventing black.
+    if (color && mol.atoms[atomId]) mol.atoms[atomId] = { ...mol.atoms[atomId], highlightColor: color };
   }
 
   // Many real-world MOL/SDF files — including PubChem's — list every hydrogen
