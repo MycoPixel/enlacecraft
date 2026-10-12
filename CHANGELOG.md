@@ -5,7 +5,7 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
-## Unreleased
+## 1.11.0
 
 A release about looking at structures rather than just drawing them: the 3D
 view gets representations, imported files and a link back to the 2D canvas,
