@@ -20,6 +20,7 @@ const distIndexUrl = pathToFileURL(path.join(electronDir, "..", "dist", "index.h
 const EXPECTED_CHANNELS = [
   "dialog:open-file",
   "dialog:save-project",
+  "dialog:save-project-to",
   "iupac-fallback-server:get-status",
   "nmr-server:get-status",
   "structure3d-server:get-status",
@@ -274,7 +275,10 @@ describe("IPC sender validation", () => {
 
   test.each(EXPECTED_CHANNELS)("%s rejects untrusted senders, sub-frames and missing frames", async (channel) => {
     const ctx = await load();
-    const args = channel === "dialog:save-project" ? [{ defaultName: "x", content: "{}" }] : [];
+    const args =
+      channel === "dialog:save-project" ? [{ defaultName: "x", content: "{}" }]
+      : channel === "dialog:save-project-to" ? [{ content: "{}" }]
+      : [];
     await expect(invoke(ctx, channel, frame("https://evil.example/"), ...args)).rejects.toThrow(/untrusted/i);
     await expect(invoke(ctx, channel, frame("file:///etc/hostile.html"), ...args)).rejects.toThrow(/untrusted/i);
     await expect(invoke(ctx, channel, frame(distIndexUrl, { some: "parent" }), ...args)).rejects.toThrow(/untrusted/i);
@@ -332,13 +336,72 @@ describe("dialog:save-project", () => {
   });
 });
 
+describe("dialog:save-project-to (plain Save)", () => {
+  test("reports hasTarget:false before anything has been saved, so the renderer falls back to Save As", async () => {
+    const ctx = await load();
+    const r = await invoke(ctx, "dialog:save-project-to", frame(distIndexUrl), { content: "{}" });
+    expect(r).toEqual({ hasTarget: false });
+    // Crucially, no dialog was shown and nothing was written.
+    expect(ctx.state.dialogs.save).toBeNull();
+  });
+
+  test("a renderer-supplied filePath is ignored — the destination is the main process's own record", async () => {
+    const ctx = await load();
+    // Establish a legitimate target through a real Save As dialog...
+    const target = path.join(ctx.userData, "real.enlacecraft");
+    ctx.state.dialogs.save = { canceled: false, filePath: target };
+    await invoke(ctx, "dialog:save-project", frame(distIndexUrl), { defaultName: "real", content: "{}" });
+
+    // ...then try to redirect a later plain Save somewhere else entirely.
+    const r = await invoke(ctx, "dialog:save-project-to", frame(distIndexUrl), {
+      content: "{}",
+      filePath: path.join(ctx.userData, "somewhere-else.enlacecraft"),
+    });
+    expect(r).toMatchObject({ hasTarget: true, filePath: target });
+    expect(await fsp.readFile(target, "utf-8")).toBe("{}");
+    // And nothing was created at the path the renderer asked for.
+    await expect(fsp.stat(path.join(ctx.userData, "somewhere-else.enlacecraft"))).rejects.toThrow();
+  });
+
+  test("a plain Save overwrites the remembered file with no dialog", async () => {
+    const ctx = await load();
+    const target = path.join(ctx.userData, "work.enlacecraft");
+    await fsp.writeFile(target, "old contents");
+    ctx.state.dialogs.save = { canceled: false, filePath: target };
+    await invoke(ctx, "dialog:save-project", frame(distIndexUrl), { defaultName: "work", content: "first" });
+
+    const r = await invoke(ctx, "dialog:save-project-to", frame(distIndexUrl), { content: "second" });
+    expect(r).toMatchObject({ hasTarget: true, canceled: false, filePath: target });
+    expect(await fsp.readFile(target, "utf-8")).toBe("second");
+    expect(ctx.state.dialogs.save).not.toBeNull(); // the dialog object is untouched; none was shown
+  });
+
+  test("rejects a non-string body before touching the filesystem", async () => {
+    const ctx = await load();
+    const target = path.join(ctx.userData, "work.enlacecraft");
+    ctx.state.dialogs.save = { canceled: false, filePath: target };
+    await invoke(ctx, "dialog:save-project", frame(distIndexUrl), { defaultName: "work", content: "first" });
+
+    const r = await invoke(ctx, "dialog:save-project-to", frame(distIndexUrl), { content: 42 });
+    expect(r).toMatchObject({ canceled: false, error: expect.any(String) });
+    expect(await fsp.readFile(target, "utf-8")).toBe("first"); // unchanged
+  });
+});
+
 describe("dialog:open-file", () => {
   test("returns the content and name of a supported file", async () => {
     const ctx = await load();
     const file = path.join(ctx.userData, "benzene.mol");
     await fsp.writeFile(file, "molblock");
     ctx.state.dialogs.open = { canceled: false, filePaths: [file] };
-    expect(await invoke(ctx, "dialog:open-file", frame(distIndexUrl))).toEqual({ canceled: false, fileName: "benzene.mol", content: "molblock" });
+    // filePath comes back so the renderer can display where the open document
+    // came from, and so Save-after-Open has a destination to match.
+    expect(await invoke(ctx, "dialog:open-file", frame(distIndexUrl))).toEqual({
+      canceled: false,
+      fileName: "benzene.mol",
+      content: "molblock",
+      filePath: file,
+    });
   });
 
   test("refuses unsupported types and oversized files with an error result", async () => {

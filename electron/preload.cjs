@@ -43,5 +43,12 @@ contextBridge.exposeInMainWorld("electron", {
   // See electron/main.cjs's "dialog:save-project" / "dialog:open-file"
   // handlers, and src/types/electron.d.ts for the return shapes.
   saveProjectFile: (defaultName, content) => ipcRenderer.invoke("dialog:save-project", { defaultName, content }),
+  // Plain "Save" - writes to the file already chosen this session, no
+  // dialog. Takes no path: the main process only ever writes to a path it
+  // previously handed out itself, so a compromised renderer can't turn this
+  // into an arbitrary-file-write primitive. Resolves
+  // { hasTarget: false } when nothing has been saved or opened yet, which
+  // the renderer treats as "fall back to Save As".
+  saveProjectFileToCurrent: (content) => ipcRenderer.invoke("dialog:save-project-to", { content }),
   openFile: () => ipcRenderer.invoke("dialog:open-file"),
 });

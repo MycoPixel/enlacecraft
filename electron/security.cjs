@@ -142,6 +142,65 @@ function validateSaveRequest(payload) {
   return { ok: true, defaultName: sanitizeSaveName(defaultName), content };
 }
 
+/** Validates the payload of the "dialog:save-project-to" IPC call — a save
+ * to an already-chosen path, with no dialog (see createProjectSaveTarget).
+ * Note that `filePath` is deliberately NOT read here: the main process
+ * ignores whatever the renderer sends and uses the path it previously handed
+ * out itself. Validating it would only create the impression that the value
+ * is honoured. */
+function validateSaveToRequest(payload) {
+  if (!payload || typeof payload !== "object") return { ok: false, error: "Invalid save request" };
+  const { content } = payload;
+  if (typeof content !== "string") return { ok: false, error: "Invalid save request" };
+  if (Buffer.byteLength(content, "utf-8") > MAX_FILE_BYTES) {
+    return { ok: false, error: "Project is too large to save (limit: 25 MB)" };
+  }
+  return { ok: true, content };
+}
+
+/**
+ * Tracks the project file the user has already chosen, so a plain "Save" can
+ * write back to it without re-prompting.
+ *
+ * WHY THIS IS STATEFUL RATHER THAN "THE RENDERER SENDS A PATH"
+ * -----------------------------------------------------------
+ * A save dialog is user consent: the path comes from the person, through the
+ * OS. If the renderer could just name a path, a compromised renderer would
+ * have an arbitrary-file-write primitive — it could overwrite anything the
+ * user can write, with no prompt at all. So the main process remembers only
+ * paths it handed out itself, from a dialog or from Open, and refuses
+ * everything else. The renderer's idea of the current path is display-only
+ * and is never used to choose where bytes land.
+ *
+ * Deliberately NOT persisted across restarts: a remembered path from a
+ * previous session would let a plain Save overwrite a file the user may not
+ * remember opening. Every session starts needing a Save As once.
+ *
+ * Only .enlacecraft paths are ever recorded. Opening a .mol or .cdxml and
+ * pressing Save must start a Save As rather than overwrite the file that was
+ * opened, which is a different format and would destroy it.
+ */
+function createProjectSaveTarget() {
+  let current = null;
+  return {
+    /** Record a path the user just chose through a dialog or Open. */
+    remember(filePath) {
+      if (typeof filePath === "string" && filePath.toLowerCase().endsWith(PROJECT_EXTENSION)) {
+        current = filePath;
+      }
+      return current;
+    },
+    /** The remembered path, or null if none this session. */
+    get() {
+      return current;
+    },
+    /** Forget it — used when a new unsaved document replaces the old one. */
+    clear() {
+      current = null;
+    },
+  };
+}
+
 function isOpenableFile(filePath) {
   return OPENABLE_EXTENSIONS.has(path.extname(String(filePath)).toLowerCase());
 }
@@ -207,6 +266,8 @@ module.exports = {
   sanitizeSaveName,
   ensureProjectExtension,
   validateSaveRequest,
+  validateSaveToRequest,
+  createProjectSaveTarget,
   isOpenableFile,
   writeFileAtomic,
   readOpenableFile,

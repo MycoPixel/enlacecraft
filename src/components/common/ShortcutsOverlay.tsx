@@ -50,6 +50,8 @@ const GROUPS: ShortcutGroup[] = [
       { keys: "Ctrl/Cmd + Shift + Z", descKey: "shortcuts.redo" },
       { keys: "Ctrl/Cmd + A", descKey: "shortcuts.selectAll" },
       { keys: "Ctrl/Cmd + D", descKey: "shortcuts.duplicate" },
+      { keys: "Ctrl/Cmd + S", descKey: "shortcuts.save" },
+      { keys: "Ctrl/Cmd + Shift + S", descKey: "shortcuts.saveAs" },
       { keys: "Ctrl/Cmd + C / V", descKey: "shortcuts.copyPaste" },
       { keys: "Escape", descKey: "shortcuts.clearSelection" },
       { keys: "[ / ]", descKey: "shortcuts.rotate30" },

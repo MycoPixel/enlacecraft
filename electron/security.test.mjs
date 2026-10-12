@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const security = require("./security.cjs");
+const { createProjectSaveTarget, validateSaveToRequest } = security;
 
 describe("isSafeExternalUrl", () => {
   test.each([
@@ -228,5 +229,90 @@ describe("file IO helpers (real temp dir)", () => {
     await fsp.writeFile(log, "small");
     security.rotateLogIfNeeded(fs, log, 1000);
     expect((await fsp.readdir(dir)).sort()).toEqual(["app.log", "app.old.log"]);
+  });
+});
+
+describe("createProjectSaveTarget", () => {
+  test("starts with no destination, so a first Save falls back to Save As", () => {
+    expect(createProjectSaveTarget().get()).toBeNull();
+  });
+
+  test("remembers a path the user chose, and returns it for later Saves", () => {
+    const t = createProjectSaveTarget();
+    t.remember("/home/u/notes/molecule.enlacecraft");
+    expect(t.get()).toBe("/home/u/notes/molecule.enlacecraft");
+  });
+
+  test("ignores non-.enlacecraft paths so a plain Save can never clobber one", () => {
+    // Opening a .mol and pressing Save must not overwrite that .mol: it is a
+    // different format and writing a project over it would destroy it.
+    const t = createProjectSaveTarget();
+    t.remember("/home/u/notes/important.mol");
+    expect(t.get()).toBeNull();
+    t.remember("/home/u/notes/chem.drawing.cdxml");
+    expect(t.get()).toBeNull();
+  });
+
+  test("is case-insensitive about the extension", () => {
+    const t = createProjectSaveTarget();
+    t.remember("/home/u/Molecule.ENLACECRAFT");
+    expect(t.get()).toBe("/home/u/Molecule.ENLACECRAFT");
+  });
+
+  test("ignores non-strings rather than storing them", () => {
+    const t = createProjectSaveTarget();
+    t.remember(123);
+    t.remember(null);
+    t.remember(undefined);
+    t.remember({ toString: () => "/evil/path.enlacecraft" });
+    expect(t.get()).toBeNull();
+  });
+
+  test("a later remember replaces the earlier one, as Save As should", () => {
+    const t = createProjectSaveTarget();
+    t.remember("/a/one.enlacecraft");
+    t.remember("/b/two.enlacecraft");
+    expect(t.get()).toBe("/b/two.enlacecraft");
+  });
+
+  test("clear() forgets the destination", () => {
+    const t = createProjectSaveTarget();
+    t.remember("/a/one.enlacecraft");
+    t.clear();
+    expect(t.get()).toBeNull();
+  });
+
+  test("targets are independent instances, so no state leaks between them", () => {
+    const a = createProjectSaveTarget();
+    const b = createProjectSaveTarget();
+    a.remember("/a/one.enlacecraft");
+    expect(b.get()).toBeNull();
+  });
+});
+
+describe("validateSaveToRequest", () => {
+  test("accepts a string payload", () => {
+    expect(validateSaveToRequest({ content: "{}" }).ok).toBe(true);
+  });
+
+  test("rejects a missing or non-string body", () => {
+    expect(validateSaveToRequest({}).ok).toBe(false);
+    expect(validateSaveToRequest({ content: 42 }).ok).toBe(false);
+    expect(validateSaveToRequest(null).ok).toBe(false);
+  });
+
+  test("enforces the same size limit as the dialog-based save", () => {
+    const big = "x".repeat(26 * 1024 * 1024);
+    expect(validateSaveToRequest({ content: big }).ok).toBe(false);
+  });
+
+  test("does not accept a renderer-supplied path at all", () => {
+    // The whole point of the capability design: the main process ignores
+    // whatever path arrives in the payload and uses its own record. A test
+    // that passes today must keep passing if someone later "helpfully"
+    // starts honouring this field.
+    const result = validateSaveToRequest({ content: "{}", filePath: "/etc/passwd" });
+    expect(result.ok).toBe(true);
+    expect("filePath" in result).toBe(false);
   });
 });

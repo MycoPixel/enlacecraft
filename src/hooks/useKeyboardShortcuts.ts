@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import type { Element } from "../types/chemistry";
+import { runProjectSave } from "../io/projectSaver";
 
 /**
  * Keyboard shortcuts (desktop):
@@ -14,6 +15,7 @@ import type { Element } from "../types/chemistry";
  *   condensed formula (CH3, COOH), or a placeholder label (R, R1, R')
  *   Ctrl/Cmd+Z = undo   Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y = redo
  *   Ctrl/Cmd+A = select all   Ctrl/Cmd+D = duplicate selection
+ *   Ctrl/Cmd+S = save project   Ctrl/Cmd+Shift+S = save project as
  *   Escape = clear selection / cancel atom or label edit
  *   Delete / Backspace = delete selection (or selected annotation)
  *
@@ -136,6 +138,14 @@ export function useKeyboardShortcuts() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
         selectAll();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        // Ctrl/Cmd+Shift+S is Save As. Checked first because the plain case
+        // below matches the same key with shift held (e.key is still "s"),
+        // so the order of these two decides which one fires.
+        e.preventDefault();
+        void runProjectSave(e.shiftKey);
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {

@@ -12,6 +12,54 @@ view gets representations, imported files and a link back to the 2D canvas,
 drawn groups can collapse back into abbreviations, and the canvas stops
 redrawing itself every time the mouse moves.
 
+### Save and Save As
+
+Saving a project used to mean a file dialog every time, and on a machine that
+asks before overwriting, a confirm click on top of that. There are now two
+commands, as in any program that edits files:
+
+- **Save** (`Ctrl+S` / `Cmd+S`) overwrites the file this project was last
+  saved to or opened from, with no dialog and no confirmation.
+- **Save As…** (`Ctrl+Shift+S` / `Cmd+Shift+S`) always asks, and takes over as
+  the destination for later Saves.
+
+The Export menu's single "Save project" entry is split into both, and once a
+file has been chosen its name is shown under the Save item, so you can see
+where Save is going before you press it. The first Save of a session on a
+new project asks where to put it, as it always did.
+
+Opening a project makes it the save target, so Save overwrites the file you
+just opened. Opening a `.mol` or `.cdxml` **clears** it instead — those are
+different formats, and writing a project over the `.mol` you opened would
+destroy it. After opening a `.mol`, Save behaves like Save As.
+
+The remembered file is deliberately **not** kept across restarts. Each launch
+starts untitled, so a plain Save can never quietly overwrite a file from
+last week that you'd forgotten you had open.
+
+Autosave is unchanged and still runs independently: it protects work you
+haven't explicitly saved, while Save writes the file you chose.
+
+In the browser, Chromium builds get the same silent Save through the File
+System Access API. Firefox and Safari don't support it, so there Save falls
+back to a normal download — the file is written, but the browser still
+prompts and no destination is remembered, so the next Save asks again. That
+is honest about what happened rather than reporting a silent save it didn't
+perform.
+
+#### How the desktop build knows where to write
+
+The renderer is not allowed to name a save destination. A save dialog is user
+consent — the path comes from the person, through the OS — so if the app
+simply passed a path through, a compromised renderer would have an
+arbitrary-file-write primitive: it could overwrite anything the user can
+write, with no prompt at all.
+
+Instead the main process remembers only paths it handed out itself, from a
+Save As dialog or from Open, and refuses everything else. A Save As therefore
+asks every time, exactly as before, and only a path the user already chose
+can be written without asking again.
+
 ### Drawing stops re-rendering the whole molecule on every mouse move
 
 Moving the cursor across the canvas re-rendered every atom and every bond in
@@ -99,21 +147,31 @@ left oxygen red.
 
 ### New conformer
 
-Conformer generation was seeded, and always with the same seed, so a structure
-produced exactly one geometry — and the one you happened to get first was the
-only one you would ever see. For a molecule with real rotational freedom that
-means never seeing an alternative rotamer, which is the entire reason to look
-at it in 3D.
+A structure used to be generated exactly one way, so a molecule with real
+rotational freedom only ever showed one arrangement — and you could never see
+an alternative rotamer, which is the main reason to look at something in 3D
+at all. A shuffle button beside the style picker now walks to the next
+distinct conformer: the most likely arrangement first, then the next, and so
+on. Each press is a genuinely different geometry, not a re-roll that happens
+to land somewhere similar.
 
-A shuffle button beside the style picker re-rolls the seed and generates a
-different collision-free conformer. The seed is deliberately not remembered
-between sessions: a stale one would silently make your first structure of the
-session differ from the last one you saw, for no reason you could explain.
+Once a structure runs out of distinct arrangements the button disables itself
+and says so, rather than silently doing nothing. It's unavailable for an
+imported structure, which has its own geometry.
 
-The seed is a genuine parameter of the generation, threaded through all three
-methods including the starting geometry handed to GFN2-xTB — it previously
-accepted a seed but never passed it on, so this button would have kept
-regenerating the same structure regardless.
+Getting this right took two attempts. The underlying library offers both a
+one-shot "give me one conformer" call and a two-step "initialise, then give me
+the next new one" API, and the seed argument to the first is **not** a
+conformer index. Measured across ten seeds, butane through decane all came
+back as the identical geometry every time — so a first version of this button,
+which varied that seed, did nothing at all for exactly the molecules it was
+built for. The fix walks the proper API, and the tests measure the structures
+rather than trusting that a different argument implies a different answer.
+
+Note this is a resampling of plausible arrangements, not an exhaustive
+conformational search: it shows you low-energy shapes, not every one the
+molecule could theoretically adopt. The torsion-scan tool in the rotate-bond
+panel remains the systematic way to sweep a specific bond through a full turn.
 
 ### Selecting an atom in 3D selects it in 2D
 
@@ -157,6 +215,26 @@ carbon from coming in as calcium.
 An imported structure isn't derived from your drawing, so editing the 2D
 canvas no longer silently replaces it. A banner says which file is on screen,
 with a button to go back to the generated structure.
+
+**The method buttons then re-refine the imported structure** rather than
+switching off. With a drawing behind them those three choose how the drawing
+becomes 3D; with an imported file there's no drawing to embed, so they relax
+the coordinates the file brought instead. That is usually the reason you'd
+import a structure in the first place — Quick leaves it untouched, Force field
+relaxes it locally, and High accuracy gives a proper GFN2-xTB optimisation,
+which is the single most useful thing to do with a structure you got from a
+database.
+
+Connectivity is read back out of the imported file rather than rebuilt, so
+bonds and bond orders survive; a missing metal or other parameterless atom
+gives a readable message pointing at xTB rather than a library error.
+Hydrogen is added first when the file has none — most skeletal `.mol` files
+don't, and a force field has nothing to do with an atom whose valence is
+unfilled. Without that, the identical molecule would refine when drawn and
+fail when imported.
+
+Note that xTB refinement of an import needs the local backend running and
+takes seconds; the other two are instant.
 
 ### Atom map numbers and highlights now survive a molfile round trip
 

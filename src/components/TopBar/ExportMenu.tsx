@@ -14,6 +14,10 @@ interface ExportMenuProps {
   onCDXML: () => void;
   onSmiles: () => void;
   onSaveProject: () => void;
+  onSaveProjectAs: () => void;
+  /** File this project was last saved to, shown next to the Save entry so
+   * it's visible where a plain Save is going before it's pressed. */
+  projectFileName: string | null;
 }
 
 /**
@@ -27,7 +31,7 @@ interface ExportMenuProps {
  * button's own bounding rect sidesteps that entirely — it's never inside any
  * scrolling/clipping ancestor.
  */
-export function ExportMenu({ onPNG, onSVG, onPrint, onMOL, onCDXML, onSmiles, onSaveProject }: ExportMenuProps) {
+export function ExportMenu({ onPNG, onSVG, onPrint, onMOL, onCDXML, onSmiles, onSaveProject, onSaveProjectAs, projectFileName }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [background, setBackground] = useState<ExportBackground>("transparent");
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
@@ -73,7 +77,20 @@ export function ExportMenu({ onPNG, onSVG, onPrint, onMOL, onCDXML, onSmiles, on
       {open && coords &&
         createPortal(
           <div className="export-dropdown" ref={dropdownRef} style={{ top: coords.top, right: coords.right }}>
-            <button className="export-dropdown__item export-dropdown__item--primary" onClick={() => { onSaveProject(); setOpen(false); }}>{t("tool.saveProject")}</button>
+            {/* Save overwrites the file named here with no dialog; Save As
+                always asks. Shown only once something has been chosen —
+                before that, Save and Save As do exactly the same thing. */}
+            <button
+              className="export-dropdown__item export-dropdown__item--primary"
+              onClick={() => { onSaveProject(); setOpen(false); }}
+              title={projectFileName ? t("tool.saveProjectTo", { name: projectFileName }) : undefined}
+            >
+              {t("tool.save")}
+              {projectFileName && <span className="export-dropdown__item-detail">{projectFileName}</span>}
+            </button>
+            <button className="export-dropdown__item" onClick={() => { onSaveProjectAs(); setOpen(false); }}>
+              {t("tool.saveAs")}
+            </button>
             <div className="export-dropdown__divider" />
             <div className="export-dropdown__section-label">{t("tool.exportBackground")}</div>
             <div className="export-bg-picker" role="radiogroup" aria-label={t("tool.exportBackground")}>

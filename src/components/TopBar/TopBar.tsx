@@ -19,7 +19,7 @@ import { printMolecule } from "../../io/printExport";
 import { exportMol } from "../../io/molfile";
 import { exportCdxml } from "../../io/cdxml";
 import { exportSmiles } from "../../io/smiles";
-import { exportProject, PROJECT_FILE_EXTENSION } from "../../io/project";
+import { runProjectSave } from "../../io/projectSaver";
 import { downloadBlob } from "../../io/exportImage";
 import { useFileImport } from "../../hooks/useFileImport";
 import { LIMITS } from "../../io/validate";
@@ -44,7 +44,9 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const redo = useMoleculeStore((s) => s.redo);
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
-  const markProjectSaved = useMoleculeStore((s) => s.markProjectSaved);
+  // Display only — the actual save (and the dirty flag) is owned by
+  // runProjectSave, which the menu and the shortcut both call.
+  const projectFileName = useMoleculeStore((s) => s.projectFileName);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
@@ -138,26 +140,10 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     }
   };
 
-  const doSaveProject = async () => {
-    const store = useMoleculeStore.getState();
-    const json = exportProject({ activeTabId: store.activeTabId, tabs: store.getAllTabsForSave() });
-    // Desktop build: a real "Save As" dialog, written straight to disk by
-    // the main process (see electron/main.cjs) — otherwise fall through to
-    // the web build's browser-download behavior below.
-    if (window.electron) {
-      const result = await window.electron.saveProjectFile(`molecule${PROJECT_FILE_EXTENSION}`, json);
-      if (result.canceled) return;
-      if (result.error) {
-        setStatus(t("status.projectSaveError", { error: result.error }));
-        return;
-      }
-      markProjectSaved();
-      setStatus(t("status.projectSaved", { path: result.filePath ?? "" }));
-      return;
-    }
-    downloadBlob(new Blob([json], { type: "application/json" }), `molecule${PROJECT_FILE_EXTENSION}`);
-    markProjectSaved();
-  };
+  // Both delegate to runProjectSave so the menu and the Ctrl+S shortcut can't
+  // drift apart; see projectSaver.ts's doc comment.
+  const doSaveProject = () => { void runProjectSave(false); };
+  const doSaveProjectAs = () => { void runProjectSave(true); };
 
   const doImportFile = (file: File) => {
     if (file.size > LIMITS.maxFileChars) {
@@ -182,7 +168,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
         setStatus(t("status.openFileError", { error: result.error }));
         return;
       }
-      importFileContent(result.fileName ?? "", result.content ?? "");
+      importFileContent(result.fileName ?? "", result.content ?? "", result.filePath);
       return;
     }
     fileInputRef.current?.click();
@@ -222,7 +208,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
         <ToolButton title={t("tool.import")} onClick={doOpen}>
           <Upload size={18} />
         </ToolButton>
-        <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onPrint={doExportPrint} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} />
+        <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onPrint={doExportPrint} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} onSaveProjectAs={doSaveProjectAs} projectFileName={projectFileName} />
         <ToolButton title={t("tool.versionHistory")} onClick={onOpenVersionHistory}>
           <History size={18} />
         </ToolButton>

@@ -235,6 +235,12 @@ handleTrusted("updater:quit-and-install", () => updater.quitAndInstall());
 // stripped of path parts), the chosen path always ends in .enlacecraft, and
 // the write goes through a temp file + rename so a crash mid-save can't
 // leave a truncated project where the previous good one was.
+// The project file the user has already chosen this session, so a plain
+// "Save" can write back to it without re-prompting — see
+// security.createProjectSaveTarget's doc comment for why the renderer is not
+// allowed to name this path itself.
+const projectSaveTarget = security.createProjectSaveTarget();
+
 handleTrusted("dialog:save-project", async (event, payload) => {
   const request = security.validateSaveRequest(payload);
   if (!request.ok) return { canceled: false, error: request.error };
@@ -248,9 +254,27 @@ handleTrusted("dialog:save-project", async (event, payload) => {
   const target = security.ensureProjectExtension(filePath);
   try {
     await security.writeFileAtomic(fs, target, request.content);
+    projectSaveTarget.remember(target);
     return { canceled: false, filePath: target };
   } catch (err) {
     return { canceled: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
+// Plain "Save": writes to the path already chosen this session, with no
+// dialog. `hasTarget: false` is a normal outcome, not an error — it means the
+// project has never been saved and the renderer should fall back to Save As.
+// No path is accepted from the renderer here; see createProjectSaveTarget.
+handleTrusted("dialog:save-project-to", async (event, payload) => {
+  const request = security.validateSaveToRequest(payload);
+  if (!request.ok) return { canceled: false, error: request.error };
+  const target = projectSaveTarget.get();
+  if (!target) return { hasTarget: false };
+  try {
+    await security.writeFileAtomic(fs, target, request.content);
+    return { hasTarget: true, canceled: false, filePath: target };
+  } catch (err) {
+    return { hasTarget: true, canceled: false, filePath: target, error: err instanceof Error ? err.message : String(err) };
   }
 });
 
@@ -279,7 +303,13 @@ handleTrusted("dialog:open-file", async (event) => {
   if (canceled || filePaths.length === 0) return { canceled: true };
   try {
     const { fileName, content } = await security.readOpenableFile(fs, filePaths[0]);
-    return { canceled: false, fileName, content };
+    // Remembered so a later plain "Save" writes back to the file that was
+    // just opened, which is what every editor does. createProjectSaveTarget
+    // only accepts .enlacecraft, so opening a .mol or .cdxml leaves the save
+    // target alone and Save will prompt for a new project file instead of
+    // overwriting the imported one.
+    projectSaveTarget.remember(filePaths[0]);
+    return { canceled: false, fileName, content, filePath: filePaths[0] };
   } catch (err) {
     return { canceled: false, error: err instanceof Error ? err.message : String(err) };
   }

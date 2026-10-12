@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { addAtom, emptyMolecule } from "../model/molecule";
+
+// runProjectSave is mocked rather than exercised for real: it reaches into
+// the store and the filesystem bridges, and what these tests care about is
+// only which branch the shortcut selects.
+const savedWithDialog: boolean[] = [];
+vi.mock("../io/projectSaver", () => ({
+  runProjectSave: async (forceDialog: boolean) => {
+    savedWithDialog.push(forceDialog);
+  },
+}));
 
 /**
  * Covers the specific priority interactions that make b and l worth
@@ -42,6 +52,7 @@ function oneAtomMoleculeWithHover(): string {
 }
 
 beforeEach(() => {
+  savedWithDialog.length = 0;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -172,5 +183,46 @@ describe("useKeyboardShortcuts - duplicate", () => {
     // targeted; here an atom is hovered, so the element path wins and finds
     // no match for "d".)
     expect(useMoleculeStore.getState().molecule.atoms[atomId].element).toBe("C");
+  });
+});
+
+describe("useKeyboardShortcuts - project save", () => {
+  function pressWith(init: KeyboardEventInit) {
+    const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    return event;
+  }
+
+  test("Ctrl+S saves without forcing the dialog", async () => {
+    pressWith({ key: "s", ctrlKey: true });
+    await act(async () => {});
+    expect(savedWithDialog).toEqual([false]);
+  });
+
+  test("Ctrl+Shift+S goes straight to Save As", async () => {
+    // Regression guard for an ordering bug: the plain handler matches the same
+    // key with shift held (e.key is still "s"), so if the shift case is
+    // checked second it never runs and Shift+Ctrl+S silently does a plain save.
+    pressWith({ key: "s", ctrlKey: true, shiftKey: true });
+    await act(async () => {});
+    expect(savedWithDialog).toEqual([true]);
+  });
+
+  test("Cmd+S behaves like Ctrl+S", async () => {
+    pressWith({ key: "s", metaKey: true });
+    await act(async () => {});
+    expect(savedWithDialog).toEqual([false]);
+  });
+
+  test("suppresses the browser's own save-page dialog", () => {
+    const event = pressWith({ key: "s", ctrlKey: true });
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  test("bare s is unaffected — it is not a save shortcut", () => {
+    pressWith({ key: "s" });
+    expect(savedWithDialog).toEqual([]);
   });
 });

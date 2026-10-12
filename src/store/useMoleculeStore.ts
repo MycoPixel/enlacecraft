@@ -652,6 +652,18 @@ interface MoleculeStore {
   /** Marks the active tab AND every other tab as saved (called after a
    * successful "Save project", which writes out all of them at once). */
   markProjectSaved: () => void;
+  /** Display-only name of the file this project was last saved to or opened
+   * from, or null while it's unsaved. Purely so the UI can say "Saving to
+   * X.enlacecraft" and confirm Save is going where the user thinks.
+   *
+   * NOT the authority on where a save lands. In the desktop build the main
+   * process keeps its own record of the path it handed out from a dialog (see
+   * electron/security.cjs's createProjectSaveTarget) and a plain Save is
+   * written there; this is just what the renderer happens to know, kept in
+   * step with it for display. Session-scoped and never persisted, so a
+   * launch always starts needing a Save As. */
+  projectFileName: string | null;
+  setProjectFileName: (name: string | null) => void;
 
   // --- drag support (position updates without spamming history) ---
   moveAtomsTransient: (moves: Record<string, Point>) => void;
@@ -860,6 +872,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     monochromeAtoms: true,
     show3DView: false,
     linkedAtomId: null,
+    projectFileName: null,
     embed3DMethod: "quick",
     structure3DStyle: detectStructure3DPreference(STRUCTURE3D_STYLE_STORAGE_KEY, STRUCTURE3D_STYLES.map((s) => s.id), "ball-and-stick"),
     structure3DColorScheme: detectStructure3DPreference(STRUCTURE3D_COLOR_STORAGE_KEY, STRUCTURE3D_COLOR_SCHEMES, "element"),
@@ -1012,6 +1025,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       set({ molecule: next, selected: new Set<string>(), linkedAtomId: null, past: [...get().past, before], future: [] });
       return matches.length;
     },
+    setProjectFileName: (name) => set({ projectFileName: name }),
     setLinkedAtomId: (id) => set({ linkedAtomId: id }),
     setSnapAngleDegrees: (deg) => {
       set({ snapAngleDegrees: deg });
