@@ -365,12 +365,23 @@ export function collapseToGroup(mol: Molecule, match: CollapseMatch): Molecule {
 
   // Re-point every bond that left the fragment at the new atom, dropping the
   // fragment's internal bonds entirely.
+  //
+  // Deduplicated by atom *pair*, not by bond id: when the fragment bridged
+  // two atoms (both ends bonded to the same outside atom — a three-membered
+  // ring being the small case), both of those bonds re-point at the new
+  // superatom and would otherwise both survive as a phantom double bond.
+  // Their bond ids differ, so an id-based guard misses it entirely.
+  const seen = new Set<string>();
+  const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
   for (const b of Object.values(mol.bonds)) {
     if (memberIds.has(b.a1) && memberIds.has(b.a2)) continue;
     const a1 = memberIds.has(b.a1) ? newId : b.a1;
     const a2 = memberIds.has(b.a2) ? newId : b.a2;
-    const id = a1 === b.a1 && a2 === b.a2 ? b.id : nextId();
-    if (bonds[id]) continue;
+    if (a1 === a2) continue;
+    const key = pairKey(a1, a2);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const id = nextId();
     bonds[id] = { ...b, id, a1, a2 };
   }
 

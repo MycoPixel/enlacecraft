@@ -274,3 +274,42 @@ describe("collapseToGroup", () => {
 function matchIds(mol: Molecule): string[] {
   return Object.keys(mol.atoms);
 }
+describe("collapseToGroup — bridging fragments", () => {
+  test("does not create a phantom double bond when both ends face one atom", () => {
+    // A-B-X triangle with the fragment being {A, B}: both of its outward
+    // bonds re-point at the new superatom, so without pair-based dedup the
+    // result silently gains a second bond between the superatom and X. The
+    // bond ids differ, so an id-keyed guard does not catch it.
+    let mol = emptyMolecule();
+    const mk = (i: number) => {
+      const id = nextId();
+      mol = addAtom(mol, id, { x: i * 40, y: 0 }, "C");
+      return id;
+    };
+    const A = mk(0), B = mk(1), X = mk(2);
+    mol = addBond(mol, nextId(), A, B);
+    mol = addBond(mol, nextId(), A, X);
+    mol = addBond(mol, nextId(), B, X);
+
+    const out = collapseToGroup(mol, { templateId: "Me", label: "Me", atomIds: [A, B] });
+    const g = Object.values(out.atoms).find((a) => a.group === "Me")!;
+    const bonds = Object.values(out.bonds);
+
+    // A-B was internal and is gone; exactly one bond survives, to X.
+    expect(bonds).toHaveLength(1);
+    expect(bonds[0].a1 === g.id ? bonds[0].a2 : bonds[0].a1).toBe(X);
+  });
+
+  test("bond ids and their keys stay in agreement after a collapse", () => {
+    // Every other lookup in the app is keyed on Bond.id, so a mismatch
+    // between the key and the id would break selection and export.
+    const { mol } = fragment(["C", "C", "O"], [[0, 1, 1], [1, 2, 1]]);
+    const match = findCollapsibleGroups(mol).find((m) => m.templateId === "Et")!;
+    const out = collapseToGroup(mol, match);
+    for (const [key, b] of Object.entries(out.bonds)) {
+      expect(b.id).toBe(key);
+      expect(out.atoms[b.a1]).toBeDefined();
+      expect(out.atoms[b.a2]).toBeDefined();
+    }
+  });
+});
