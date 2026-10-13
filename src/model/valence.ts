@@ -9,7 +9,7 @@ const ISOTOPE_BY_ELEMENT_MASS = new Map(ISOTOPE_PRESETS.map((p) => [`${p.element
  * handles the flat "symbol then optional count" shape our own
  * ABBREVIATED_GROUPS registry uses — no parentheses/nesting needed since we
  * control every string that ever gets parsed here. */
-function parseSimpleFormula(formula: string): Record<string, number> {
+export function parseSimpleFormula(formula: string): Record<string, number> {
   const counts: Record<string, number> = {};
   const re = /([A-Z][a-z]?)(\d*)/g;
   let m: RegExpExecArray | null;
