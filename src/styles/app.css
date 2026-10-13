@@ -4452,3 +4452,204 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ---------- Mass spectrometry panel (MoleculeInfo dropdown) ---------- */
+
+.mass-spec__sub {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  margin: 10px 0 4px;
+}
+
+.mass-spec__pattern {
+  width: 160px;
+  height: 56px;
+  display: block;
+  margin: 2px 0;
+}
+
+.mass-spec__more {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mass-spec__more:hover {
+  text-decoration: underline;
+}
+
+.mass-spec__losses {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mass-spec__loss {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.mass-spec__loss-mass {
+  font-variant-numeric: tabular-nums;
+  min-width: 62px;
+}
+
+.mass-spec__loss-formula {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---------- Measured spectrum lookup (MassBank) ---------- */
+
+.mass-spec__hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  padding: 3px 6px;
+  margin-bottom: 2px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.mass-spec__hit:hover {
+  border-color: var(--accent);
+}
+
+.mass-spec__hit.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mass-spec__meta {
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+.mass-spec__measured {
+  width: 260px;
+  height: 70px;
+  display: block;
+  margin: 4px 0;
+}
+
+.mass-spec__attrib {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--ink-soft);
+  text-decoration: underline;
+}
+
+.mass-spec__attrib:hover {
+  color: var(--accent);
+}
+
+/* ---------- Mass spectrometry panel (own top-bar button) ---------- */
+
+.mass-spec-panel {
+  width: 300px;
+  /* Scrolling inside a dropdown is worse than a taller dropdown, so only cap
+     it once the content genuinely outgrows the viewport. */
+  max-height: min(520px, calc(100vh - 120px));
+  overflow-y: auto;
+}
+
+.mass-spec-panel__tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: 8px;
+}
+
+.mass-spec-panel__tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px 4px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.mass-spec-panel__tab:hover {
+  color: var(--ink);
+}
+
+.mass-spec-panel__tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.mass-spec__manual {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.mass-spec__manual-label {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-soft);
+  margin-bottom: 3px;
+}
+
+.mass-spec__manual-row {
+  display: flex;
+  gap: 4px;
+}
+
+.mass-spec__manual-input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  padding: 4px 5px;
+  background: var(--panel-bg);
+  color: var(--ink);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+}
+
+.mass-spec__manual-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mass-spec__manual-submit {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mass-spec__manual-submit:hover {
+  background: var(--accent);
+  color: var(--panel-bg);
+}
+
+.mass-spec__manual-error {
+  font-size: 10px;
+  color: var(--danger, #e05252);
+  margin: 4px 0 0;
+}

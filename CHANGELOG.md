@@ -5,6 +5,68 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.12.0
+
+A release about asking what a molecule will do in a mass spectrometer: a new
+top-bar button gives the exact mass, the ions that mass will actually appear
+as, the isotope pattern, the usual neutral losses, and — separately — real
+measured MS/MS spectra for the compound from MassBank.
+
+### Mass spectrometry
+
+A flask button in the top bar, next to the NMR one, opens a panel with two
+tabs.
+
+**Mass** is arithmetic on the structure, available immediately, with no
+network involved:
+
+- **Exact (monoisotopic) mass**, counting the hydrogens the drawing implies,
+  expanding abbreviated groups, and honouring isotopes you've labelled by hand.
+- **Expected ions**, positive and negative — `[M+H]+`, `[M+Na]+`, `[M-H]-` and
+  the rest — at the m/z you'd actually set the instrument to.
+- **Degree of unsaturation**, or `n/a` when a formula can't produce an honest
+  one (a charged or radical species, for instance).
+- **The isotope pattern**, drawn. The two patterns worth recognising are right
+  there in it: roughly 3:1 M:M+2 for one chlorine, 1:1 for bromine.
+- **Common neutral losses** by mass, since a 18.0106 gap is usually water and a
+  27.9949 one usually CO.
+
+These masses come from RDKit, not from a table typed out by hand — the values
+that were checked are chlorine at 34.968853, not the 35.45 the average-weight
+table in the app holds. Every reference compound in the tests agrees with
+RDKit's own `ExactMolWt`.
+
+A structure containing a placeholder label (R, R1, X) has no known
+composition, so the panel says that rather than printing a confident wrong
+mass. The formula is still shown, because that much is known.
+
+### Measured spectra
+
+The second tab looks up real, experimental MS/MS spectra in
+[MassBank](https://massbank.eu/), matched by InChIKey. Caffeine has 122
+recorded spectra there, aspirin 28. Each one shows its precursor, collision
+energy and instrument, with the fragment peaks drawn and the m/z of every peak
+on hover.
+
+Two things about this are deliberate. MassBank records carry licences
+individually — the caffeine record used here is `dl-de/by-2-0` — so the
+licence is shown next to every spectrum rather than as one blanket credit
+somewhere. And the link points at the record's own page, so what the app
+shows can be checked against what MassBank holds.
+
+The InChIKey comes from PubChem. If PubChem is unreachable, the tab says so
+plainly and offers to retry — that's a temporary condition, not a statement
+about your molecule — and you can paste an InChIKey yourself to skip the
+lookup entirely. Pasting is always available, not only when something has
+gone wrong.
+
+### Fixes
+
+- PubChem's InChIKey lookup now retries its documented overload response
+  (HTTP 503) with a short backoff, and reports it as "busy" rather than as a
+  structure it couldn't resolve. Previously a momentary busy period produced
+  the false message that your molecule had no data.
+
 ## 1.11.0
 
 A release about looking at structures rather than just drawing them: the 3D
