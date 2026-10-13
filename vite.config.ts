@@ -20,8 +20,11 @@ import path from "node:path";
  *    into its iframe.
  *  - worker-src blob:: 3Dmol builds its surface worker from a Blob URL.
  *  - img-src data: blob:: PNG/SVG export and canvas snapshots.
- *  - connect-src: exactly the origins in src/io (PubChem, GitHub releases
- *    API, MyMemory translation) plus the three bundled localhost backends.
+ *  - connect-src: exactly the origins in src/io (PubChem, MassBank, GitHub
+ *    releases API, MyMemory translation) plus the three bundled localhost
+ *    backends. A missing entry here is invisible in `npm run dev` — this
+ *    plugin only applies to the build — and shows up in the released app as
+ *    every request to that host failing with a bare "Failed to fetch".
  * NOT expressible in a meta tag: frame-ancestors (clickjacking) — set that
  * one as an HTTP header on the web host (see README notes / vercel.json).
  *
@@ -33,7 +36,7 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://pubchem.ncbi.nlm.nih.gov https://api.github.com https://api.mymemory.translated.net http://localhost:8000 http://localhost:8001 http://localhost:8002",
+  "connect-src 'self' https://pubchem.ncbi.nlm.nih.gov https://massbank.eu https://api.github.com https://api.mymemory.translated.net http://localhost:8000 http://localhost:8001 http://localhost:8002",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",

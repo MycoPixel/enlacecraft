@@ -82,7 +82,21 @@ async function fetchAutocomplete(query: string, limit: number): Promise<string[]
  * well within that.
  */
 
-export type PubChemErrorCode = "EMPTY_QUERY" | "NOT_FOUND" | "NETWORK" | "HTTP" | "NO_STRUCTURE";
+export type PubChemErrorCode = "EMPTY_QUERY" | "NOT_FOUND" | "NETWORK" | "HTTP" | "NO_STRUCTURE" | "BUSY";
+
+/**
+ * PubChem answers overload with HTTP 503 / "PUGREST.ServerBusy — Too many
+ * requests or server too busy", and it does so for the whole endpoint rather
+ * than one bad query. Left as a generic HTTP error, that surfaces to the user
+ * as "couldn't resolve this structure", which blames their molecule for what
+ * is a transient server condition — and retrying is the documented remedy.
+ */
+const BUSY_RETRY_DELAYS_MS = [400, 1200, 2500];
+
+/** True for statuses PubChem uses to mean "try again", not "no such compound". */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 503;
+}
 
 export class PubChemError extends Error {
   code: PubChemErrorCode;
@@ -409,15 +423,34 @@ export async function fetchInChI(smiles: string): Promise<{ inchi: string; inchi
   const trimmed = smiles.trim();
   if (!trimmed) throw new PubChemError("EMPTY_QUERY");
 
-  let res: Response;
-  try {
-    res = await fetch(`${PUG_REST_BASE}/compound/smiles/property/InChI,InChIKey/JSON`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `smiles=${encodeURIComponent(trimmed)}`,
-    });
-  } catch {
-    throw new PubChemError("NETWORK");
+  // Retried on 503/429 because PubChem's overload response is transient and
+  // endpoint-wide: without this, a momentary busy period makes a perfectly
+  // valid structure report that its InChIKey could not be resolved. Gives up
+  // after the last delay and reports BUSY so the caller can say so plainly.
+  let res: Response | null = null;
+  let lastError: "busy" | "network" = "busy";
+  for (let attempt = 0; attempt <= BUSY_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, BUSY_RETRY_DELAYS_MS[attempt - 1]));
+    try {
+      res = await fetch(`${PUG_REST_BASE}/compound/smiles/property/InChI,InChIKey/JSON`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `smiles=${encodeURIComponent(trimmed)}`,
+      });
+    } catch {
+      lastError = "network";
+      res = null;
+      continue;
+    }
+    // A definitive answer (success, or a status that means "no such
+    // compound") ends the loop; only busy/overload is worth retrying.
+    if (res.ok || !isRetryableStatus(res.status)) break;
+    lastError = "busy";
+    res = null;
+  }
+
+  if (res === null) {
+    throw new PubChemError(lastError === "busy" ? "BUSY" : "NETWORK", { name: trimmed });
   }
   if (!res.ok) {
     if (res.status === 404 || res.status === 400) throw new PubChemError("NOT_FOUND", { name: trimmed });
