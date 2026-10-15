@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Loader2, ExternalLink } from "lucide-react";
 import {
   searchSpectra,
@@ -8,7 +8,11 @@ import {
   type SpectrumRef,
   type SpectraSearchResult,
   isValidInChIKey,
+  fetchSummaries,
+  type SpectrumSummary,
 } from "../../io/massBank";
+import { annotateNeutralLosses, applicableNeutralLosses, type AnnotatedLoss } from "../../model/massSpec";
+import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 
 /**
@@ -30,6 +34,7 @@ export function SpectrumLookup({
   pendingKey = false,
   keyError = false,
   keyBusy = false,
+  keyUnsupported = false,
   onRetryKey,
   onUseManualKey,
 }: {
@@ -40,18 +45,52 @@ export function SpectrumLookup({
   /** PubChem is overloaded. Transient, so this offers a retry instead of
    *  implying the molecule itself could not be resolved. */
   keyBusy?: boolean;
+  /** RDKit could not standardise the structure into an InChI at all. */
+  keyUnsupported?: boolean;
   onRetryKey?: () => void;
   /** Accepts a hand-entered InChIKey, so the feature still works when the
    *  InChIKey lookup service is unreachable. */
   onUseManualKey?: (key: string) => void;
 }) {
   const t = useT();
+  const molecule = useMoleculeStore((s) => s.molecule);
   const [refs, setRefs] = useState<SpectrumRef[] | null>(null);
   const [stereoFallback, setStereoFallback] = useState(false);
   const [state, setState] = useState<"idle" | "loading" | "error" | "none">("idle");
   const [selected, setSelected] = useState<MassBankSpectrum | null>(null);
   const [loadingRecord, setLoadingRecord] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [summaries, setSummaries] = useState<Map<string, SpectrumSummary>>(new Map());
+  // Summaries for the rows on screen only. Fetching all of caffeine's 122
+  // would be wasteful and slow; the list shows five until "show all" is
+  // pressed. Declared with the other hooks -- the component returns early in
+  // several states, so a hook below those returns would change hook order.
+  const listedIds = (showAll ? (refs ?? []) : (refs ?? []).slice(0, 5)).map((r) => r.accession);
+  const listedKey = listedIds.join("|");
+  useEffect(() => {
+    if (listedIds.length === 0) return;
+    let cancelled = false;
+    const missing = listedIds.filter((id) => !summaries.has(id));
+    if (missing.length === 0) return;
+    fetchSummaries(missing).then((map) => {
+      if (cancelled) return;
+      setSummaries((prev) => new Map([...prev, ...map]));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listedKey]);
+
+  // Losses predicted from the drawn structure, matched against the measured
+  // peaks of whichever spectrum is open. Declared with the other hooks because
+  // the component returns early in several states, and a hook after a
+  // conditional return changes hook order between renders.
+  const annotations = useMemo(
+    () => (selected ? annotateNeutralLosses(selected, applicableNeutralLosses(molecule)) : []),
+    [selected, molecule],
+  );
+
   // Manual InChIKey entry is always reachable, not just when the automatic
   // lookup fails — someone who already knows their compound's key shouldn't
   // have to break PubChem first to use it. Starts open when there's no key to
@@ -134,9 +173,11 @@ export function SpectrumLookup({
         <p className="align-menu__hint">
           {keyBusy
             ? t("massSpec.lookupKeyBusy")
-            : keyError
-              ? t("massSpec.lookupKeyError")
-              : t("massSpec.lookupNeedsKey")}
+            : keyUnsupported
+              ? t("massSpec.lookupKeyUnsupported")
+              : keyError
+                ? t("massSpec.lookupKeyError")
+                : t("massSpec.lookupNeedsKey")}
         </p>
         {keyBusy && onRetryKey && (
           <button className="mass-spec__more" onClick={onRetryKey}>
@@ -195,7 +236,18 @@ export function SpectrumLookup({
           className={`mass-spec__hit${selected?.accession === h.accession ? " is-active" : ""}`}
           onClick={() => openRecord(h.accession)}
         >
-          {h.accession}
+          <span className="mass-spec__hit-title">
+            {summaries.get(h.accession)?.title ?? h.accession}
+          </span>
+          <span className="mass-spec__hit-meta">
+            {(() => {
+              const s = summaries.get(h.accession);
+              if (!s) return "";
+              return [s.msType, s.instrumentType, s.collisionEnergy && `${s.collisionEnergy}`]
+                .filter(Boolean)
+                .join(" · ");
+            })()}
+          </span>
         </button>
       ))}
       {!showAll && hits.length > listed.length && (
@@ -227,7 +279,21 @@ export function SpectrumLookup({
           {selected.collisionEnergy && (
             <div className="mass-spec__meta">{t("massSpec.ce", { value: selected.collisionEnergy })}</div>
           )}
-          <SpectrumPlot spectrum={selected} />
+          <SpectrumPlot spectrum={selected} annotated={annotations} />
+          {annotations.length > 0 && (
+            <div className="mass-spec__loss-hits">
+              <div className="mass-spec__sub">{t("massSpec.lossesObserved")}</div>
+              {annotations.map((a) => (
+                <div className="mass-spec__loss-hit" key={a.loss.id}>
+                  <span className="mass-spec__loss-mass">−{a.loss.mass.toFixed(3)}</span>
+                  <span className="mass-spec__loss-formula">{a.loss.formula}</span>
+                  <span className="mass-spec__loss-detail">
+                    {t("massSpec.lossPeak", { mz: a.peakMz.toFixed(4), count: a.peakCount })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <a
             className="mass-spec__attrib"
             href={selected.recordUrl}
@@ -294,8 +360,8 @@ function ManualKeyForm({ onSubmit }: { onSubmit: (key: string) => void }) {
   );
 }
 
-/** Stick plot of the measured fragment peaks. */
-function SpectrumPlot({ spectrum }: { spectrum: MassBankSpectrum }) {
+/** Stick plot of the measured fragment peaks, with any explained ones marked. */
+function SpectrumPlot({ spectrum, annotated }: { spectrum: MassBankSpectrum; annotated: AnnotatedLoss[] }) {
   const t = useT();
   const W = 260;
   const H = 70;
@@ -319,6 +385,16 @@ function SpectrumPlot({ spectrum }: { spectrum: MassBankSpectrum }) {
         const rel = p.rel ?? p.intensity ?? 0;
         const x = pad + ((p.mz - minMz) / (maxMz - minMz || 1)) * (W - 2 * pad);
         const h = Math.max(1.5, (rel / base) * (H - 18));
+        // A peak explained by one of the losses the Mass tab predicts is drawn
+        // in the "confirmed" colour and says which loss, so the two tabs can be
+        // read against each other.
+        const match = annotated
+          .map((a) => ({ a, d: Math.abs(a.peakMz - p.mz) }))
+          .filter(({ d }) => d <= 0.02)
+          .sort((a, b) => a.d - b.d)[0];
+        const label = match
+          ? `m/z ${p.mz.toFixed(4)} — ${rel.toFixed(1)}% — −${match.a.loss.formula} (${match.a.loss.mass.toFixed(3)} Da)`
+          : `m/z ${p.mz.toFixed(4)} — ${rel.toFixed(1)}%`;
         return (
           <line
             key={i}
@@ -326,11 +402,11 @@ function SpectrumPlot({ spectrum }: { spectrum: MassBankSpectrum }) {
             y1={H - 12}
             x2={x}
             y2={H - 12 - h}
-            stroke="var(--accent)"
-            strokeWidth={2}
+            stroke={match ? "var(--ok, #4caf7d)" : "var(--accent)"}
+            strokeWidth={match ? 2.6 : 2}
             strokeLinecap="round"
           >
-            <title>{`m/z ${p.mz.toFixed(4)} — ${rel.toFixed(1)}%`}</title>
+            <title>{label}</title>
           </line>
         );
       })}

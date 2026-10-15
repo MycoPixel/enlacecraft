@@ -251,6 +251,52 @@ def health():
     }
 
 
+class InChIKeyRequest(BaseModel):
+    smiles: str
+
+
+class InChIKeyResponse(BaseModel):
+    smiles: str
+    inchikey: str | None
+
+
+@app.post("/inchikey", response_model=InChIKeyResponse)
+def inchikey(request: InChIKeyRequest):
+    """Computes an InChIKey locally with the RDKit already bundled here.
+
+    MassBank lookups are keyed by InChIKey, and the usual source is PubChem.
+    That fails for any structure PubChem has never seen -- which is most of the
+    things a drawing program gets used for, since they are novel by definition.
+    Computing it locally removes that dependency for the ~99% of structures
+    RDKit can standardise.
+
+    Note this endpoint lives in the frozen backend, so it only reaches users
+    after resources/nmrgraph_server is rebuilt (python/freeze_in_container.sh).
+    """
+    smiles = request.smiles.strip()
+
+    if not smiles:
+        raise HTTPException(status_code=400, detail="smiles must not be empty")
+
+    mol = Chem.MolFromSmiles(smiles)
+
+    if mol is None:
+        raise HTTPException(status_code=400, detail=f"Could not parse SMILES: {smiles}")
+
+    try:
+        key = Chem.MolToInchiKey(mol)
+    except Exception as exc:  # noqa: BLE001 - InChI generation can fail on odd valences
+        # A structure RDKit can't standardise (odd valence, dative bonds it
+        # won't touch) returns no key rather than an error the UI has to
+        # interpret: the caller falls back to PubChem or manual entry.
+        return InChIKeyResponse(smiles=smiles, inchikey=None)
+
+    if not key:
+        return InChIKeyResponse(smiles=smiles, inchikey=None)
+
+    return InChIKeyResponse(smiles=smiles, inchikey=key)
+
+
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest):
 

@@ -74,6 +74,9 @@ export interface Peak {
 
 export interface MassBankSpectrum {
   accession: string;
+  /** MassBank's own one-line description, e.g.
+   *  "Caffeine; LC-ESI-QFT; MS2; Ramp 20%-70% (nominal); 30000; [M+H]+". */
+  title?: string;
   name: string;
   formula?: string;
   /** Per-record licence, e.g. "dl-de/by-2-0". Must be shown with the spectrum. */
@@ -246,6 +249,7 @@ export async function fetchSpectrum(accession: string): Promise<MassBankSpectrum
 
   return {
     accession: typeof data.accession === "string" ? data.accession : acc,
+    title: typeof data.title === "string" ? data.title : undefined,
     name: compound.names?.[0] ?? acc,
     formula: compound.formula,
     license,
@@ -264,4 +268,49 @@ export async function fetchSpectrum(accession: string): Promise<MassBankSpectrum
     numPeaks: numPeaksRaw === undefined ? undefined : Number(numPeaksRaw),
     peaks,
   };
+}
+/**
+ * Cheap per-record summary for the picker list.
+ *
+ * /records/search only returns accessions, so a compound with 122 recorded
+ * spectra (caffeine) presented 122 indistinguishable rows. A full record is
+ * only ~2-3 kB and its `title` already encodes instrument, MS level, energy
+ * and adduct ("Caffeine; LC-ESI-QFT; MS2; Ramp 20%-70% (nominal); 30000;
+ * [M+H]+"), so the visible rows are fetched and summarised rather than
+ * guessing.
+ *
+ * Deliberately NOT using /records/{accession}/simple: it looks lighter but
+ * returns the same shape with most fields emptied -- including `license`, so
+ * it cannot be used for attribution at all.
+ */
+export interface SpectrumSummary {
+  accession: string;
+  title?: string;
+  instrumentType?: string;
+  msType?: string;
+  collisionEnergy?: string;
+  precursorMz?: number;
+}
+
+export async function fetchSummaries(accessions: string[]): Promise<Map<string, SpectrumSummary>> {
+  const out = new Map<string, SpectrumSummary>();
+  await Promise.all(
+    accessions.map(async (accession) => {
+      try {
+        const full = await fetchSpectrum(accession);
+        out.set(accession, {
+          accession,
+          title: full.title,
+          instrumentType: full.instrumentType,
+          msType: full.msType,
+          collisionEnergy: full.collisionEnergy,
+          precursorMz: full.precursorMz,
+        });
+      } catch {
+        // A single unreachable record must not blank the whole list; the row
+        // just falls back to showing its accession.
+      }
+    }),
+  );
+  return out;
 }

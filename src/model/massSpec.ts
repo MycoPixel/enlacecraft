@@ -695,3 +695,75 @@ export const NEUTRAL_LOSSES: NeutralLoss[] = [
 export function neutralLossesByMass(): NeutralLoss[] {
   return [...NEUTRAL_LOSSES].sort((a, b) => a.mass - b.mass);
 }
+
+/**
+ * A fragment peak explained by a neutral loss from the precursor.
+ *
+ * A measured MS/MS peak sits at precursor_mz - (mass of the neutral lost), so
+ * comparing each peak against the precursor is what turns "this loss is
+ * expected for this molecule" into "this loss is the one that produced that
+ * peak". Without that link the Mass tab's predicted losses and the Spectra
+ * tab's measured peaks are two unrelated lists.
+ */
+export interface AnnotatedLoss {
+  /** The neutral loss. */
+  loss: NeutralLoss;
+  /** Measured peak m/z that the loss accounts for. */
+  peakMz: number;
+  /** Difference between the expected fragment and the measured peak. */
+  errorDa: number;
+  /** How many peaks in the spectrum this same loss explains. */
+  peakCount: number;
+}
+
+/**
+ * Matches a measured spectrum's peaks against the neutral losses this molecule
+ * can make.
+ *
+ * The tolerance matters: instrument mass accuracy is rarely better than a few
+ * mDa, and a wrong annotation is worse than none. Defaults to 0.02 Da, which
+ * is tighter than the ~0.05 Da typical for a QTOF and loose enough for a
+ * quadrupole trap. Matching is 1:1 by proximity -- when several losses could
+ * claim one peak, the closest wins, and each peak is annotated at most once.
+ */
+export function annotateNeutralLosses(
+  spectrum: { precursorMz?: number; peaks: { mz: number }[] },
+  losses: NeutralLoss[],
+  toleranceDa = 0.02,
+): AnnotatedLoss[] {
+  const precursor = spectrum.precursorMz;
+  if (precursor === undefined || !Number.isFinite(precursor)) return [];
+
+  // Best (closest) candidate per peak, so one peak never gets two explanations.
+  const bestPerPeak = new Map<number, { loss: NeutralLoss; errorDa: number }>();
+  for (const peak of spectrum.peaks) {
+    if (!Number.isFinite(peak.mz)) continue;
+    const gap = precursor - peak.mz;
+    if (gap <= 0) continue;
+    let best: { loss: NeutralLoss; errorDa: number } | null = null;
+    for (const loss of losses) {
+      const errorDa = gap - loss.mass;
+      if (Math.abs(errorDa) > toleranceDa) continue;
+      if (!best || Math.abs(errorDa) < Math.abs(best.errorDa)) best = { loss, errorDa };
+    }
+    if (best) bestPerPeak.set(peak.mz, best);
+  }
+
+  // Group by loss so one loss explaining several is reported once.
+  const byLoss = new Map<string, { loss: NeutralLoss; peaks: number[]; totalError: number }>();
+  for (const { loss, errorDa } of bestPerPeak.values()) {
+    const entry = byLoss.get(loss.id) ?? { loss, peaks: [], totalError: 0 };
+    entry.peaks.push(errorDa);
+    entry.totalError += Math.abs(errorDa);
+    byLoss.set(loss.id, entry);
+  }
+
+  return [...byLoss.values()]
+    .map(({ loss, peaks, totalError }) => ({
+      loss,
+      peakMz: precursor - loss.mass,
+      errorDa: totalError / peaks.length,
+      peakCount: peaks.length,
+    }))
+    .sort((a, b) => a.loss.mass - b.loss.mass);
+}

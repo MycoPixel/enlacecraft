@@ -89,6 +89,21 @@ the app unusable:
   now filtered by the elements present and, for water, CO2, SO2, NO, methanol
   and carbon monoxide, by whether the characteristic group is actually drawn.
 
+- **The spectrum picker listed bare accession codes.** A compound with 122
+  recorded spectra (caffeine) gave 122 indistinguishable rows; they now show
+  MassBank's own description plus MS level, instrument and collision energy, so
+  two records of the same compound can be told apart.
+- **The Mass and Spectra tabs could not be read against each other.** The
+  predicted neutral losses are now matched to the measured fragment peaks -- a
+  peak a loss accounts for is drawn differently and says which one -- so
+  "this loss is expected" and "this loss is the one that produced that peak"
+  are the same list.
+- **Neutral-loss tooltips were English-only** in an app with a Spanish mode.
+- **The InChIKey no longer depends entirely on PubChem.** The bundled RDKit can
+  compute it locally, so a structure nobody has ever submitted is still
+  identifiable; PubChem remains the fallback, and pasting a key remains the
+  last resort.
+
 - **A failed spectrum search claimed the molecule had no data.** The error
   state was set but never rendered, so a network failure fell through to
   "0 spectra in MassBank".

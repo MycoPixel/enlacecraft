@@ -6,6 +6,8 @@ import { useT } from "../../i18n/useT";
 import { MassSpecPanel } from "./MassSpecPanel";
 import { SpectrumLookup } from "./SpectrumLookup";
 import { fetchInChI, PubChemError } from "../../io/pubchem";
+import { fetchLocalInChIKey, LocalChemError } from "../../io/localChem";
+
 import { exportSmiles } from "../../io/smiles";
 
 /**
@@ -28,7 +30,7 @@ export function MassSpecButton() {
   const hasContent = Object.keys(molecule.atoms).length > 0;
   const [tab, setTab] = useState<"mass" | "spectra">("mass");
   const [inchikey, setInchikey] = useState<string | undefined>(undefined);
-  const [keyState, setKeyState] = useState<"idle" | "loading" | "error" | "busy">("idle");
+  const [keyState, setKeyState] = useState<"idle" | "loading" | "error" | "busy" | "unsupported">("idle");
   // Which structure the current key belongs to. Without this the key survives
   // edits and the panel would keep showing the previous molecule's spectra
   // under a newly drawn structure. Tracked for manual keys too, so reopening
@@ -55,20 +57,44 @@ export function MassSpecButton() {
     if (keyFor.current?.smiles === smiles && inchikey) return;
 
     setKeyState("loading");
+    // Local first: the bundled RDKit can key any structure RDKit can parse,
+    // including ones nobody has ever submitted to PubChem, and it answers on
+    // loopback with no network involved. When the backend isn't there the
+    // connection is refused immediately, so trying it first costs nothing.
+    let key: string | null = null;
     try {
-      const { inchikey: key } = await fetchInChI(smiles);
-      setInchikey(key);
-      keyFor.current = { smiles, key };
-      setKeyState("idle");
+      key = await fetchLocalInChIKey(smiles);
     } catch (e) {
-      // PubChem being overloaded is not the molecule's fault and saying
-      // "could not resolve this structure" would be a lie — it is transient
-      // and worth retrying, so it gets its own message.
-      const busy = e instanceof PubChemError && e.code === "BUSY";
-      setInchikey(undefined);
-      keyFor.current = null;
-      setKeyState(busy ? "busy" : "error");
+      if (e instanceof LocalChemError && e.code === "unsupported") {
+        // Not a lookup failure: RDKit can't standardise this structure, so
+        // PubChem wouldn't do better. Say so instead of implying "no data".
+        setInchikey(undefined);
+        keyFor.current = null;
+        setKeyState("unsupported");
+        return;
+      }
+      // "unavailable" (or a network hiccup) falls through to PubChem.
     }
+
+    if (!key) {
+      try {
+        const result = await fetchInChI(smiles);
+        key = result.inchikey;
+      } catch (e) {
+        // PubChem being overloaded is not the molecule's fault and saying
+        // "could not resolve this structure" would be a lie — it is transient
+        // and worth retrying, so it gets its own message.
+        const busy = e instanceof PubChemError && e.code === "BUSY";
+        setInchikey(undefined);
+        keyFor.current = null;
+        setKeyState(busy ? "busy" : "error");
+        return;
+      }
+    }
+
+    setInchikey(key);
+    keyFor.current = { smiles, key };
+    setKeyState("idle");
   }
 
   /** Accepts a hand-entered InChIKey, for when PubChem can't be reached. */
@@ -88,6 +114,7 @@ export function MassSpecButton() {
           pendingKey={keyState === "loading"}
           keyError={keyState === "error"}
           keyBusy={keyState === "busy"}
+          keyUnsupported={keyState === "unsupported"}
           onRetryKey={openSpectra}
           onUseManualKey={useManualKey}
         />

@@ -135,7 +135,7 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
       ) : (
         <div className="mass-spec__losses">
           {data.losses.slice(0, 8).map((loss) => (
-            <div className="mass-spec__loss" key={loss.id} title={loss.note}>
+            <div className="mass-spec__loss" key={loss.id} title={lossNote(t, loss.id, loss.note)}>
               <span className="mass-spec__loss-mass">−{loss.mass.toFixed(3)}</span>
               <span className="mass-spec__loss-formula">{loss.formula}</span>
             </div>
@@ -144,6 +144,19 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
       )}
     </div>
   );
+}
+
+/**
+ * The tooltip for a neutral loss, in the interface language.
+ *
+ * Falls back to the model's English note if a loss is added without a
+ * translation, so a missing key shows something useful instead of
+ * "massSpec.loss.NEWLOSS" in a tooltip.
+ */
+function lossNote(t: (key: string) => string, id: string, fallback: string): string {
+  const key = `massSpec.loss.${id}`;
+  const text = t(key);
+  return text === key ? fallback : text;
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   exactMass,
   isotopePattern,
   MONOISOTOPIC_MASS,
+  annotateNeutralLosses,
   applicableNeutralLosses,
   neutralLossesByMass,
   NEUTRAL_LOSSES,
@@ -462,6 +463,17 @@ function specMolecule(spec: string): Molecule {
   return { ...emptyMolecule(), atoms };
 }
 
+/** Builds a molecule from "C*2,O*1" style specs, fully bonded in a chain.
+ *  Named distinctly from the module-level chain(elements) helper above. */
+function chainFromSpec(spec: string): Molecule {
+  let mol = specMolecule(spec);
+  const ids = Object.keys(mol.atoms);
+  for (let i = 1; i < ids.length; i++) {
+    mol = addBond(mol, `b${i}`, ids[i - 1], ids[i], 1);
+  }
+  return mol;
+}
+
 describe("isotopePattern performance", () => {
   it("stays fast on a drug-sized molecule", () => {
     // Previously this grew as 2^(number of atoms) because every isotope
@@ -566,22 +578,12 @@ describe("neutral loss masses", () => {
 });
 
 describe("molecule-specific neutral losses", () => {
-  /** Builds a molecule from "C*2,O*1" style specs, fully bonded in a chain. */
-  function chain(spec: string): Molecule {
-    let mol = specMolecule(spec);
-    const ids = Object.keys(mol.atoms);
-    for (let i = 1; i < ids.length; i++) {
-      mol = addBond(mol, `b${i}`, ids[i - 1], ids[i], 1);
-    }
-    return mol;
-  }
-
   const formulas = (mol: Molecule) => applicableNeutralLosses(mol).map((l) => l.formula);
 
   it("never offers a loss whose elements the molecule lacks", () => {
     // Previously every molecule was shown the same six losses, so benzene was
     // offered water and ammonia despite containing neither oxygen nor nitrogen.
-    const benzene = chain("C*6");
+    const benzene = chainFromSpec("C*6");
     expect(formulas(benzene)).not.toContain("H2O");
     expect(formulas(benzene)).not.toContain("NH3");
     expect(formulas(benzene)).not.toContain("CO2");
@@ -590,7 +592,7 @@ describe("molecule-specific neutral losses", () => {
   });
 
   it("offers water for an alcohol but not for an ether", () => {
-    const alcohol = chain("C*2,O*1");
+    const alcohol = chainFromSpec("C*2,O*1");
     expect(formulas(alcohol)).toContain("H2O");
 
     // A real ether: C-C-O-C-C, so the oxygen carries no hydrogen.
@@ -618,7 +620,7 @@ describe("molecule-specific neutral losses", () => {
   });
 
   it("offers SO2 only with a sulfonyl group", () => {
-    const plain = chain("C*2,S*1");
+    const plain = chainFromSpec("C*2,S*1");
     expect(formulas(plain)).not.toContain("SO2");
 
     const mol = emptyMolecule();
@@ -643,5 +645,61 @@ describe("molecule-specific neutral losses", () => {
         expect(loss.formula).toBe("H2");
       }
     }
+  });
+});
+
+describe("annotating measured peaks with neutral losses", () => {
+  /** A spectrum with a precursor and the given fragment m/z values. */
+  const spectrum = (precursorMz: number, mzs: number[]) => ({
+    precursorMz,
+    peaks: mzs.map((mz) => ({ mz })),
+  });
+
+  it("matches a peak that sits exactly a loss below the precursor", () => {
+    // Precursor 500, water at 481.9894.
+    const hits = annotateNeutralLosses(spectrum(500, [481.9894]), NEUTRAL_LOSSES);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].loss.formula).toBe("H2O");
+    expect(hits[0].peakCount).toBe(1);
+    expect(Math.abs(hits[0].errorDa)).toBeLessThan(0.0005);
+  });
+
+  it("does not annotate peaks outside the tolerance", () => {
+    // 18.05 lost is water's mass but 39 mDa away -- beyond a 20 mDa window.
+    expect(annotateNeutralLosses(spectrum(500, [481.95]), NEUTRAL_LOSSES)).toHaveLength(0);
+  });
+
+  it("annotates one peak at most once, with the closest loss", () => {
+    // CO is 27.994915 and N2 is 28.006148. A gap of 28.0000 is 5.1 mDa from
+    // CO and 6.1 mDa from N2, so CO wins -- and critically, only one of them is
+    // reported, rather than the same peak being explained twice.
+    const hits = annotateNeutralLosses(spectrum(500, [472]), NEUTRAL_LOSSES);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].loss.formula).toBe("CO");
+    expect(hits[0].peakCount).toBe(1);
+  });
+
+  it("counts how many peaks one loss explains", () => {
+    const hits = annotateNeutralLosses(spectrum(500, [481.9894, 481.9895]), NEUTRAL_LOSSES);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].loss.formula).toBe("H2O");
+    expect(hits[0].peakCount).toBe(2);
+  });
+
+  it("returns nothing without a usable precursor", () => {
+    // Many MassBank records have no precursor m/z at all; guessing one would
+    // invent annotations.
+    expect(annotateNeutralLosses({ peaks: [{ mz: 100 }] }, NEUTRAL_LOSSES)).toHaveLength(0);
+    expect(annotateNeutralLosses({ precursorMz: NaN, peaks: [{ mz: 100 }] }, NEUTRAL_LOSSES)).toHaveLength(0);
+  });
+
+  it("ignores fragments heavier than their own precursor", () => {
+    expect(annotateNeutralLosses(spectrum(100, [150]), NEUTRAL_LOSSES)).toHaveLength(0);
+  });
+
+  it("only annotates losses the molecule can actually make", () => {
+    const mol = chainFromSpec("C*6"); // benzene: no oxygen, no nitrogen
+    expect(annotateNeutralLosses(spectrum(100, [100 - 18.010565]), applicableNeutralLosses(mol))).toHaveLength(0);
+    expect(annotateNeutralLosses(spectrum(100, [100 - 2.01565]), applicableNeutralLosses(mol))).toHaveLength(1);
   });
 });

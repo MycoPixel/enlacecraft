@@ -4533,6 +4533,32 @@
   color: var(--accent);
 }
 
+/* Row content: MassBank's own title line is far more useful than an
+   accession, and the acquisition summary underneath is what tells two
+   otherwise identical records of the same compound apart. */
+.mass-spec__hit-title {
+  display: block;
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mass-spec__hit-meta {
+  display: block;
+  font-family: inherit;
+  font-size: 9px;
+  color: var(--ink-soft);
+  margin-top: 1px;
+}
+
+.mass-spec__hit.is-active .mass-spec__hit-meta {
+  color: inherit;
+  opacity: 0.75;
+}
+
 .mass-spec__meta {
   font-size: 10px;
   color: var(--ink-soft);
@@ -4661,4 +4687,20 @@
   border-left: 2px solid var(--accent);
   padding-left: 6px;
   margin: 4px 0 6px;
+}
+
+.mass-spec__loss-hits {
+  margin-top: 6px;
+}
+
+.mass-spec__loss-hit {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.mass-spec__loss-detail {
+  color: var(--ink-soft);
+  font-size: 10px;
 }
