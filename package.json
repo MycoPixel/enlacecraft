@@ -5,7 +5,7 @@
     "email": "paulo.castro@usach.cl"
   },
   "desktopName": "enlacecraft.desktop",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "A browser-based molecule drawing application.",
   "private": true,
   "type": "module",
@@ -23,8 +23,8 @@
     "electron:preview": "npm run build && electron .",
     "check:backends": "node scripts/check-backends.mjs",
     "predist": "npm run check:backends",
-    "predist:win": "npm run check:backends",
-    "predist:linux": "npm run check:backends",
+    "predist:win": "node scripts/check-backends.mjs win32",
+    "predist:linux": "node scripts/check-backends.mjs linux",
     "dist:win": "npm run build && electron-builder --win",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist": "npm run build && electron-builder --win --linux"

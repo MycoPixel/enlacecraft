@@ -58,6 +58,37 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const isWindows = process.platform === "win32";
 
+// Which platform the *installer* is being built for, when the caller knows.
+// `npm run dist:win` on Linux would otherwise be checked against the Linux
+// resources/ layout and pass -- while packaging Linux ELF binaries into a
+// Windows installer, which builds cleanly and then fails at runtime when the
+// app tries to spawn a backend it cannot execute.
+//
+// Deliberately optional: a bare `check:backends` still means "is this host's
+// layout complete", which is what the dev workflow wants.
+const targetArg = process.argv[2] ?? null;
+const targetPlatform = targetArg === "win32" ? "win32" : targetArg === "linux" ? "linux" : null;
+const TARGET_MISMATCH = targetPlatform !== null && targetPlatform !== process.platform;
+
+/** "elf" | "pe" | null, read from the file's own magic bytes. */
+function binaryFormat(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, "r");
+    const head = Buffer.alloc(4);
+    const read = fs.readSync(fd, head, 0, 4, 0);
+    if (read < 4) return null;
+    if (head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46) return "elf";
+    // Windows PE executables are DOS stubs beginning "MZ".
+    if (head[0] === 0x4d && head[1] === 0x5a) return "pe";
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 // The exe suffix only applies to Windows; the Linux binaries are
 // extensionless. Matched against process.platform rather than the target
 // electron-builder is building, which is deliberate: a cross-built
@@ -142,8 +173,32 @@ for (const backend of backends) {
   }
 
   const exeRel = path.join(...backend.exe());
-  if (!fs.existsSync(path.join(dir, exeRel))) {
+  const exeAbs = path.join(dir, exeRel);
+  if (!fs.existsSync(exeAbs)) {
     problems.push({ rel, what: `no executable at ${backend.dir}/${exeRel}`, hint: null });
+  } else {
+    // Cross-build guard: these binaries are what actually gets shipped, and
+    // electron-builder copies resources/ into the installer without ever
+    // looking at what they are.
+    const format = binaryFormat(exeAbs);
+    const wanted = process.platform === "win32" ? "pe" : "elf";
+    if (format !== null && format !== wanted) {
+      problems.push({
+        rel,
+        what: `${backend.dir}/${exeRel} is a ${format.toUpperCase()} binary, but this is a ${process.platform} build`,
+        hint: "PyInstaller cannot cross-compile. Freeze the backends on the platform you are packaging for (see ELECTRON.md).",
+      });
+    }
+    if (TARGET_MISMATCH) {
+      problems.push({
+        rel,
+        what: `you asked for a ${targetPlatform} build, but these binaries are ${process.platform}'s`,
+        hint:
+          targetPlatform === "win32"
+            ? "Freeze on Windows (python\\freeze_windows.ps1), then run dist:win there."
+            : "Freeze on Linux, then run dist:linux.",
+      });
+    }
   }
 
   for (const also of backend.also) {
@@ -170,19 +225,29 @@ for (const { rel, what, hint } of problems) {
 console.error(
   [
     "",
-    "electron-builder skips a missing extraResources path silently, so",
-    "without this check the build would produce an installer where NMR",
-    "prediction, GFN2-xTB 3D refinement and the IUPAC naming fallback",
-    "are all quietly absent - the app starts fine and only logs",
-    "'Executable not found at ...' to its own log file.",
+    TARGET_MISMATCH
+      ? [
+          `These backends were frozen for ${process.platform}, and you asked to`,
+          `package a ${targetPlatform} build. electron-builder copies resources/`,
+          "into the installer without ever looking at what those files are, so",
+          "the build would succeed and produce an installer whose backends",
+          "cannot execute - failing at runtime, not at build time.",
+        ]
+      : [
+          "electron-builder skips a missing extraResources path silently, so",
+          "without this check the build would produce an installer where NMR",
+          "prediction, GFN2-xTB 3D refinement and the IUPAC naming fallback",
+          "are all quietly absent - the app starts fine and only logs",
+          "'Executable not found at ...' to its own log file.",
+        ],
     "",
-    "To fix, freeze them first (see resources/README.md):",
+    "To fix, freeze them on the platform you are packaging for (see",
+    "resources/README.md and ELECTRON.md - PyInstaller cannot cross-compile):",
     isWindows
       ? "    cd python; .\\freeze_windows.ps1"
       : "    cd python; ./freeze_in_container.sh && ./freeze_structure3d.sh && ./freeze_iupac.sh",
     "",
-    "Then re-run this build. See resources/README.md and ELECTRON.md for",
-    "what each folder has to contain.",
+    "Then re-run this build.",
   ].join("\n"),
 );
 

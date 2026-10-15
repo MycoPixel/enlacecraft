@@ -5,6 +5,79 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.13.0
+
+1.12.0 shipped with a bug that could freeze the app — the isotope pattern
+exhausted memory on any realistic molecule — so this release is mostly about
+that, plus the Mass and Spectra tabs finally being readable against each
+other.
+
+### The isotope pattern could freeze the app
+
+Every isotope combination was materialised and only merged by nominal mass at
+the very end, so the work grew as 2^(number of atoms) even though the peaks
+collapse onto a handful of values. An eight-carbon chain took 3.5 seconds and
+a twelve-carbon one exhausted memory outright, on the UI thread, the moment the
+Mass tab was opened.
+
+Peaks are now merged after each atom, which is proportional to the number of
+peaks rather than exponential: the same molecule takes about a millisecond.
+
+Merged peaks also report a probability-weighted centroid. They used to be an
+average of averages -- a running mean of means, so the result depended on the
+order the peaks happened to arrive in and not just on their masses.
+
+The pattern is also anchored to each element's *most abundant* isotope, matching the exact mass printed directly above it — which is
+what makes boron and selenium, whose commonest isotope is not the lightest, show
+peaks below the base mass rather than disagreeing with the number above.
+
+### Corrected data
+
+- **Boron had no isotope entry at all**, so no ¹⁰B peak appeared. Boron is 80%
+  ¹¹B, so its lighter isotope genuinely sits *below* the base mass.
+- **Selenium's masses were paired with the wrong abundances.** It has six
+  stable isotopes from 74 to 82, with ⁸⁰Se the most abundant.
+- **Three neutral-loss masses disagreed with their own formulas** — nitric
+  oxide by about 1 u, nitrous acid by 15 mDa and sulfur dioxide by 4 mDa.
+- **Six positive adducts read `[M+H]+⁺`**, an ASCII plus and then a superscript
+  one.
+
+### The two tabs now connect
+
+The Mass tab predicts which neutral losses a structure can make; the Spectra
+tab shows peaks someone actually measured. They were two unrelated lists, so
+the predicted losses are now matched against the measured fragments — a peak a
+loss accounts for is drawn differently and says which one. Matching is
+one-to-one by proximity, so a peak two losses could explain is attributed
+once, to the nearer, and the tolerance is 20 mDa, tighter than the accuracy of
+the instruments most of these came from. A wrong annotation is worse than none.
+
+Relatedly, losses are no longer the same fixed list for every molecule. Each
+one declares the elements it needs and, where that's too weak a test, the group
+that makes it plausible: water needs a real hydroxyl (an ether does not lose
+water), CO₂ a carboxyl, SO₂ a sulfonyl, NO a nitro. So benzene is no longer
+offered ammonia.
+
+### Measured spectra
+
+- **The picker listed bare accession codes**, so caffeine's 122 recorded
+  spectra were 122 indistinguishable rows. Rows now carry MassBank's own
+  description along with MS level, instrument and collision energy.
+- **A failed search claimed the molecule had no data.** The error state was
+  set but never rendered, so a network failure fell through to "0 spectra".
+- **The InChIKey no longer depends on PubChem alone.** The bundled RDKit
+  computes it locally, so a structure nobody has ever submitted is still
+  identifiable — which is most of what a drawing program gets used for.
+  PubChem remains the fallback and pasting a key the last resort.
+
+### Packaging
+
+Building a Windows installer on Linux would package Linux binaries into it and
+report success, because `extraResources` copies `resources/` verbatim without
+looking at what the files are, and the pre-build check validated against the
+build machine rather than the target. The check now reads each binary's format
+and refuses, with instructions for freezing on the right platform.
+
 ## 1.12.0
 
 A release about asking what a molecule will do in a mass spectrometer: a new
