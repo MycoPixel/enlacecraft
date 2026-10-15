@@ -3,11 +3,11 @@ import type { Molecule } from "../../types/chemistry";
 import {
   adductIon,
   allAdductIons,
+  applicableNeutralLosses,
   degreeOfUnsaturation,
   elementCounts,
   exactMass,
   isotopePattern,
-  neutralLossesByMass,
   ADDUCTS,
 } from "../../model/massSpec";
 import { computeFormula } from "../../model/valence";
@@ -42,6 +42,7 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
       exactMass: exactMass(molecule),
       dbe: degreeOfUnsaturation(counts),
       ions,
+      losses: applicableNeutralLosses(molecule),
       pattern: isotopePattern(molecule, 4),
     };
   }, [molecule]);
@@ -61,6 +62,11 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
       </>
     );
   }
+
+  // Peaks below 0.05% of the base are not worth a stick and, rounded to whole
+  // percent, used to display as a row of "0"s that read as a broken plot.
+  // Benzene's real M+2 is 0.185% and its M+3 is 0.003% -- shown as "0 0 0".
+  const visiblePeaks = data.pattern.filter((p) => p.relativeIntensity * 100 >= 0.05);
 
   const positive = data.ions.filter((i) => i.adduct.polarity === "positive");
   const negative = data.ions.filter((i) => i.adduct.polarity === "negative");
@@ -91,39 +97,65 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
       )}
 
       <div className="mass-spec__sub">{t("massSpec.isotopePattern")}</div>
-      <svg className="mass-spec__pattern" viewBox="0 0 160 56" role="img" aria-label={t("massSpec.isotopePattern")}>
-        {data.pattern.map((peak) => {
-          const h = Math.max(2, peak.relativeIntensity * 44);
-          const x = 6 + peak.offset * 38;
-          return (
-            <g key={peak.offset}>
-              <line x1={x} y1={52} x2={x} y2={52 - h} stroke="var(--accent)" strokeWidth={3} strokeLinecap="round" />
-              <text x={x} y={55} fontSize="7" textAnchor="middle" fill="var(--ink-soft)">
-                M{peak.offset === 0 ? "" : `+${peak.offset}`}
-              </text>
-              <text x={x} y={50 - h} fontSize="6" textAnchor="middle" fill="var(--ink-soft)">
-                {(peak.relativeIntensity * 100).toFixed(0)}
-              </text>
-            </g>
-          );
-        })}
-        <line x1={4} y1={53} x2={156} y2={53} stroke="var(--panel-border)" strokeWidth={1} />
-      </svg>
-      <p className="align-menu__hint">
-        {t("massSpec.isotopeHint", { base: data.pattern[0]?.mz.toFixed(3) ?? "—" })}
-      </p>
-
+      {visiblePeaks.length === 0 ? (
+        <p className="align-menu__hint">{t("massSpec.isotopeNone")}</p>
+      ) : (
+        <>
+          <svg
+            className="mass-spec__pattern"
+            viewBox={`0 0 ${Math.max(160, 12 + visiblePeaks.length * 38)} 56`}
+            role="img"
+            aria-label={t("massSpec.isotopePattern")}
+          >
+            {visiblePeaks.map((peak, i) => {
+              const h = Math.max(1, peak.relativeIntensity * 44);
+              const x = 6 + i * 38;
+              return (
+                <g key={peak.offset}>
+                  <line x1={x} y1={52} x2={x} y2={52 - h} stroke="var(--accent)" strokeWidth={3} strokeLinecap="round" />
+                  <text x={x} y={55} fontSize="7" textAnchor="middle" fill="var(--ink-soft)">
+                    M{peak.offset === 0 ? "" : `+${peak.offset}`}
+                  </text>
+                  <text x={x} y={50 - h} fontSize="6" textAnchor="middle" fill="var(--ink-soft)">
+                    {formatPercent(peak.relativeIntensity)}
+                  </text>
+                </g>
+              );
+            })}
+            <line x1={4} y1={53} x2={Math.max(160, 12 + visiblePeaks.length * 38) - 4} y2={53} stroke="var(--panel-border)" strokeWidth={1} />
+          </svg>
+          <p className="align-menu__hint">
+            {t("massSpec.isotopeHint", { base: data.pattern[0]?.mz.toFixed(3) ?? "—" })}
+          </p>
+        </>
+      )}
       <div className="mass-spec__sub">{t("massSpec.neutralLosses")}</div>
-      <div className="mass-spec__losses">
-        {neutralLossesByMass().slice(0, 6).map((loss) => (
-          <div className="mass-spec__loss" key={loss.id} title={loss.note}>
-            <span className="mass-spec__loss-mass">−{loss.mass.toFixed(3)}</span>
-            <span className="mass-spec__loss-formula">{loss.formula}</span>
-          </div>
-        ))}
-      </div>
+      {data.losses.length === 0 ? (
+        <p className="align-menu__hint">{t("massSpec.neutralLossesNone")}</p>
+      ) : (
+        <div className="mass-spec__losses">
+          {data.losses.slice(0, 8).map((loss) => (
+            <div className="mass-spec__loss" key={loss.id} title={loss.note}>
+              <span className="mass-spec__loss-mass">−{loss.mass.toFixed(3)}</span>
+              <span className="mass-spec__loss-formula">{loss.formula}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * Relative intensity as a percentage, keeping enough precision to be useful at
+ * small values. A blanket toFixed(0) turned 0.185% and 0.003% into "0".
+ */
+function formatPercent(relativeIntensity: number): string {
+  const pct = relativeIntensity * 100;
+  if (pct >= 10) return pct.toFixed(0);
+  if (pct >= 1) return pct.toFixed(1);
+  if (pct >= 0.1) return pct.toFixed(2);
+  return pct.toFixed(3);
 }
 
 /** Exported for tests: the adduct table's ion for a molecule, without the

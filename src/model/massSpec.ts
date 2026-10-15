@@ -536,6 +536,128 @@ export interface NeutralLoss {
   mass: number;
   /** When this loss is characteristic, for the tooltip. */
   note: string;
+  /**
+   * Elements the molecule must contain for this loss to be physically
+   * available. A molecule with no oxygen cannot lose water, and listing it
+   * anyway is noise that makes the panel look like boilerplate.
+   */
+  requires: string[];
+  /**
+   * Stronger structural requirement, checked against the drawn connectivity.
+   * Optional: when absent, element availability is the whole test. These stay
+   * deliberately coarse -- "has an OH" rather than "is a carboxylic acid" --
+   * because a wrong negative here hides a loss that really does occur.
+   */
+  group?: (mol: Molecule) => boolean;
+}
+
+/** The bond joining two atoms, if there is one. */
+function bondBetween(mol: Molecule, a: string, b: string) {
+  for (const bondId in mol.bonds) {
+    const bond = mol.bonds[bondId];
+    if ((bond.a1 === a && bond.a2 === b) || (bond.a1 === b && bond.a2 === a)) return bond;
+  }
+  return undefined;
+}
+
+/** Atoms bonded to `id`. */
+function neighboursOf(mol: Molecule, id: string): string[] {
+  const out: string[] = [];
+  for (const bondId in mol.bonds) {
+    const bond = mol.bonds[bondId];
+    if (bond.a1 === id) out.push(bond.a2);
+    else if (bond.a2 === id) out.push(bond.a1);
+  }
+  return out;
+}
+
+/** An -OH or -COOH: oxygen bonded to carbon and bearing a hydrogen. */
+function hasHydroxyl(mol: Molecule): boolean {
+  for (const id in mol.atoms) {
+    if (mol.atoms[id].element !== "O" || implicitH(mol, id) === 0) continue;
+    if (neighboursOf(mol, id).some((n) => mol.atoms[n].element === "C")) return true;
+  }
+  return false;
+}
+
+/** A nitrogen with hydrogens -- an amine or, loosely, an amide. */
+function hasAmine(mol: Molecule): boolean {
+  for (const id in mol.atoms) {
+    if ((mol.atoms[id].element as string) === "N" && implicitH(mol, id) > 0) return true;
+  }
+  return false;
+}
+
+/** A carboxyl group: carbon double-bonded to one oxygen, single-bonded to another. */
+function hasCarboxyl(mol: Molecule): boolean {
+  for (const id in mol.atoms) {
+    if (mol.atoms[id].element !== "C") continue;
+    let carbonylO = false;
+    let hydroxylOrEtherO = false;
+    for (const n of neighboursOf(mol, id)) {
+      if (mol.atoms[n].element !== "O") continue;
+      if (bondBetween(mol, id, n)?.order === 2) carbonylO = true;
+      else hydroxylOrEtherO = true;
+    }
+    if (carbonylO && hydroxylOrEtherO) return true;
+  }
+  return false;
+}
+
+/** A sulfonyl group: sulfur bonded to two oxygens and two carbons. */
+function hasSulfonyl(mol: Molecule): boolean {
+  for (const id in mol.atoms) {
+    if (mol.atoms[id].element !== "S") continue;
+    const ns = neighboursOf(mol, id);
+    if (ns.filter((n) => mol.atoms[n].element === "O").length >= 2 && ns.filter((n) => mol.atoms[n].element === "C").length >= 2) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A nitro group: nitrogen bonded to two oxygens. */
+function hasNitro(mol: Molecule): boolean {
+  for (const id in mol.atoms) {
+    if (mol.atoms[id].element !== "N") continue;
+    if (neighboursOf(mol, id).filter((n) => mol.atoms[n].element === "O").length >= 2) return true;
+  }
+  return false;
+}
+
+/** A carbonyl bonded to a heteroatom -- an ester, amide or acid. */
+function hasEsterOrAmide(mol: Molecule): boolean {
+  for (const id in mol.atoms) {
+    if (mol.atoms[id].element !== "C") continue;
+    let carbonyl = false;
+    let hetero = false;
+    for (const n of neighboursOf(mol, id)) {
+      const el = mol.atoms[n].element;
+      if (el === "O" || el === "N") hetero = true;
+      if (el === "O" && bondBetween(mol, id, n)?.order === 2) carbonyl = true;
+    }
+    if (carbonyl && hetero) return true;
+  }
+  return false;
+}
+
+/**
+ * Which of the listed losses this molecule can actually make.
+ *
+ * The panel used to show the same six lightest losses for everything, so a
+ * molecule with no oxygen was still offered water and one with no nitrogen
+ * still offered ammonia. Element availability alone already removes most of
+ * the boilerplate; the group checks remove the rest without pretending to
+ * more precision than a 2D drawing can support.
+ */
+export function applicableNeutralLosses(mol: Molecule): NeutralLoss[] {
+  // elementCounts rather than the raw atom list: hydrogens are implicit, so a
+  // molecule drawn as "C" alone contains no H atom yet can obviously lose H2.
+  const present = new Set<string>(Object.keys(elementCounts(mol)));
+  return NEUTRAL_LOSSES.filter((loss) => {
+    if (!loss.requires.every((el) => present.has(el))) return false;
+    return loss.group ? loss.group(mol) : true;
+  });
 }
 
 /**
@@ -548,24 +670,24 @@ export interface NeutralLoss {
  * what makes a student able to read a real peak without a prediction model.
  */
 export const NEUTRAL_LOSSES: NeutralLoss[] = [
-  { id: "H2", formula: "H2", mass: 2.015650, note: "Hydrogen, sometimes from a fragmenting double bond" },
-  { id: "CO", formula: "CO", mass: 27.994915, note: "Carbon monoxide -- carbonyl loss" },
-  { id: "N2", formula: "N2", mass: 28.006148, note: "Nitrogen, from diazo or azide groups" },
-  { id: "NO", formula: "NO", mass: 29.997989, note: "Nitric oxide, from nitro groups" },
-  { id: "CH2O", formula: "CH2O", mass: 30.010565, note: "Formaldehyde" },
-  { id: "H2O", formula: "H2O", mass: 18.010565, note: "Water -- dehydration, common for alcohols and acids" },
-  { id: "NH3", formula: "NH3", mass: 17.026549, note: "Ammonia, from ammonium or amine groups" },
-  { id: "CH3OH", formula: "CH3OH", mass: 32.026215, note: "Methanol -- methyl ester loss" },
-  { id: "HCN", formula: "HCN", mass: 27.010899, note: "Hydrogen cyanide" },
-  { id: "C2H4", formula: "C2H4", mass: 28.031300, note: "Ethylene, from a saturated four-carbon chain" },
-  { id: "CH3CN", formula: "CH3CN", mass: 41.026549, note: "Acetonitrile" },
-  { id: "CO2", formula: "CO2", mass: 43.989829, note: "Carbon dioxide, from carboxyl groups" },
-  { id: "C3H6O", formula: "C3H6O", mass: 58.041865, note: "Acetone or propanal" },
-  { id: "C4H8", formula: "C4H8", mass: 56.062600, note: "Butene, from a butyl chain" },
-  { id: "C6H5OH", formula: "C6H6O", mass: 94.041865, note: "Phenol -- aromatic hydroxyl loss" },
-  { id: "SO2", formula: "SO2", mass: 63.961900, note: "Sulfur dioxide, from sulfonyl groups" },
-  { id: "HNO2", formula: "HNO2", mass: 47.000728, note: "Nitrous acid" },
-  { id: "C6H4O2", formula: "C6H4O2", mass: 108.021130, note: "Benzoquinone-type loss" },
+  { id: "H2", formula: "H2", mass: 2.015650, note: "Hydrogen, sometimes from a fragmenting double bond", requires: ["H"] },
+  { id: "CO", formula: "CO", mass: 27.994915, note: "Carbon monoxide -- carbonyl loss", requires: ["C", "O"], group: hasEsterOrAmide },
+  { id: "N2", formula: "N2", mass: 28.006148, note: "Nitrogen, from diazo or azide groups", requires: ["N"] },
+  { id: "NO", formula: "NO", mass: 29.997989, note: "Nitric oxide, from nitro groups", requires: ["N", "O"], group: hasNitro },
+  { id: "CH2O", formula: "CH2O", mass: 30.010565, note: "Formaldehyde", requires: ["C", "H", "O"] },
+  { id: "H2O", formula: "H2O", mass: 18.010565, note: "Water -- dehydration, common for alcohols and acids", requires: ["H", "O"], group: hasHydroxyl },
+  { id: "NH3", formula: "NH3", mass: 17.026549, note: "Ammonia, from ammonium or amine groups", requires: ["H", "N"], group: hasAmine },
+  { id: "CH3OH", formula: "CH3OH", mass: 32.026215, note: "Methanol -- methyl ester loss", requires: ["C", "H", "O"], group: hasEsterOrAmide },
+  { id: "HCN", formula: "HCN", mass: 27.010899, note: "Hydrogen cyanide", requires: ["H", "C", "N"] },
+  { id: "C2H4", formula: "C2H4", mass: 28.031300, note: "Ethylene, from a saturated four-carbon chain", requires: ["C", "H"] },
+  { id: "CH3CN", formula: "CH3CN", mass: 41.026549, note: "Acetonitrile", requires: ["C", "H", "N"] },
+  { id: "CO2", formula: "CO2", mass: 43.989829, note: "Carbon dioxide, from carboxyl groups", requires: ["C", "O"], group: hasCarboxyl },
+  { id: "C3H6O", formula: "C3H6O", mass: 58.041865, note: "Acetone or propanal", requires: ["C", "H", "O"] },
+  { id: "C4H8", formula: "C4H8", mass: 56.062600, note: "Butene, from a butyl chain", requires: ["C", "H"] },
+  { id: "C6H5OH", formula: "C6H6O", mass: 94.041865, note: "Phenol -- aromatic hydroxyl loss", requires: ["C", "H", "O"] },
+  { id: "SO2", formula: "SO2", mass: 63.961900, note: "Sulfur dioxide, from sulfonyl groups", requires: ["S", "O"], group: hasSulfonyl },
+  { id: "HNO2", formula: "HNO2", mass: 47.000728, note: "Nitrous acid", requires: ["H", "N", "O"], group: hasNitro },
+  { id: "C6H4O2", formula: "C6H4O2", mass: 108.021130, note: "Benzoquinone-type loss", requires: ["C", "H", "O"] },
 ];
 
 /** Sorts a copy of NEUTRAL_LOSSES by the mass lost, which is the order a

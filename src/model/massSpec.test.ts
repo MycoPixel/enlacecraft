@@ -9,6 +9,7 @@ import {
   exactMass,
   isotopePattern,
   MONOISOTOPIC_MASS,
+  applicableNeutralLosses,
   neutralLossesByMass,
   NEUTRAL_LOSSES,
 } from "./massSpec";
@@ -560,6 +561,87 @@ describe("neutral loss masses", () => {
       // The table stores 6 decimal places, so 1e-6 is the tightest tolerance
       // that doesn't flag ordinary storage rounding.
       expect(loss.mass, `${loss.formula} mass disagrees with its formula`).toBeCloseTo(expected, 5);
+    }
+  });
+});
+
+describe("molecule-specific neutral losses", () => {
+  /** Builds a molecule from "C*2,O*1" style specs, fully bonded in a chain. */
+  function chain(spec: string): Molecule {
+    let mol = specMolecule(spec);
+    const ids = Object.keys(mol.atoms);
+    for (let i = 1; i < ids.length; i++) {
+      mol = addBond(mol, `b${i}`, ids[i - 1], ids[i], 1);
+    }
+    return mol;
+  }
+
+  const formulas = (mol: Molecule) => applicableNeutralLosses(mol).map((l) => l.formula);
+
+  it("never offers a loss whose elements the molecule lacks", () => {
+    // Previously every molecule was shown the same six losses, so benzene was
+    // offered water and ammonia despite containing neither oxygen nor nitrogen.
+    const benzene = chain("C*6");
+    expect(formulas(benzene)).not.toContain("H2O");
+    expect(formulas(benzene)).not.toContain("NH3");
+    expect(formulas(benzene)).not.toContain("CO2");
+    // Hydrogen loss is available to any molecule with hydrogens.
+    expect(formulas(benzene)).toContain("H2");
+  });
+
+  it("offers water for an alcohol but not for an ether", () => {
+    const alcohol = chain("C*2,O*1");
+    expect(formulas(alcohol)).toContain("H2O");
+
+    // A real ether: C-C-O-C-C, so the oxygen carries no hydrogen.
+    const etherMol = emptyMolecule();
+    let e = addAtom(etherMol, "a1", { x: 0, y: 0 }, "C");
+    e = addAtom(e, "a2", { x: 1, y: 0 }, "C");
+    e = addAtom(e, "o", { x: 2, y: 0 }, "O");
+    e = addAtom(e, "a3", { x: 3, y: 0 }, "C");
+    e = addAtom(e, "a4", { x: 4, y: 0 }, "C");
+    e = addBond(e, "b1", "a1", "a2", 1);
+    e = addBond(e, "b2", "a2", "o", 1);
+    e = addBond(e, "b3", "o", "a3", 1);
+    e = addBond(e, "b4", "a3", "a4", 1);
+    expect(formulas(e)).not.toContain("H2O");
+  });
+
+  it("offers CO2 for a carboxylic acid", () => {
+    const mol = emptyMolecule();
+    const c1 = addAtom(mol, "c1", { x: 0, y: 0 }, "C");
+    const o1 = addAtom(c1, "o1", { x: 1, y: 0 }, "O");
+    const o2 = addAtom(o1, "o2", { x: 2, y: 0 }, "O");
+    const carboxy = addBond(o2, "b1", "c1", "o2", 2);
+    const full = addBond(carboxy, "b2", "c1", "o1", 1);
+    expect(formulas(full)).toContain("CO2");
+  });
+
+  it("offers SO2 only with a sulfonyl group", () => {
+    const plain = chain("C*2,S*1");
+    expect(formulas(plain)).not.toContain("SO2");
+
+    const mol = emptyMolecule();
+    let m = addAtom(mol, "s", { x: 0, y: 0 }, "S");
+    for (const [id, el, x] of [["c1", "C", -1], ["c2", "C", 1], ["o1", "O", 0], ["o2", "O", 2]] as const) {
+      m = addAtom(m, id, { x, y: 1 }, el);
+    }
+    m = addBond(m, "b1", "s", "c1", 1);
+    m = addBond(m, "b2", "s", "c2", 1);
+    m = addBond(m, "b3", "s", "o1", 1);
+    m = addBond(m, "b4", "s", "o2", 2);
+    expect(formulas(m)).toContain("SO2");
+  });
+
+  it("keeps every loss's element requirement consistent with its formula", () => {
+    for (const loss of NEUTRAL_LOSSES) {
+      for (const el of loss.requires) {
+        expect(loss.formula, `${loss.formula} requires ${el} it does not contain`).toContain(el);
+      }
+      if (loss.requires.length === 0) {
+        // Only hydrogen can be lost without any heavy element present.
+        expect(loss.formula).toBe("H2");
+      }
     }
   });
 });

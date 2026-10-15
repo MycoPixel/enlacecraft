@@ -80,6 +80,15 @@ the app unusable:
   was ~1 u out, and nitrous acid and sulfur dioxide were out by 15 and 4 mDa.
 - **Six positive adducts read `[M+H]+⁺`** -- an ASCII plus followed by a
   superscript one.
+- **The isotope pattern showed rows of "0".** Intensities were rounded to whole
+  percent, so benzene's real M+2 (0.185%) and M+3 (0.003%) both printed as "0"
+  and the pattern looked broken. Small intensities now keep their significant
+  digits, and peaks below 0.05% are left out instead of drawn as stubs.
+- **Every molecule was offered the same neutral losses.** Benzene was shown
+  water and ammonia despite containing neither oxygen nor nitrogen. Losses are
+  now filtered by the elements present and, for water, CO2, SO2, NO, methanol
+  and carbon monoxide, by whether the characteristic group is actually drawn.
+
 - **A failed spectrum search claimed the molecule had no data.** The error
   state was set but never rendered, so a network failure fell through to
   "0 spectra in MassBank".
