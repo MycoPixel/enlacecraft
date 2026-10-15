@@ -68,6 +68,11 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
   // Benzene's real M+2 is 0.185% and its M+3 is 0.003% -- shown as "0 0 0".
   const visiblePeaks = data.pattern.filter((p) => p.relativeIntensity * 100 >= 0.05);
 
+  // The hint names "the M peak", which is the offset-0 one. pattern[0] is the
+  // LIGHTEST peak, which for boron or selenium sits below M and would print the
+  // wrong mass here.
+  const basePeakMz = data.pattern.find((p) => p.offset === 0)?.mz ?? data.exactMass;
+
   const positive = data.ions.filter((i) => i.adduct.polarity === "positive");
   const negative = data.ions.filter((i) => i.adduct.polarity === "negative");
   const shown = showAllAdducts ? data.ions : [...positive.slice(0, 2), ...negative.slice(0, 1)];
@@ -114,7 +119,7 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
                 <g key={peak.offset}>
                   <line x1={x} y1={52} x2={x} y2={52 - h} stroke="var(--accent)" strokeWidth={3} strokeLinecap="round" />
                   <text x={x} y={55} fontSize="7" textAnchor="middle" fill="var(--ink-soft)">
-                    M{peak.offset === 0 ? "" : `+${peak.offset}`}
+                    {peakLabel(peak.offset)}
                   </text>
                   <text x={x} y={50 - h} fontSize="6" textAnchor="middle" fill="var(--ink-soft)">
                     {formatPercent(peak.relativeIntensity)}
@@ -125,7 +130,7 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
             <line x1={4} y1={53} x2={Math.max(160, 12 + visiblePeaks.length * 38) - 4} y2={53} stroke="var(--panel-border)" strokeWidth={1} />
           </svg>
           <p className="align-menu__hint">
-            {t("massSpec.isotopeHint", { base: data.pattern[0]?.mz.toFixed(3) ?? "—" })}
+            {t("massSpec.isotopeHint", { base: basePeakMz.toFixed(3) })}
           </p>
         </>
       )}
@@ -144,6 +149,12 @@ export function MassSpecPanel({ molecule }: { molecule: Molecule }) {
       )}
     </div>
   );
+}
+
+/** "M", "M+2", or "M−1" for a peak below the base (boron, selenium). */
+function peakLabel(offset: number): string {
+  if (offset === 0) return "M";
+  return offset > 0 ? `M+${offset}` : `M\u2212${-offset}`;
 }
 
 /**

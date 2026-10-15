@@ -4,12 +4,22 @@ import { fetchLocalInChIKey, isLocalBackendAvailable } from "./localChem";
 const realFetch = globalThis.fetch;
 let fetchMock: ReturnType<typeof vi.fn>;
 
+/** The desktop bridge's presence is what marks a build that bundles a backend.
+ *  This file runs in a Node environment, so `window` is stubbed rather than
+ *  assumed to exist. */
+function setElectron(present: boolean) {
+  if (present) vi.stubGlobal("window", { electron: { isElectron: true } });
+  else vi.stubGlobal("window", {});
+}
+
 beforeEach(() => {
   fetchMock = vi.fn();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
+  setElectron(true);
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
+  vi.unstubAllGlobals();
 });
 
 const json = (body: unknown, status = 200) =>
@@ -41,6 +51,15 @@ describe("local InChIKey lookup", () => {
   it("reports a refused connection as unavailable so the caller can use PubChem", async () => {
     fetchMock.mockRejectedValue(new TypeError("fetch failed"));
     await expect(fetchLocalInChIKey("CCO")).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("never touches localhost on a web build with no desktop bridge", async () => {
+    // Probing loopback from a public page can raise a local-network permission
+    // prompt, for a backend that cannot exist there.
+    setElectron(false);
+    await expect(fetchLocalInChIKey("CCO")).rejects.toMatchObject({ code: "unavailable" });
+    await expect(isLocalBackendAvailable()).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("does not call the network for an empty structure", async () => {

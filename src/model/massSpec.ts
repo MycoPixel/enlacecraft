@@ -445,7 +445,13 @@ export function isotopePattern(mol: Molecule, peaks: number = 4, atomIds?: Itera
   // shown directly above them.
   const shifts = new Map<string, { nominal: number; exact: number }[]>();
   let baseMass = 0;
-  let minShift = 0;
+  // Total of every atom's most negative shift: how far BELOW the base mass the
+  // pattern can reach for this molecule. It scales with the atom count -- two
+  // borons can both be 10B (M-2), three selenium atoms can reach M-18 -- so a
+  // bound taken from a single atom's shift silently truncates every molecule
+  // with more than one boron or selenium.
+  let totalMinShift = 0;
+  const minShiftOf = new Map<string, number>();
   for (const el in counts) {
     baseMass += (MONOISOTOPIC_MASS[el] ?? 0) * counts[el];
     const isotopes = ISOTOPE_ABUNDANCE[el];
@@ -464,7 +470,9 @@ export function isotopePattern(mol: Molecule, peaks: number = 4, atomIds?: Itera
       nominal: Math.round(iso.mass - baseIsoMass),
       exact: iso.mass - baseIsoMass,
     }));
-    minShift = Math.min(minShift, ...elementShifts.map((sh) => sh.nominal));
+    const elementMin = Math.min(0, ...elementShifts.map((sh) => sh.nominal));
+    minShiftOf.set(el, elementMin);
+    totalMinShift += elementMin * counts[el];
     shifts.set(el, elementShifts);
   }
 
@@ -479,20 +487,27 @@ export function isotopePattern(mol: Molecule, peaks: number = 4, atomIds?: Itera
   let dist = new Map<number, { probability: number; massSum: number }>();
   dist.set(0, { probability: 1, massSum: 0 });
 
+  // How far the atoms NOT yet convolved in can still pull an offset back down.
+  // An intermediate state above the requested window is only discardable if
+  // nothing left can bring it back inside it.
+  let remainingMinShift = totalMinShift;
+
   for (const el in counts) {
     const elementShifts = shifts.get(el);
     if (!elementShifts) continue;
     const isotopes = ISOTOPE_ABUNDANCE[el];
 
     for (let atom = 0; atom < counts[el]; atom++) {
+      remainingMinShift -= minShiftOf.get(el) ?? 0;
+      const upperBound = peaks - remainingMinShift;
       const next = new Map<number, { probability: number; massSum: number }>();
       for (const [offset, state] of dist) {
         for (let i = 0; i < isotopes.length; i++) {
           const newOffset = offset + elementShifts[i].nominal;
-          // Upper bound is the requested peak count; lower bound is the most
-          // negative single-atom shift (peaks below it can't exist for this
-          // molecule since no element present shifts that far).
-          if (newOffset > peaks || newOffset < minShift) continue;
+          // Only the upper side is pruned. Every peak below the base is wanted,
+          // and the number of distinct offsets is bounded by the molecule's
+          // total isotope span, so keeping them all stays cheap.
+          if (newOffset > upperBound) continue;
           const p = state.probability * isotopes[i].abundance;
           if (p === 0) continue;
           // A child's weighted mass sum is the parent's, scaled by this
@@ -642,6 +657,24 @@ function hasEsterOrAmide(mol: Molecule): boolean {
 }
 
 /**
+ * Whether the molecule has enough atoms of each element to lose this fragment
+ * and still have something left.
+ *
+ * Presence of an element is not enough: ethanol contains carbon, hydrogen and
+ * oxygen, but it cannot lose C6H6O (94 u) from a 46 u molecule. The count test
+ * is also what stops a molecule from "losing" itself.
+ */
+function lossFitsFormula(loss: NeutralLoss, counts: Record<string, number>, total: number): boolean {
+  const needed = parseSimpleFormula(loss.formula);
+  let lossAtoms = 0;
+  for (const el in needed) {
+    if ((counts[el] ?? 0) < needed[el]) return false;
+    lossAtoms += needed[el];
+  }
+  return total > lossAtoms;
+}
+
+/**
  * Which of the listed losses this molecule can actually make.
  *
  * The panel used to show the same six lightest losses for everything, so a
@@ -653,9 +686,10 @@ function hasEsterOrAmide(mol: Molecule): boolean {
 export function applicableNeutralLosses(mol: Molecule): NeutralLoss[] {
   // elementCounts rather than the raw atom list: hydrogens are implicit, so a
   // molecule drawn as "C" alone contains no H atom yet can obviously lose H2.
-  const present = new Set<string>(Object.keys(elementCounts(mol)));
+  const counts = elementCounts(mol);
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
   return NEUTRAL_LOSSES.filter((loss) => {
-    if (!loss.requires.every((el) => present.has(el))) return false;
+    if (!lossFitsFormula(loss, counts, total)) return false;
     return loss.group ? loss.group(mol) : true;
   });
 }

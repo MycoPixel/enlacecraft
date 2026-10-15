@@ -523,6 +523,45 @@ describe("isotopePattern data", () => {
   });
 });
 
+describe("isotopePattern with several boron or selenium atoms", () => {
+  const rel = (pattern: ReturnType<typeof isotopePattern>, offset: number) =>
+    pattern.find((p) => p.offset === offset)?.relativeIntensity;
+
+  it("keeps the 10B2 peak of a diboron compound", () => {
+    // 10B is 19.9%, 11B 80.1%. For two borons: 10B2 at M-2, 10B+11B at M-1 and
+    // 11B2 (the base) at M. A cut-off taken from ONE atom's shift dropped M-2.
+    const pattern = isotopePattern(specMolecule("B*2"), 4);
+    expect(rel(pattern, -2)).toBeCloseTo((0.199 * 0.199) / (0.801 * 0.801), 2);
+    expect(rel(pattern, -1)).toBeCloseTo((2 * 0.199 * 0.801) / (0.801 * 0.801), 2);
+    expect(rel(pattern, 0)).toBe(1);
+  });
+
+  it("reaches M-3 for three borons", () => {
+    const pattern = isotopePattern(specMolecule("B*3"), 4);
+    expect(Math.min(...pattern.map((p) => p.offset))).toBe(-3);
+    expect(rel(pattern, -3)).toBeCloseTo(Math.pow(0.199 / 0.801, 3), 2);
+  });
+
+  it("lets two selenium atoms spread over their full 74Se2..82Se2 range", () => {
+    // One 74Se sits 6 u below the base (80Se), so two reach 12 u below it.
+    const pattern = isotopePattern(specMolecule("Se*2"), 4);
+    expect(Math.min(...pattern.map((p) => p.offset))).toBe(-12);
+    // Sanity: the total is still a probability distribution over what's kept.
+    const total = pattern.reduce((a, p) => a + p.abundance, 0);
+    expect(total).toBeGreaterThan(0.999);
+    expect(total).toBeLessThanOrEqual(1.0000001);
+  });
+
+  it("does not lose peaks when a light isotope can pull a high state back into range", () => {
+    // Carbon is processed alongside boron; a state pushed above the window by
+    // 13C must survive until 10B can bring it back. Total probability mass is
+    // the cheap invariant for that: nothing meaningful may be dropped.
+    const pattern = isotopePattern(specMolecule("C*4,B*2"), 4);
+    const total = pattern.reduce((a, p) => a + p.abundance, 0);
+    expect(total).toBeGreaterThan(0.9999);
+  });
+});
+
 describe("adduct labels", () => {
   it("does not render a doubled charge sign", () => {
     // "[M+H]+\u207a" reads as "[M+H]+ plus" -- an ASCII '+' and then a
@@ -589,6 +628,35 @@ describe("molecule-specific neutral losses", () => {
     expect(formulas(benzene)).not.toContain("CO2");
     // Hydrogen loss is available to any molecule with hydrogens.
     expect(formulas(benzene)).toContain("H2");
+  });
+
+  it("never offers a loss bigger than, or equal to, the molecule itself", () => {
+    // Element presence is not enough: ethanol (46 u) has C, H and O but cannot
+    // lose C6H6O (94 u) or C6H4O2 (108 u).
+    const ethanol = chainFromSpec("C*2,O*1");
+    for (const l of applicableNeutralLosses(ethanol)) {
+      expect(l.mass, `${l.formula} is heavier than the molecule`).toBeLessThan(exactMass(ethanol));
+    }
+    expect(formulas(ethanol)).not.toContain("C6H6O");
+    expect(formulas(ethanol)).not.toContain("C6H4O2");
+    expect(formulas(ethanol)).not.toContain("C3H6O");
+    expect(formulas(ethanol)).not.toContain("C4H8");
+    // Still gets the ones it really can make.
+    expect(formulas(ethanol)).toContain("H2O");
+    expect(formulas(ethanol)).toContain("H2");
+  });
+
+  it("checks atom counts, not just which elements are present", () => {
+    // Methane has carbon and hydrogen, so by element alone it was offered
+    // ethylene and butene -- both need more carbons than it has.
+    const methane = chainFromSpec("C*1");
+    expect(formulas(methane)).toContain("H2");
+    expect(formulas(methane)).not.toContain("C2H4");
+    expect(formulas(methane)).not.toContain("C4H8");
+  });
+
+  it("does not let water lose itself", () => {
+    expect(formulas(chainFromSpec("O*1"))).not.toContain("H2O");
   });
 
   it("offers water for an alcohol but not for an ether", () => {

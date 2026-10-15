@@ -47,8 +47,23 @@ async function postWithTimeout(path: string, body: unknown, signalMs = LOCAL_TIM
   }
 }
 
+/**
+ * Whether this build can have a local backend at all.
+ *
+ * Only the desktop build bundles one. On a web deploy there is nothing on
+ * localhost:8000 to find, and probing it anyway is not free: browsers treat a
+ * public page reaching into the loopback interface as a local-network request
+ * and may put a permission prompt in front of the user for a feature that was
+ * never going to work. NmrPredictionButton gates on the same bridge for the
+ * same reason, so the two stay consistent.
+ */
+function hasLocalBackend(): boolean {
+  return typeof window !== "undefined" && window.electron?.isElectron === true;
+}
+
 /** Whether the bundled backend is up. Cheap; safe to call speculatively. */
 export async function isLocalBackendAvailable(): Promise<boolean> {
+  if (!hasLocalBackend()) return false;
   try {
     const res = await fetch(`${NMR_API_BASE}/health`, { signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS) });
     return res.ok;
@@ -67,6 +82,10 @@ export async function isLocalBackendAvailable(): Promise<boolean> {
 export async function fetchLocalInChIKey(smiles: string): Promise<string | null> {
   const trimmed = smiles.trim();
   if (!trimmed) return null;
+
+  // No desktop bridge means no backend: say so without touching the network,
+  // so the caller drops straight to PubChem.
+  if (!hasLocalBackend()) throw new LocalChemError("unavailable");
 
   let res: Response;
   try {
