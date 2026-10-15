@@ -356,18 +356,55 @@ describe("plot gestures are unaffected by the draggable panel", () => {
     stubLayout();
     const svg = container.querySelector(".nmr-spectrum-plot__svg") as SVGSVGElement;
     expect(svg).toBeTruthy();
-    const rangeBefore = container.querySelector(".nmr-spectrum-plot__control-input") as HTMLInputElement;
+
+    // jsdom implements neither getScreenCTM nor createSVGPoint, so without
+    // these the client->ppm conversion bails out and no zoom can happen. That
+    // is why this test used to pass while asserting nothing about zoom, and
+    // why every run ended in an unhandled TypeError. The stub passes viewBox
+    // coordinates straight through.
+    svg.getScreenCTM = () => ({ inverse: () => ({}) }) as unknown as DOMMatrix;
+    svg.createSVGPoint = () => {
+      const point = { x: 0, y: 0 };
+      return {
+        get x() {
+          return point.x;
+        },
+        set x(v: number) {
+          point.x = v;
+        },
+        get y() {
+          return point.y;
+        },
+        set y(v: number) {
+          point.y = v;
+        },
+        matrixTransform: () => ({ x: point.x, y: point.y }),
+      } as unknown as DOMPoint;
+    };
+
+    const [fromInput, toInput] = [...container.querySelectorAll(".nmr-spectrum-plot__control-input")] as HTMLInputElement[];
+    const before = { from: fromInput.value, to: toInput.value };
+    expect(before.from).not.toBe("");
 
     const opts = { bubbles: true, cancelable: true, pointerId: 9, pointerType: "mouse", button: 0 } as const;
-    // getScreenCTM is unimplemented in jsdom, so a real client->ppm conversion
-    // can't happen; the assertion here is that the press reached the plot at
-    // all (a drag selection rect appears) and the panel never moved.
+    // One act() per event: the drag position lives in React state, so batching
+    // down/move/up together would let endDrag read a stale (still-null) value
+    // and discard the zoom.
     act(() => {
       svg.dispatchEvent(new PointerEvent("pointerdown", { ...opts, clientX: 300, clientY: 100 }));
+    });
+    act(() => {
       svg.dispatchEvent(new PointerEvent("pointermove", { ...opts, clientX: 340, clientY: 100 }));
+    });
+    act(() => {
       svg.dispatchEvent(new PointerEvent("pointerup", { ...opts, clientX: 340, clientY: 100 }));
     });
-    expect(rangeBefore).toBeTruthy();
+
+    // The zoom actually happened: the ppm window narrowed to the dragged
+    // range, and the draggable panel was never involved.
+    expect(Number(toInput.value) - Number(fromInput.value)).toBeGreaterThan(0);
+    expect(Number(fromInput.value)).toBeGreaterThan(Number(before.from));
+    expect(Number(toInput.value)).toBeLessThan(Number(before.to));
     expect(offset()).toEqual({ x: 0, y: 0 });
   });
 });

@@ -4653,3 +4653,12 @@
   color: var(--danger, #e05252);
   margin: 4px 0 0;
 }
+
+.mass-spec__stereo-note {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  border-left: 2px solid var(--accent);
+  padding-left: 6px;
+  margin: 4px 0 6px;
+}

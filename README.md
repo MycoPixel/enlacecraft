@@ -123,6 +123,7 @@ src/
     constants.ts             Elements, colors, valence table, ring templates
     geometry.ts               distance / angle / snapping math
     valence.ts                 implicit-H, over-valence, molecular formula
+    massSpec.ts                  exact mass, adducts, isotope pattern, neutral losses
     molecule.ts                 addAtom/addBond/moveAtoms/... pure reducers
     id.ts                        id generator
   engine/                   Interaction logic that sits on top of the model
@@ -138,6 +139,7 @@ src/
     pubchem.ts                    PubChem PUG REST client (compound search)
     iupacLookup.ts                Shared IUPAC lookup+retry logic (button + live panel)
     nmrPredict.ts                 Client for the NMR prediction backend
+    massBank.ts                   MassBank measured-spectrum lookup (MS/MS)
   store/
     useMoleculeStore.ts       Zustand store: structural state + undo/redo history
                               + tool/selection/view/theme UI state

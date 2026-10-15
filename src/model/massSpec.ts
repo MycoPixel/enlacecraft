@@ -209,12 +209,12 @@ export interface Adduct {
  * molecule.
  */
 export const ADDUCTS: Adduct[] = [
-  { id: "M+H", label: "[M+H]+\u207a", polarity: "positive", adds: { H: 1 }, charge: 1 },
-  { id: "M+Na", label: "[M+Na]+\u207a", polarity: "positive", adds: { Na: 1 }, charge: 1 },
-  { id: "M+K", label: "[M+K]+\u207a", polarity: "positive", adds: { K: 1 }, charge: 1 },
-  { id: "M+NH4", label: "[M+NH4]+\u207a", polarity: "positive", adds: { N: 1, H: 4 }, charge: 1 },
-  { id: "M+MeOH+H", label: "[M+CH3OH+H]+\u207a", polarity: "positive", adds: { C: 1, H: 4, O: 1 }, charge: 1 },
-  { id: "M+ACN+H", label: "[M+CH3CN+H]+\u207a", polarity: "positive", adds: { C: 2, H: 4, N: 1 }, charge: 1 },
+  { id: "M+H", label: "[M+H]\u207a", polarity: "positive", adds: { H: 1 }, charge: 1 },
+  { id: "M+Na", label: "[M+Na]\u207a", polarity: "positive", adds: { Na: 1 }, charge: 1 },
+  { id: "M+K", label: "[M+K]\u207a", polarity: "positive", adds: { K: 1 }, charge: 1 },
+  { id: "M+NH4", label: "[M+NH4]\u207a", polarity: "positive", adds: { N: 1, H: 4 }, charge: 1 },
+  { id: "M+MeOH+H", label: "[M+CH3OH+H]\u207a", polarity: "positive", adds: { C: 1, H: 4, O: 1 }, charge: 1 },
+  { id: "M+ACN+H", label: "[M+CH3CN+H]\u207a", polarity: "positive", adds: { C: 2, H: 4, N: 1 }, charge: 1 },
   { id: "M+2H", label: "[M+2H]\u00b2\u207a", polarity: "positive", adds: { H: 2 }, charge: 2 },
   { id: "M-H", label: "[M-H]\u207b", polarity: "negative", adds: { H: -1 }, charge: -1 },
   { id: "M+Cl", label: "[M+Cl]\u207b", polarity: "negative", adds: { Cl: 1 }, charge: -1 },
@@ -361,36 +361,51 @@ export function degreeOfUnsaturation(counts: Record<string, number>): number | n
  * their monoisotopic peak, which is correct for the overwhelming majority of
  * organic formula. */
 const ISOTOPE_ABUNDANCE: Record<string, { abundance: number; mass: number }[]> = {
-  H: [{ abundance: 0.999885, mass: 1.007825032 }, { abundance: 0.000115, mass: 2.01410178 }],
+  H: [{ abundance: 0.999885, mass: 1.00782503 }, { abundance: 0.000115, mass: 2.01410178 }],
+  // Boron is 20% 10B / 80% 11B, so its base mass is the *heavier* isotope and
+  // the lighter one sits at a NEGATIVE offset. A boron compound's spectrum
+  // genuinely has peaks below its nominal mass.
+  B: [{ abundance: 0.199, mass: 10.012937 }, { abundance: 0.801, mass: 11.0093054 }],
   C: [{ abundance: 0.9893, mass: 12 }, { abundance: 0.0107, mass: 13.00335484 }],
-  N: [{ abundance: 0.99636, mass: 14.003074 }, { abundance: 0.00364, mass: 15.0001089 }],
+  N: [{ abundance: 0.99632, mass: 14.003074 }, { abundance: 0.00368, mass: 15.0001089 }],
   O: [
     { abundance: 0.99757, mass: 15.99491462 },
     { abundance: 0.00038, mass: 16.9991317 },
     { abundance: 0.00205, mass: 17.999161 },
   ],
-  F: [{ abundance: 1, mass: 18.99840320 }],
-  Si: [{ abundance: 0.9223, mass: 27.97692653 }, { abundance: 0.0777, mass: 28.97649466 }],
+  F: [{ abundance: 1, mass: 18.99840322 }],
+  Si: [
+    { abundance: 0.922297, mass: 27.97692653 },
+    { abundance: 0.046832, mass: 28.9764947 },
+    { abundance: 0.030872, mass: 29.97377017 },
+  ],
   P: [{ abundance: 1, mass: 30.97376163 }],
   S: [
-    { abundance: 0.9499, mass: 31.972071 },
-    { abundance: 0.0075, mass: 32.97145876 },
-    { abundance: 0.0425, mass: 33.967867 },
+    { abundance: 0.9493, mass: 31.972071 },
+    { abundance: 0.0076, mass: 32.97145876 },
+    { abundance: 0.0429, mass: 33.9678669 },
+    { abundance: 0.0002, mass: 35.96708076 },
   ],
   Cl: [
-    { abundance: 0.7576, mass: 34.96885268 },
-    { abundance: 0.2424, mass: 36.96590259 },
+    { abundance: 0.7578, mass: 34.96885268 },
+    { abundance: 0.2422, mass: 36.96590259 },
+  ],
+  // Selenium's heaviest isotope is the most abundant (80Se, 49.6%), and it has
+  // six stable isotopes spread over 74-82 -- the previous entry here had three
+  // masses paired with the wrong abundances.
+  Se: [
+    { abundance: 0.0089, mass: 73.9224764 },
+    { abundance: 0.0937, mass: 75.9192136 },
+    { abundance: 0.0763, mass: 76.919914 },
+    { abundance: 0.2377, mass: 77.9173091 },
+    { abundance: 0.4961, mass: 79.9165213 },
+    { abundance: 0.0873, mass: 81.9166994 },
   ],
   Br: [
     { abundance: 0.5069, mass: 78.9183371 },
-    { abundance: 0.4931, mass: 80.9162897 },
+    { abundance: 0.4931, mass: 80.9162906 },
   ],
   I: [{ abundance: 1, mass: 126.904473 }],
-  Se: [
-    { abundance: 0.0899, mass: 79.9165218 },
-    { abundance: 0.0937, mass: 77.919914 },
-    { abundance: 0.0763, mass: 80.916291 },
-  ],
 };
 
 export interface IsotopePeak {
@@ -420,60 +435,95 @@ export interface IsotopePeak {
  */
 export function isotopePattern(mol: Molecule, peaks: number = 4, atomIds?: Iterable<string>): IsotopePeak[] {
   const counts = elementCounts(mol, atomIds);
-  // The convolution below tracks *shifts* away from each element's most
-  // abundant isotope, starting from zero, so it has to be rebased onto the
-  // molecule's real monoisotopic mass at the end. Without this every peak is
-  // reported at a near-zero m/z.
-  let baseMass = 0;
-  for (const el in counts) baseMass += (MONOISOTOPIC_MASS[el] ?? 0) * counts[el];
 
-  // Start as a single peak at mass 0 with probability 1, then convolve each
-  // element's distribution in.
-  let distribution = [{ offset: 0, mass: 0, probability: 1 }];
+  // The pattern is referenced to each element's MOST ABUNDANT isotope, because
+  // that is what MONOISOTOPIC_MASS (and therefore exactMass, and RDKit's
+  // ExactMolWt) uses. For most elements the most abundant one is also the
+  // lightest, but not for boron (80% 11B) or selenium (49.6% 80Se), whose
+  // lighter isotopes therefore land at negative offsets. Anchoring to the
+  // lightest instead would make the plotted peaks disagree with the exact mass
+  // shown directly above them.
+  const shifts = new Map<string, { nominal: number; exact: number }[]>();
+  let baseMass = 0;
+  let minShift = 0;
+  for (const el in counts) {
+    baseMass += (MONOISOTOPIC_MASS[el] ?? 0) * counts[el];
+    const isotopes = ISOTOPE_ABUNDANCE[el];
+    if (!isotopes || isotopes.length < 2) continue;
+
+    let baseIndex = 0;
+    for (let i = 1; i < isotopes.length; i++) {
+      if (isotopes[i].abundance > isotopes[baseIndex].abundance) baseIndex = i;
+    }
+    // `exact` is relative to the base isotope and drives the plotted m/z;
+    // `nominal` is the rounded value that decides which peak a state lands in.
+    // They must share an origin -- computing the mass offset from the lightest
+    // isotope while bucketing by the base isotope silently inflates every m/z.
+    const baseIsoMass = isotopes[baseIndex].mass;
+    const elementShifts = isotopes.map((iso) => ({
+      nominal: Math.round(iso.mass - baseIsoMass),
+      exact: iso.mass - baseIsoMass,
+    }));
+    minShift = Math.min(minShift, ...elementShifts.map((sh) => sh.nominal));
+    shifts.set(el, elementShifts);
+  }
+
+  // State is a map from nominal offset -> { probability, massSum }, where
+  // massSum is the probability-weighted running total. Merging by offset after
+  // *every atom* is what keeps this linear: collecting every combination and
+  // merging only at the end grows the intermediate array exponentially (a
+  // 12-carbon chain ran out of memory), because the offsets collapse onto
+  // only a handful of values while the number of ways to reach them doubles
+  // per atom. Holding a Map keyed by offset keeps it proportional to the
+  // number of distinct peaks instead.
+  let dist = new Map<number, { probability: number; massSum: number }>();
+  dist.set(0, { probability: 1, massSum: 0 });
 
   for (const el in counts) {
+    const elementShifts = shifts.get(el);
+    if (!elementShifts) continue;
     const isotopes = ISOTOPE_ABUNDANCE[el];
-    // No isotope data for this element: it only has its monoisotopic peak,
-    // so the distribution is unchanged.
-    if (!isotopes || isotopes.length < 2) continue;
-    const n = counts[el];
 
-    // Raise the element's distribution to the power of how many atoms of it
-    // there are, by repeated convolution. Bounded by the peak count so the
-    // array can't grow without limit on a large molecule.
-    for (let atom = 0; atom < n; atom++) {
-      const next: typeof distribution = [];
-      for (const base of distribution) {
+    for (let atom = 0; atom < counts[el]; atom++) {
+      const next = new Map<number, { probability: number; massSum: number }>();
+      for (const [offset, state] of dist) {
         for (let i = 0; i < isotopes.length; i++) {
-          const iso = isotopes[i];
-          const shift = iso.mass - isotopes[0].mass;
-          const offset = Math.round(base.offset + shift);
-          if (offset > peaks) continue;
-          next.push({ offset, mass: base.mass + shift, probability: base.probability * iso.abundance });
+          const newOffset = offset + elementShifts[i].nominal;
+          // Upper bound is the requested peak count; lower bound is the most
+          // negative single-atom shift (peaks below it can't exist for this
+          // molecule since no element present shifts that far).
+          if (newOffset > peaks || newOffset < minShift) continue;
+          const p = state.probability * isotopes[i].abundance;
+          if (p === 0) continue;
+          // A child's weighted mass sum is the parent's, scaled by this
+          // isotope's abundance (the parent's combos each appear once per
+          // isotope, each at this abundance), plus every combo's share of the
+          // isotope's own mass delta:
+          //     a * massSum + (state.probability * a) * delta
+          // Leaving the `a *` factor off inflates each centroid by 1/a, so a
+          // lone 13C reads as ~93 u rather than ~1.003.
+          //
+          // Exact mass, not the rounded nominal offset, so a merged peak sits
+          // at its probability-weighted centroid rather than a running average
+          // of averages (which also made the result order-dependent).
+          const shifted = isotopes[i].abundance * state.massSum + p * elementShifts[i].exact;
+          const existing = next.get(newOffset);
+          if (existing) {
+            existing.probability += p;
+            existing.massSum += shifted;
+          } else {
+            next.set(newOffset, { probability: p, massSum: shifted });
+          }
         }
       }
-      distribution = next;
+      dist = next;
     }
   }
 
-  // Total mass is fixed (the neutral molecule's), so peaks can share an offset
-  // when different isotope combinations round to the same nominal mass --
-  // combine them rather than reporting a peak per combination.
-  const byOffset = new Map<number, { mass: number; probability: number }>();
-  for (const peak of distribution) {
-    if (peak.offset < 0 || peak.offset > peaks) continue;
-    const existing = byOffset.get(peak.offset);
-    if (existing) {
-      existing.probability += peak.probability;
-      existing.mass = (existing.mass + peak.mass) / 2;
-    } else {
-      byOffset.set(peak.offset, { mass: peak.mass, probability: peak.probability });
-    }
-  }
-
-  const raw = [...byOffset.entries()]
+  const raw = [...dist.entries()]
+    .filter(([, v]) => v.probability > 0)
     .sort((a, b) => a[0] - b[0])
-    .map(([offset, v]) => ({ offset, mz: baseMass + v.mass, abundance: v.probability }));
+    .map(([offset, v]) => ({ offset, mz: baseMass + v.massSum / v.probability, abundance: v.probability }));
   const max = Math.max(...raw.map((p) => p.abundance), 0);
   return raw.map((p) => ({ ...p, relativeIntensity: max > 0 ? p.abundance / max : 0 }));
 }
@@ -501,7 +551,7 @@ export const NEUTRAL_LOSSES: NeutralLoss[] = [
   { id: "H2", formula: "H2", mass: 2.015650, note: "Hydrogen, sometimes from a fragmenting double bond" },
   { id: "CO", formula: "CO", mass: 27.994915, note: "Carbon monoxide -- carbonyl loss" },
   { id: "N2", formula: "N2", mass: 28.006148, note: "Nitrogen, from diazo or azide groups" },
-  { id: "NO", formula: "NO", mass: 30.994561, note: "Nitric oxide, from nitro groups" },
+  { id: "NO", formula: "NO", mass: 29.997989, note: "Nitric oxide, from nitro groups" },
   { id: "CH2O", formula: "CH2O", mass: 30.010565, note: "Formaldehyde" },
   { id: "H2O", formula: "H2O", mass: 18.010565, note: "Water -- dehydration, common for alcohols and acids" },
   { id: "NH3", formula: "NH3", mass: 17.026549, note: "Ammonia, from ammonium or amine groups" },
@@ -513,8 +563,8 @@ export const NEUTRAL_LOSSES: NeutralLoss[] = [
   { id: "C3H6O", formula: "C3H6O", mass: 58.041865, note: "Acetone or propanal" },
   { id: "C4H8", formula: "C4H8", mass: 56.062600, note: "Butene, from a butyl chain" },
   { id: "C6H5OH", formula: "C6H6O", mass: 94.041865, note: "Phenol -- aromatic hydroxyl loss" },
-  { id: "SO2", formula: "SO2", mass: 63.958146, note: "Sulfur dioxide, from sulfonyl groups" },
-  { id: "HNO2", formula: "HNO2", mass: 46.985474, note: "Nitrous acid" },
+  { id: "SO2", formula: "SO2", mass: 63.961900, note: "Sulfur dioxide, from sulfonyl groups" },
+  { id: "HNO2", formula: "HNO2", mass: 47.000728, note: "Nitrous acid" },
   { id: "C6H4O2", formula: "C6H4O2", mass: 108.021130, note: "Benzoquinone-type loss" },
 ];
 

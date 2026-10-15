@@ -6,6 +6,7 @@ import {
   MassBankError,
   type MassBankSpectrum,
   type SpectrumRef,
+  type SpectraSearchResult,
   isValidInChIKey,
 } from "../../io/massBank";
 import { useT } from "../../i18n/useT";
@@ -46,6 +47,7 @@ export function SpectrumLookup({
 }) {
   const t = useT();
   const [refs, setRefs] = useState<SpectrumRef[] | null>(null);
+  const [stereoFallback, setStereoFallback] = useState(false);
   const [state, setState] = useState<"idle" | "loading" | "error" | "none">("idle");
   const [selected, setSelected] = useState<MassBankSpectrum | null>(null);
   const [loadingRecord, setLoadingRecord] = useState(false);
@@ -62,6 +64,7 @@ export function SpectrumLookup({
   useEffect(() => {
     setRefs(null);
     setSelected(null);
+    setStereoFallback(false);
     setState("idle");
     setShowAll(false);
     if (!inchikey) return;
@@ -69,9 +72,11 @@ export function SpectrumLookup({
     let cancelled = false;
     setState("loading");
     searchSpectra(inchikey)
-      .then((hits) => {
+      .then((result: SpectraSearchResult) => {
         if (cancelled) return;
+        const hits = result.refs;
         setRefs(hits);
+        setStereoFallback(result.stereochemistryFallback);
         setState(hits.length === 0 ? "none" : "idle");
         // Auto-open the first spectrum: the common case is "show me the
         // measured data", not "let me pick from 122 near-identical entries".
@@ -164,12 +169,25 @@ export function SpectrumLookup({
     );
   }
 
+  if (state === "error") {
+    // Previously this state was set on a network failure but never rendered,
+    // so a connection problem fell through and claimed the molecule had zero
+    // spectra -- the same false "no data" the changelog fixed for PubChem.
+    return (
+      <>
+        <p className="align-menu__hint">{t("massSpec.lookupError")}</p>
+        {manualSection}
+      </>
+    );
+  }
+
   const hits = refs ?? [];
   const listed = showAll ? hits : hits.slice(0, 5);
 
   return (
     <div className="mass-spec">
       <div className="mass-spec__sub">{t("massSpec.measuredSpectra", { count: hits.length })}</div>
+      {stereoFallback && <p className="mass-spec__stereo-note">{t("massSpec.stereoFallback")}</p>}
 
       {listed.map((h) => (
         <button

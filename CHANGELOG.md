@@ -62,6 +62,31 @@ gone wrong.
 
 ### Fixes
 
+This release also fixes several problems found in review, one of which made
+the app unusable:
+
+- **The isotope pattern could hang the app.** Every isotope combination was
+  materialised and only merged at the very end, so the work grew as 2^(atoms):
+  an eight-carbon chain took 3.5 seconds and a slightly larger one exhausted
+  memory outright. It ran on the UI thread the moment the Mass tab was opened.
+  Peaks are now merged by nominal mass after each atom, which is proportional
+  to the number of peaks rather than exponential -- the same molecule now
+  takes about a millisecond.
+- **Boron and selenium had wrong isotope data.** Boron had no entry at all, so
+  no ¹⁰B peak appeared; selenium's masses were paired with the wrong
+  abundances. Both are fixed. Boron is 80% ¹¹B, so its lighter isotope sits
+  *below* the base mass, and the pattern now shows peaks on both sides.
+- **Three neutral-loss masses disagreed with their own formulas.** Nitric oxide
+  was ~1 u out, and nitrous acid and sulfur dioxide were out by 15 and 4 mDa.
+- **Six positive adducts read `[M+H]+⁺`** -- an ASCII plus followed by a
+  superscript one.
+- **A failed spectrum search claimed the molecule had no data.** The error
+  state was set but never rendered, so a network failure fell through to
+  "0 spectra in MassBank".
+- **The NMR test that claimed to check plot zooming asserted nothing about
+  zoom**, and left an unhandled `getScreenCTM is not a function` error in every
+  test run. `npm run check` is clean now.
+
 - PubChem's InChIKey lookup now retries its documented overload response
   (HTTP 503) with a short backoff, and reports it as "busy" rather than as a
   structure it couldn't resolve. Previously a momentary busy period produced

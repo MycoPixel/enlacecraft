@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import { addAtom, addBond, emptyMolecule } from "./molecule";
 import {
   ADDUCTS,
@@ -12,7 +12,7 @@ import {
   neutralLossesByMass,
   NEUTRAL_LOSSES,
 } from "./massSpec";
-import type { Element, Molecule } from "../types/chemistry";
+import type { Atom, Element, Molecule } from "../types/chemistry";
 
 /**
  * Reference compounds with published monoisotopic masses. These are the
@@ -440,5 +440,126 @@ describe("verified against RDKit", () => {
     const caffeineMass = CASES[0].mass;
     const protonated = caffeineMass + 1.007276466621;
     expect(protonated).toBeCloseTo(195.087652, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regressions. Each of these was a real defect found by review, not a
+// hypothetical: the first one in particular hung the app.
+// ---------------------------------------------------------------------------
+
+/** Builds a molecule from "C*6,Cl*4" style specs. */
+function specMolecule(spec: string): Molecule {
+  const atoms: Record<string, Atom> = {};
+  spec.split(",").forEach((tok, i) => {
+    const [element, n = "1"] = tok.split("*");
+    for (let k = 0; k < Number(n); k++) {
+      const id = `a${i}_${k}`;
+      atoms[id] = { id, element: element as Element, x: i * 2 + k, y: 0, charge: 0 };
+    }
+  });
+  return { ...emptyMolecule(), atoms };
+}
+
+describe("isotopePattern performance", () => {
+  it("stays fast on a drug-sized molecule", () => {
+    // Previously this grew as 2^(number of atoms) because every isotope
+    // combination was materialised and only merged at the very end: a 12-carbon
+    // chain took 3.5 s and a slightly larger one exhausted memory outright,
+    // which froze the UI thread the moment the Mass tab was opened.
+    const mol = specMolecule("C*24,N*4,O*6");
+    const started = performance.now();
+    const pattern = isotopePattern(mol, 6);
+    const elapsed = performance.now() - started;
+
+    expect(pattern.length).toBeGreaterThan(0);
+    expect(elapsed).toBeLessThan(250);
+  });
+});
+
+describe("isotopePattern data", () => {
+  it("shows boron's 10B peak BELOW the base mass", () => {
+    // 11B is 80% abundant, so it -- not 10B -- is the base. A boron compound
+    // really does have a peak under its nominal mass.
+    const pattern = isotopePattern(specMolecule("B,C*3"), 3);
+    expect(pattern.some((p) => p.offset < 0)).toBe(true);
+    const base = pattern.find((p) => p.offset === 0)!;
+    const light = pattern.filter((p) => p.offset < 0);
+    expect(light[0].mz).toBeLessThan(base.mz);
+    // 10B vs 11B is 0.9964 u apart.
+    expect(base.mz - light[0].mz).toBeCloseTo(0.9964, 3);
+  });
+
+  it("gives selenium its real isotope spread", () => {
+    // Selenium has six stable isotopes from 74 to 82, with 80Se (49.6%) the
+    // most abundant -- so several peaks sit below the base mass.
+    const pattern = isotopePattern(specMolecule("C*2,Se"), 8);
+    expect(pattern.filter((p) => p.offset < 0).length).toBeGreaterThan(1);
+    for (const p of pattern) expect(Number.isFinite(p.mz)).toBe(true);
+    expect(Math.max(...pattern.map((p) => p.mz))).toBeLessThan(200);
+  });
+
+  it("places merged peaks at a probability-weighted m/z, not an average of averages", () => {
+    // Two chlorines put 37Cl+37Cl at the same nominal mass as other
+    // combinations; the reported position must be their true centroid.
+    const pattern = isotopePattern(specMolecule("C,Cl*2"), 3);
+    const base = pattern.find((p) => p.offset === 0)!;
+    const m2 = pattern.find((p) => p.offset === 2)!;
+    // m/z is absolute, so the spacing is what carries the information here.
+    expect(m2.mz - base.mz).toBeCloseTo(1.99705, 4);
+  });
+});
+
+describe("adduct labels", () => {
+  it("does not render a doubled charge sign", () => {
+    // "[M+H]+\u207a" reads as "[M+H]+ plus" -- an ASCII '+' and then a
+    // superscript one. Single-charge ions should carry only the superscript.
+    for (const adduct of ADDUCTS) {
+      // Only the *trailing* sign is the charge; "[M+H]" legitimately contains
+      // an ASCII '+' as part of the adduct name.
+      expect(adduct.label, `${adduct.id} has a doubled charge sign`).not.toContain("+\u207a");
+      expect(adduct.label, `${adduct.id} is missing its charge sign`).not.toMatch(/\]\)?$/);
+    }
+  });
+});
+
+describe("neutral loss masses", () => {
+  it("matches each loss to its own formula", () => {
+    // Three entries disagreed with their stated formula: NO was off by ~1 u
+    // and HNO2 / SO2 by 15 and 4 mDa. Checked against RDKit's elemental masses
+    // rather than against a second hand-typed copy of the same numbers.
+    const expected: Record<string, number> = {
+      NO: 29.997989,
+      HNO2: 47.000728,
+      SO2: 63.9619,
+      H2O: 18.010565,
+      CO2: 43.989829,
+    };
+    for (const [formula, mass] of Object.entries(expected)) {
+      const loss = NEUTRAL_LOSSES.find((l) => l.formula === formula)!;
+      expect(loss, `missing loss ${formula}`).toBeTruthy();
+      expect(loss.mass, `wrong mass for ${formula}`).toBeCloseTo(mass, 6);
+    }
+  });
+
+  it("keeps every entry self-consistent with its formula", () => {
+    // Guards the whole table, not just the three that happened to be caught.
+    const MONO: Record<string, number> = {
+      H: 1.00782503, C: 12, N: 14.003074, O: 15.99491462, S: 31.972071,
+    };
+    for (const loss of NEUTRAL_LOSSES) {
+      let expected = 0;
+      // Match arrays start with the full match, so the element and count are
+      // at indices 1 and 2 -- destructuring from the front would read the whole
+      // "H2" as the element and yield NaN.
+      for (const match of loss.formula.matchAll(/([A-Z][a-z]?)(\d*)/g)) {
+        const el = match[1];
+        const n = match[2];
+        expected += MONO[el] * Number(n || 1);
+      }
+      // The table stores 6 decimal places, so 1e-6 is the tightest tolerance
+      // that doesn't flag ordinary storage rounding.
+      expect(loss.mass, `${loss.formula} mass disagrees with its formula`).toBeCloseTo(expected, 5);
+    }
   });
 });

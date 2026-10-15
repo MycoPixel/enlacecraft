@@ -58,6 +58,13 @@ export interface SpectrumRef {
   accession: string;
 }
 
+export interface SpectraSearchResult {
+  refs: SpectrumRef[];
+  /** True when the exact InChIKey found nothing and the 14-character skeleton
+   * block was searched instead, so these hits may be other stereoisomers. */
+  stereochemistryFallback: boolean;
+}
+
 export interface Peak {
   mz: number;
   intensity: number;
@@ -92,7 +99,7 @@ export interface MassBankSpectrum {
  * caller fetches whichever ones the user actually opens, since a single
  * hit list can run to a hundred records and each full record is ~50 kB.
  */
-export async function searchSpectra(inchiKey: string): Promise<SpectrumRef[]> {
+export async function searchSpectra(inchiKey: string): Promise<SpectraSearchResult> {
   const key = inchiKey.trim();
   if (!key) throw new MassBankError("EMPTY_QUERY");
 
@@ -104,7 +111,7 @@ export async function searchSpectra(inchiKey: string): Promise<SpectrumRef[]> {
   } catch {
     throw new MassBankError("NETWORK");
   }
-  if (res.status === 404) return [];
+  if (res.status === 404) return { refs: [], stereochemistryFallback: false };
   if (!res.ok) throw new MassBankError("HTTP");
 
   let data: unknown;
@@ -113,6 +120,47 @@ export async function searchSpectra(inchiKey: string): Promise<SpectrumRef[]> {
   } catch {
     throw new MassBankError("BAD_RESPONSE");
   }
+
+  // A structure drawn without stereochemistry hashes to a ...-UHFFFAOYSA-N
+  // key, which matches no stereo-defined record: tryptophan returns 0 instead
+  // of 81, glucose 0 instead of 18, sucrose 0 instead of 8. The 14-character
+  // skeleton block is the same for all stereoisomers and MassBank accepts it
+  // as a prefix, so it recovers those. It's only consulted when the exact key
+  // finds nothing, and its results are flagged, because they then include other
+  // stereoisomers -- for achiral compounds the two searches are identical.
+  const skeleton = key.slice(0, 14);
+  if (skeleton.length === 14 && skeleton !== key) {
+    const exact = rowsOf(data);
+    if (exact.length === 0) {
+      const loose = await searchByInchiKey(skeleton);
+      return { refs: loose, stereochemistryFallback: loose.length > 0 };
+    }
+    return { refs: exact, stereochemistryFallback: false };
+  }
+  return { refs: rowsOf(data), stereochemistryFallback: false };
+}
+
+/** Performs one search call and normalises its response shape. */
+async function searchByInchiKey(inchiKey: string): Promise<SpectrumRef[]> {
+  let res: Response;
+  try {
+    res = await fetch(`${MASSBANK_BASE}/records/search?inchi_key=${encodeURIComponent(inchiKey)}`, {
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    throw new MassBankError("NETWORK");
+  }
+  if (!res.ok && res.status !== 404) throw new MassBankError("HTTP");
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    return [];
+  }
+  return rowsOf(data);
+}
+
+function rowsOf(data: unknown): SpectrumRef[] {
   const rows = (data as { data?: { accession?: string }[] })?.data;
   // An InChIKey with no hits comes back as HTTP 200 with a bare `{}` — no
   // `data` key at all. That's a legitimate "nothing found", not a malformed

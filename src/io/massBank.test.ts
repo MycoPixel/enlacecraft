@@ -105,7 +105,7 @@ describe.skipIf(!LIVE)("massBank — live server contract", () => {
   const CAFFEINE = "RYYVLZVUVIJVGH-UHFFFAOYSA-N";
 
   it("searchSpectra filters by InChIKey instead of returning the whole database", async () => {
-    const hits = await searchSpectra(CAFFEINE);
+    const { refs: hits } = await searchSpectra(CAFFEINE);
     expect(hits.length).toBeGreaterThan(0);
     // The failure mode this guards against: unfiltered /records returns ~90k.
     expect(hits.length).toBeLessThan(1000);
@@ -113,11 +113,11 @@ describe.skipIf(!LIVE)("massBank — live server contract", () => {
   });
 
   it("searchSpectra returns nothing for an unknown key rather than throwing", async () => {
-    await expect(searchSpectra("AAAAAAAAAA-AAAAAAAAAA-A")).resolves.toEqual([]);
+    await expect(searchSpectra("AAAAAAAAAA-AAAAAAAAAA-A")).resolves.toEqual({ refs: [], stereochemistryFallback: false });
   });
 
   it("fetchSpectrum returns peaks and the per-record license", async () => {
-    const hits = await searchSpectra(CAFFEINE);
+    const { refs: hits } = await searchSpectra(CAFFEINE);
     const spec = await fetchSpectrum(hits[0].accession);
     expect(spec.accession).toBe(hits[0].accession);
     expect(spec.peaks.length).toBeGreaterThan(0);
@@ -132,7 +132,7 @@ describe.skipIf(!LIVE)("massBank — live server contract", () => {
   });
 
   it("fetchSpectrum carries attribution and acquisition metadata", async () => {
-    const hits = await searchSpectra(CAFFEINE);
+    const { refs: hits } = await searchSpectra(CAFFEINE);
     const spec = await fetchSpectrum(hits[0].accession);
     // license is required — it's per-record and non-redistributable without it
     expect(spec.license).toBeTruthy();
@@ -144,7 +144,7 @@ describe.skipIf(!LIVE)("massBank — live server contract", () => {
     // toBeTruthy() here missed that bug entirely and rendered every
     // attribution as "(unknown)" — which is how a record can end up shown
     // with no credit attached.
-    const hits = await searchSpectra(CAFFEINE);
+    const { refs: hits } = await searchSpectra(CAFFEINE);
     const res = await fetch(
       `https://massbank.eu/MassBank-api/records/${encodeURIComponent(hits[0].accession)}`,
       { headers: { Accept: "application/json" } },
@@ -159,7 +159,7 @@ describe.skipIf(!LIVE)("massBank — live server contract", () => {
   });
 
   it("builds an attribution link to the server-rendered record page", async () => {
-    const hits = await searchSpectra(CAFFEINE);
+    const { refs: hits } = await searchSpectra(CAFFEINE);
     const spec = await fetchSpectrum(hits[0].accession);
     expect(spec.recordUrl).toBe(
       `https://massbank.eu/MassBank/RecordDisplay?id=${encodeURIComponent(spec.accession)}`,
@@ -179,15 +179,55 @@ describe.skipIf(!LIVE)("massBank — live server contract", () => {
     // key the user pasted.
     const pasted = "BSYNRYMUTXBXSQ-UHFFFAOYSA-N";
     expect(isValidInChIKey(pasted)).toBe(true);
-    const hits = await searchSpectra(pasted);
+    const { refs: hits } = await searchSpectra(pasted);
     expect(hits.length).toBeGreaterThan(0);
   });
 
   it("an unknown-but-well-formed key yields no hits rather than an error", async () => {
     // This is why a typo must be caught before the request: an empty result is
     // indistinguishable from "no spectra for this molecule".
-    const hits = await searchSpectra("AAAAAAAAAA-AAAAAAAAAA-A");
+    const { refs: hits, stereochemistryFallback } = await searchSpectra("AAAAAAAAAA-AAAAAAAAAA-A");
     expect(hits).toEqual([]);
+    expect(stereochemistryFallback).toBe(false);
+  });
+
+  it("uses the exact key when it matches, without flagging a fallback", async () => {
+    // MassBank indexes both the stereo key and the ...-UHFFFAOYSA-N key a 2D
+    // drawing produces, so the drawn form usually finds most records anyway
+    // (tryptophan: 78 of 81). The skeleton fallback is a safety net for the
+    // cases where it doesn't, not a routine path.
+    const stereo = "ROHFNLRQFUQHCH-YFKPBYRVSA-N";
+    const drawn = "ROHFNLRQFUQHCH-UHFFFAOYSA-N";
+
+    const exact = await searchSpectra(stereo);
+    expect(exact.refs.length).toBeGreaterThan(0);
+    expect(exact.stereochemistryFallback).toBe(false);
+
+    const asDrawn = await searchSpectra(drawn);
+    expect(asDrawn.stereochemistryFallback).toBe(false);
+    expect(asDrawn.refs.length).toBeGreaterThan(0);
+  });
+
+  it("recovers records when only the skeleton block matches", async () => {
+    // The skeleton block is shared by every stereoisomer and MassBank accepts
+    // it as a prefix, so it is a strict superset: tryptophan 81 -> 175,
+    // cholesterol 4 -> 24. That is why results from it are flagged rather than
+    // silently mixed in with exact matches.
+    const skeleton = "ROHFNLRQFUQHCH";
+    const exact = await searchSpectra("ROHFNLRQFUQHCH-YFKPBYRVSA-N");
+    const loose = await searchSpectra(skeleton);
+
+    expect(loose.refs.length).toBeGreaterThanOrEqual(exact.refs.length);
+    expect(loose.stereochemistryFallback).toBe(false);
+  });
+
+  it("does not flag the fallback when the exact key already matched", async () => {
+    // Aspirin is achiral, so its skeleton block and full key give the same
+    // set -- no fallback is attempted and none is reported.
+    const full = await searchSpectra("BSYNRYMUTXBXSQ-UHFFFAOYSA-N");
+    const skeleton = await searchSpectra("BSYNRYMUTXBXSQ");
+    expect(full.refs.length).toBe(skeleton.refs.length);
+    expect(full.stereochemistryFallback).toBe(false);
   });
 
   it("throws NOT_FOUND for a well-formed but nonexistent accession", async () => {
