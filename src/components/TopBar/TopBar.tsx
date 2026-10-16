@@ -13,6 +13,7 @@ import { IupacNameButton } from "./IupacNameButton";
 import { NmrPredictionButton } from "./NmrPredictionButton";
 import { MoleculeInfoButton } from "./MoleculeInfoButton";
 import { MassSpecButton } from "./MassSpecButton";
+import { AromaticityButton } from "./AromaticityButton";
 import { DesktopDownloadButton } from "./DesktopDownloadButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
@@ -197,6 +198,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       <IupacNameButton />
       <NmrPredictionButton />
       <MassSpecButton />
+      <AromaticityButton />
 
       {hasOverValence && (
         <div className="valence-warn" title={t("valence.exceeded")}>

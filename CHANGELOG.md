@@ -7,8 +7,51 @@ tagged with it.
 
 ## 1.14.0
 
-Five themes instead of two, and a pile of fixes to copying, text boxes and
-small screens.
+Five themes instead of two, an aromaticity check, and a pile of fixes to
+copying, text boxes and small screens.
+
+### Aromatic, antiaromatic, or neither
+
+The circle tool will draw an aromatic ring whenever a ring's bonds alternate,
+but nothing knew *why* a given ring deserved one. There's now a top-bar button
+that answers the question directly, one card per ring system: aromatic,
+antiaromatic, or not — with the arithmetic behind the verdict rather than just
+the label.
+
+It's the textbook procedure applied to whatever you've drawn. Does every atom in
+the ring have a p orbital taking part in one continuous cycle of conjugation?
+How many π electrons does that cycle carry? 4n+2 is aromatic, 4n is
+antiaromatic, anything else is neither. The panel shows the count and the
+expression it matched — "6 π electrons · 4n+2, n=1" — because a verdict with no
+number behind it is something you have to memorise rather than something you
+can work out on a ring you haven't met yet.
+
+That distinction carries real weight. Cyclopentadiene and the cyclopentadienyl
+cation are the same drawing with a different charge on one carbon: the sp³ CH₂
+is what breaks the cycle in the first, so there's no π system to count at all,
+while the cation is fully conjugated with 4 electrons and is antiaromatic. A
+test that only asked "do the bonds alternate?" would call both aromatic, and
+would equally call cyclooctatetraene aromatic.
+
+Fused rings are treated as what they are — one shared system. Naphthalene
+reports a single 10 π cloud spanning both hexagons rather than 6 + 6, and
+azulene, where neither ring satisfies Hückel on its own, comes out aromatic.
+
+OpenChemLib is asked for an independent second opinion and its answer is shown
+beside ours, agreeing or not. It only knows aromatic versus not — it has no
+antiaromatic category — so it corroborates half the question, and the panel says
+so instead of presenting it as a tie-break.
+
+Two limits worth knowing. Verdicts come from connectivity alone: planarity and
+bond-length alternation need a real 3D structure, so a drawn cyclooctatetraene
+is reported antiaromatic even though the real molecule puckers into a tub to
+avoid exactly that. And a ring containing an abbreviated group is reported as
+*not determined* rather than guessed at, because "Ph" isn't a ring.
+
+It needs no backend and no network, so unlike NMR prediction it works in the
+web version too. Select a fragment and it analyses just that; a reaction scheme
+gets one labelled block per fragment, so a verdict never reads as a statement
+about the whole drawing.
 
 ### Five themes, and a picker that shows them
 

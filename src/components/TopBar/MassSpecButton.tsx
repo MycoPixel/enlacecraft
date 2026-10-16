@@ -1,14 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FlaskConical } from "lucide-react";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 import { MassSpecPanel } from "./MassSpecPanel";
 import { SpectrumLookup } from "./SpectrumLookup";
-import { fetchInChI, PubChemError } from "../../io/pubchem";
-import { fetchLocalInChIKey, LocalChemError } from "../../io/localChem";
-
-import { exportSmiles } from "../../io/smiles";
+import { useInChIKey } from "../../hooks/useInChIKey";
 
 /**
  * Mass spectrometry lives behind its own top-bar button rather than inside the
@@ -29,80 +26,20 @@ export function MassSpecButton() {
   const molecule = useMoleculeStore((s) => s.molecule);
   const hasContent = Object.keys(molecule.atoms).length > 0;
   const [tab, setTab] = useState<"mass" | "spectra">("mass");
-  const [inchikey, setInchikey] = useState<string | undefined>(undefined);
-  const [keyState, setKeyState] = useState<"idle" | "loading" | "error" | "busy" | "unsupported">("idle");
-  // Which structure the current key belongs to. Without this the key survives
-  // edits and the panel would keep showing the previous molecule's spectra
-  // under a newly drawn structure. Tracked for manual keys too, so reopening
-  // the tab can't quietly replace a pasted key with a failed PubChem lookup.
-  const keyFor = useRef<{ smiles: string; key: string } | null>(null);
+  const { inchikey, state: keyState, resolve: resolveKey, useManualKey } = useInChIKey();
 
   const disabled = !hasContent;
 
   /**
    * Resolved on demand rather than on mount: the popover may never be opened,
-   * and an InChIKey nobody looks up shouldn't be a PubChem request. Keyed on
-   * the molecule so a new structure discards the previous key — otherwise
-   * caffeine's spectra would keep showing under whatever was drawn next.
+   * and an InChIKey nobody looks up shouldn't be a PubChem request. The
+   * resolution chain itself lives in useInChIKey so every panel that needs a
+   * key shares one implementation.
    */
-  async function openSpectra() {
+  const openSpectra = useCallback(() => {
     setTab("spectra");
-    const smiles = exportSmiles(useMoleculeStore.getState().molecule);
-    if (!smiles.trim()) {
-      setInchikey(undefined);
-      keyFor.current = null;
-      setKeyState("error");
-      return;
-    }
-    if (keyFor.current?.smiles === smiles && inchikey) return;
-
-    setKeyState("loading");
-    // Local first: the bundled RDKit can key any structure RDKit can parse,
-    // including ones nobody has ever submitted to PubChem, and it answers on
-    // loopback with no network involved. When the backend isn't there the
-    // connection is refused immediately, so trying it first costs nothing.
-    let key: string | null = null;
-    try {
-      key = await fetchLocalInChIKey(smiles);
-    } catch (e) {
-      if (e instanceof LocalChemError && e.code === "unsupported") {
-        // Not a lookup failure: RDKit can't standardise this structure, so
-        // PubChem wouldn't do better. Say so instead of implying "no data".
-        setInchikey(undefined);
-        keyFor.current = null;
-        setKeyState("unsupported");
-        return;
-      }
-      // "unavailable" (or a network hiccup) falls through to PubChem.
-    }
-
-    if (!key) {
-      try {
-        const result = await fetchInChI(smiles);
-        key = result.inchikey;
-      } catch (e) {
-        // PubChem being overloaded is not the molecule's fault and saying
-        // "could not resolve this structure" would be a lie — it is transient
-        // and worth retrying, so it gets its own message.
-        const busy = e instanceof PubChemError && e.code === "BUSY";
-        setInchikey(undefined);
-        keyFor.current = null;
-        setKeyState(busy ? "busy" : "error");
-        return;
-      }
-    }
-
-    setInchikey(key);
-    keyFor.current = { smiles, key };
-    setKeyState("idle");
-  }
-
-  /** Accepts a hand-entered InChIKey, for when PubChem can't be reached. */
-  function useManualKey(key: string) {
-    setInchikey(key);
-    keyFor.current = { smiles: exportSmiles(useMoleculeStore.getState().molecule), key };
-    setKeyState("idle");
-  }
+    resolveKey();
+  }, [resolveKey]);
 
   const body = useMemo(
     () =>
@@ -119,7 +56,7 @@ export function MassSpecButton() {
           onUseManualKey={useManualKey}
         />
       ),
-    [tab, molecule, inchikey, keyState],
+    [tab, molecule, inchikey, keyState, openSpectra, useManualKey],
   );
 
   return (
