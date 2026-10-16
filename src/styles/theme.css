@@ -6,6 +6,7 @@
   --panel: #ffffff;
   --panel-border: #dde1e7;
   --canvas-bg: #fbfbfc;
+  --canvas-bg-theme: #fbfbfc;
   --grid-dot: #d7dbe1;
   --grid-line: rgba(27, 32, 39, 0.07);
   --accent: #2f5d8a;
@@ -22,6 +23,7 @@
   --panel: #1b1e24;
   --panel-border: #2b2f37;
   --canvas-bg: #17191e;
+  --canvas-bg-theme: #17191e;
   --grid-dot: #2a2d34;
   --grid-line: rgba(231, 233, 238, 0.08);
   --accent: #6fa3d8;
@@ -40,6 +42,7 @@
   --panel: #f0eee9;
   --panel-border: #808080;
   --canvas-bg: #ffffff;
+  --canvas-bg-theme: #ffffff;
   --grid-dot: #b0b0b0;
   --grid-line: rgba(0, 0, 0, 0.08);
   --accent: #000080;
@@ -57,6 +60,7 @@
   --panel: #131d31;
   --panel-border: #1e293b;
   --canvas-bg: #0d1527;
+  --canvas-bg-theme: #0d1527;
   --grid-dot: #334155;
   --grid-line: rgba(148, 163, 184, 0.08);
   --accent: #38bdf8;
@@ -74,6 +78,7 @@
   --panel: #0a0a0a;
   --panel-border: #222222;
   --canvas-bg: #000000;
+  --canvas-bg-theme: #000000;
   --grid-dot: #262626;
   --grid-line: rgba(255, 255, 255, 0.06);
   --accent: #00e5ff;
@@ -88,6 +93,17 @@
    regardless of which theme they're editing in. The MoleculeCanvas
    component itself skips rendering the grid-dot pattern in this mode (see
    its own comment), so this only needs to override the fill color. */
+/* --canvas-bg is the *canvas* background, which the white-canvas setting
+   overrides below for the whole page. --canvas-bg-theme is the theme's own
+   canvas color and is deliberately never overridden, so panels that render
+   their own miniature of the molecule (the NMR structure diagram, in both
+   the predictor report and the spectrum tab's structure overlay) can stay
+   tied to the app theme instead of following a setting that is about the
+   drawing canvas. Those two read the pair for background and ink
+   respectively, so pointing one at a theme color and the other at a
+   user-overridden one is what renders a dark theme's structure as white
+   ink on a white plate. */
+
 [data-canvas-bg="white"] {
   --canvas-bg: #ffffff;
 }

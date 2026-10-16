@@ -1406,7 +1406,13 @@
      against - the SVG then letterboxes rather than spilling over whatever sits
      beside it. */
   max-width: 100%;
-  background: var(--canvas-bg, #fff);
+  /* --canvas-bg-theme, not --canvas-bg: this diagram's bonds and labels are
+     drawn with --ink (the app theme's ink), so its background has to stay on
+     the app theme too. Pointing it at --canvas-bg instead tied it to the
+     white-canvas setting, which is about the drawing canvas — leaving a dark
+     theme's structure as white ink on a white plate the moment someone chose
+     a white canvas. */
+  background: var(--canvas-bg-theme, var(--canvas-bg, #fff));
   border: 1px solid var(--panel-border);
   border-radius: 10px;
 }
@@ -1443,7 +1449,10 @@
   font-size: 9.5px;
   font-weight: 600;
   paint-order: stroke;
-  stroke: var(--canvas-bg, #fff);
+  /* The halo behind the C/H index badges, which has to match this diagram's
+     own plate rather than the drawing canvas's — same reason as the
+     background above. */
+  stroke: var(--canvas-bg-theme, var(--canvas-bg, #fff));
   stroke-width: 3px;
   stroke-linejoin: round;
 }
