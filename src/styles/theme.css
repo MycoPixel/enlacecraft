@@ -30,14 +30,112 @@
   --danger: #ff6b6b;
 }
 
-/* The drawing canvas's own background, independent of the light/dark app
-   theme above (data-theme controls the app chrome; data-canvas-bg controls
-   just the canvas) — a plain white canvas is what most people want for
-   screenshots regardless of which theme they're editing in. The MoleculeCanvas
+/* ---------- Extended palettes ----------
+   ChemDraw Classic: warm neutral desktop framing around a crisp
+   publication-white canvas, classic navy accents, pure black inking. */
+[data-theme="chemdraw"] {
+  --ink: #000000;
+  --ink-soft: #4a5568;
+  --bg: #d4d0c8;
+  --panel: #f0eee9;
+  --panel-border: #808080;
+  --canvas-bg: #ffffff;
+  --grid-dot: #b0b0b0;
+  --grid-line: rgba(0, 0, 0, 0.08);
+  --accent: #000080;
+  --accent-soft: #d8e0f0;
+  --selection: rgba(0, 0, 128, 0.12);
+  --danger: #c62828;
+}
+
+/* Slate Lab: deep zinc/slate surfaces, hairline borders, calibrated laser
+   cyan telemetry accent — for clinical/low-light dark rooms. */
+[data-theme="slate"] {
+  --ink: #f1f5f9;
+  --ink-soft: #94a3b8;
+  --bg: #0b1120;
+  --panel: #131d31;
+  --panel-border: #1e293b;
+  --canvas-bg: #0d1527;
+  --grid-dot: #334155;
+  --grid-line: rgba(148, 163, 184, 0.08);
+  --accent: #38bdf8;
+  --accent-soft: #172e48;
+  --selection: rgba(56, 189, 248, 0.18);
+  --danger: #ff6b6b;
+}
+
+/* Midnight OLED: pure black canvas and chrome so OLED pixels stay off,
+   with a phosphor cyan accent and full-white bond strokes. */
+[data-theme="oled"] {
+  --ink: #ffffff;
+  --ink-soft: #888888;
+  --bg: #000000;
+  --panel: #0a0a0a;
+  --panel-border: #222222;
+  --canvas-bg: #000000;
+  --grid-dot: #262626;
+  --grid-line: rgba(255, 255, 255, 0.06);
+  --accent: #00e5ff;
+  --accent-soft: #002b33;
+  --selection: rgba(0, 229, 255, 0.18);
+  --danger: #ff6b6b;
+}
+
+/* The drawing canvas's own background, independent of the app theme above
+   (data-theme controls the app chrome; data-canvas-bg controls just the
+   canvas) — a plain white canvas is what most people want for screenshots
+   regardless of which theme they're editing in. The MoleculeCanvas
    component itself skips rendering the grid-dot pattern in this mode (see
    its own comment), so this only needs to override the fill color. */
 [data-canvas-bg="white"] {
   --canvas-bg: #ffffff;
+}
+
+/* A white canvas under a dark theme needs dark drawing on it. The palette
+   above calibrates --ink/--accent for a dark canvas, so drawn over white
+   they turn the molecule invisible — which is why the dark themes used to
+   simply disable the white-canvas setting instead.
+
+   Rather than forbid it (chemists routinely draft in a dark theme and need
+   publication-white figures out of it), the canvas subtree re-resolves the
+   handful of colors that actually sit on the canvas back to their light-
+   theme values. Scoped to .canvas — a descendant of <html>, so this
+   redefines the custom properties for the drawing and nothing else; the app
+   chrome around it keeps the theme's own colors. Bonds draw with
+   `currentColor`, so they pick this up along with everything else.
+
+   Deliberately NOT applied to the light themes (light and chemdraw): their
+   canvas ink is already dark, and forcing the light-theme accent would cost
+   chemdraw its classic navy.
+
+   `color` is re-declared alongside the variables, not just implied by them:
+   bonds are drawn with `currentColor`, which inherits the computed `color`
+   of an ancestor (body), and redefining a custom property on .canvas does
+   not recompute a declaration made further up the tree. Without this the
+   canvas' own --ink-using elements went dark while every bond stayed
+   light-on-white — invisible.
+
+   .export-measure is the off-screen clone an export measures and redraws
+   annotation text in (see io/exportImage.ts). It hangs off <body> rather
+   than sitting inside the canvas, and prepareExportClone strips the clone's
+   class so none of the app's own styling leaks into an exported file — so it
+   does NOT match `.canvas` and would resolve the theme's ink instead,
+   rendering every condition box white-on-white while the bonds beside it
+   came out dark. Matching it here too keeps a single list of "what ink does
+   this drawing use" rather than a second set of colors hard-coded into the
+   export code.
+*/
+[data-theme="dark"][data-canvas-bg="white"] :is(.canvas, .export-measure),
+[data-theme="slate"][data-canvas-bg="white"] :is(.canvas, .export-measure),
+[data-theme="oled"][data-canvas-bg="white"] :is(.canvas, .export-measure) {
+  --ink: #1b2027;
+  --ink-soft: #5b6472;
+  --accent: #2f5d8a;
+  --accent-soft: #e7eef5;
+  --selection: rgba(47, 93, 138, 0.14);
+  --danger: #c62828;
+  color: var(--ink);
 }
 
 * {

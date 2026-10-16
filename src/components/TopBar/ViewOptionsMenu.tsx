@@ -21,7 +21,6 @@ interface ViewOptionsMenuProps {
   onToggleGrid: () => void;
   canvasBackground: "white" | "theme";
   onToggleCanvasBackground: () => void;
-  isDarkTheme: boolean;
 }
 
 /**
@@ -45,7 +44,6 @@ export function ViewOptionsMenu({
   monochromeAtoms, onToggleMonochromeAtoms,
   showGrid, onToggleGrid,
   canvasBackground, onToggleCanvasBackground,
-  isDarkTheme,
 }: ViewOptionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
@@ -88,12 +86,12 @@ export function ViewOptionsMenu({
   // whole still gives an at-a-glance signal the way the standalone icons
   // used to — you don't have to open the menu just to know something in
   // here is active.
-  const anyActive = showHydrogens || hasExplicitHydrogens || monochromeAtoms || showGrid || (!isDarkTheme && canvasBackground === "white");
+  const anyActive = showHydrogens || hasExplicitHydrogens || monochromeAtoms || showGrid || canvasBackground === "white";
 
-  const canvasBgDisabled = isDarkTheme;
-  const canvasBgTitle = isDarkTheme
-    ? t("tool.canvasBgUnavailableDark")
-    : (canvasBackground === "white" ? t("tool.canvasBgUseTheme") : t("tool.canvasBgUseWhite"));
+  // Offered in every theme, the dark ones included: a white canvas there
+  // re-resolves the drawing's own ink colors (styles/theme.css), so this no
+  // longer has to be disabled where the theme is dark.
+  const canvasBgTitle = canvasBackground === "white" ? t("tool.canvasBgUseTheme") : t("tool.canvasBgUseWhite");
 
   return (
     <div className="view-options-menu" ref={btnWrapRef}>
@@ -131,8 +129,7 @@ export function ViewOptionsMenu({
             <ViewOptionRow
               icon={canvasBackground === "white" ? <Grid2x2 size={16} /> : <Square size={16} />}
               label={t("tool.viewOptionsCanvasBg")}
-              active={!isDarkTheme && canvasBackground === "white"}
-              disabled={canvasBgDisabled}
+              active={canvasBackground === "white"}
               title={canvasBgTitle}
               onClick={onToggleCanvasBackground}
             />

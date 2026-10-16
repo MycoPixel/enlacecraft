@@ -1,5 +1,5 @@
 import { forwardRef, memo, useEffect, useMemo } from "react";
-import { useMoleculeStore, effectiveCanvasBackground } from "../../store/useMoleculeStore";
+import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useCanvasInteractions } from "../../hooks/useCanvasInteractions";
 import { AtomView } from "./AtomView";
 import { BondView } from "./BondView";
@@ -44,8 +44,6 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const showGrid = useMoleculeStore((s) => s.showGrid);
-  const theme = useMoleculeStore((s) => s.theme);
-  const effectiveBg = effectiveCanvasBackground(theme, canvasBackground);
   const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
   const hoverBondId = useMoleculeStore((s) => s.hoverBondId);
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
@@ -174,7 +172,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
       {/* Plain white canvas mode skips the grid-dot pattern entirely, to
           look exactly as clean on screen as a "white background" export
           would — see CanvasBackground's doc comment. */}
-      {effectiveBg !== "white" && (
+      {canvasBackground !== "white" && (
         <rect x="-6000" y="-6000" width="12000" height="12000" fill="url(#grid)" data-export-exclude="true" />
       )}
       {/* Independent of canvasBackground — a plain optional square-grid

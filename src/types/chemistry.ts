@@ -458,13 +458,30 @@ export interface FunctionalGroupTemplate {
 
 export type FunctionalGroupAttachment = { type: "none" } | { type: "atom"; atomId: string };
 
-export type Theme = "light" | "dark";
+/**
+ * The app's visual workspace. Every value is a plain palette of CSS custom
+ * properties applied via a `[data-theme="..."]` selector on <html>
+ * (styles/theme.css) — nothing about a theme is reachable from TypeScript
+ * beyond this union and styles/themes.ts's per-theme metadata, which is why
+ * switching one is a single attribute write with no canvas or 3D re-render.
+ *
+ * "dark", "slate" and "oled" are the dark-camp themes: see
+ * styles/themes.ts's isDarkTheme, which is what the few places that can't
+ * just read a CSS variable (export backgrounds, the 3D viewer's WebGL
+ * clear color, the canvas' ink colors on a white canvas) branch on.
+ */
+export type Theme = "light" | "dark" | "chemdraw" | "slate" | "oled";
 
 /**
- * The drawing canvas's own background — independent of the light/dark app
- * theme, since a plain white canvas is what most people want for
- * screenshots regardless of which theme they're editing in. "theme"
- * restores the normal themed background (with its grid-dot pattern).
+ * The drawing canvas's own background — independent of the app theme, since
+ * a plain white canvas is what most people want for screenshots regardless
+ * of which theme they're editing in. "theme" restores the theme's own
+ * canvas background (with its grid-dot pattern).
+ *
+ * Available in every theme, the dark ones included: the canvas subtree
+ * re-resolves its ink/selection colors for a white background (see the
+ * rule in styles/theme.css) rather than dark themes forbidding the
+ * setting outright as they once did.
  */
 export type CanvasBackground = "white" | "theme";
 

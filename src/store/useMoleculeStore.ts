@@ -21,6 +21,7 @@ import {
   type Structure3DStyle,
   type Structure3DColorScheme,
 } from "../components/Molecule3D/structureStyle";
+import { THEME_IDS, nextTheme } from "../styles/themes";
 
 const HISTORY_LIMIT = 100;
 
@@ -37,6 +38,8 @@ const AUTO_IUPAC_STORAGE_KEY = "enlacecraft-auto-iupac";
 const STRUCTURE3D_STYLE_STORAGE_KEY = "enlacecraft-structure3d-style";
 const STRUCTURE3D_COLOR_STORAGE_KEY = "enlacecraft-structure3d-color";
 const SNAP_ANGLE_STORAGE_KEY = "enlacecraft-snap-angle";
+const THEME_STORAGE_KEY = "enlacecraft-theme";
+const CANVAS_BG_STORAGE_KEY = "enlacecraft-canvas-bg";
 
 /** The selectable angle-snapping increments, in degrees. 0 is "Off" and maps
  * onto snapAngle's non-positive "don't snap" behaviour. Stored as the number
@@ -65,11 +68,12 @@ function detectSnapAngle(): SnapAngleDegrees {
   return 30;
 }
 
-/** Reads a persisted 3D view preference, guarding against both an
- * unavailable localStorage and a stale/unknown value from an older build
- * (someone who had a representation that has since been removed, or hand-
- * edited the key). Falls back to the default in both cases. */
-function detectStructure3DPreference<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+/** Reads a persisted view preference (a 3D representation, or the app
+ * theme), guarding against both an unavailable localStorage and a
+ * stale/unknown value from an older build (someone who had a theme or
+ * representation that has since been removed, or hand-edited the key).
+ * Falls back to the default in both cases. */
+function detectStoredPreference<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
     const saved = localStorage.getItem(key);
     if (saved && (allowed as readonly string[]).includes(saved)) return saved as T;
@@ -78,6 +82,61 @@ function detectStructure3DPreference<T extends string>(key: string, allowed: rea
   }
   return fallback;
 }
+
+/**
+ * The theme a session starts in: whatever the user last picked.
+ *
+ * Persisted rather than always starting on light — the five themes are a
+ * working-environment choice (dark room, OLED panel, ChemDraw familiarity),
+ * not a per-moment toggle, so re-picking on every reload would just train
+ * people back to the default. Validated against THEME_IDS so a theme that
+ * no longer exists, or a hand-edited key, degrades to light instead of
+ * leaving an unstyleable page (see detectStoredPreference).
+ */
+function detectInitialTheme(): Theme {
+  return detectStoredPreference(THEME_STORAGE_KEY, THEME_IDS, "light");
+}
+
+/**
+ * The store patch both theme actions return: the new theme, already written
+ * to localStorage. Kept in one place so setTheme and toggleTheme can't drift
+ * on persistence — and so the store update stays a pure function of the
+ * argument, with the (potentially throwing) storage write outside it.
+ */
+function persistTheme(theme: Theme): { theme: Theme } {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // localStorage unavailable (e.g. privacy mode) — the theme just won't
+    // survive a reload. Same call-it-a-nicety position every other
+    // persisted preference in this store takes.
+  }
+  return { theme };
+}
+
+/** The canvas background to start a session with: the last one explicitly
+ *  chosen, else a plain white canvas (screenshot-ready out of the box).
+ *
+ *  Persisted for the same reason the theme is. Without it, anyone who
+ *  deliberately switched to a dark theme's own canvas would silently get a
+ *  white one back on every reload, since the white default would win again
+ *  each time — so the setting would look like it had stopped working.
+ */
+function detectInitialCanvasBackground(): CanvasBackground {
+  return detectStoredPreference(CANVAS_BG_STORAGE_KEY, ["white", "theme"], "white");
+}
+
+/** Persists the canvas background alongside the change itself; see
+ *  persistTheme for why the write lives outside the store update. */
+function persistCanvasBackground(canvasBackground: CanvasBackground): { canvasBackground: CanvasBackground } {
+  try {
+    localStorage.setItem(CANVAS_BG_STORAGE_KEY, canvasBackground);
+  } catch {
+    // localStorage unavailable — the setting just won't survive a reload.
+  }
+  return { canvasBackground };
+}
+
 const DEFAULT_SIDEBAR_WIDTH = 112;
 const MIN_SIDEBAR_WIDTH = 88;
 const MAX_SIDEBAR_WIDTH = 280;
@@ -279,8 +338,8 @@ interface MoleculeStore {
   selected: Set<string>;
   view: ViewTransform;
   theme: Theme;
-  /** The drawing canvas's own background — separate from the light/dark
-   * app theme; see CanvasBackground's doc comment. */
+  /** The drawing canvas's own background — separate from the app theme;
+   * see CanvasBackground's doc comment. */
   canvasBackground: CanvasBackground;
   /** Overlay square grid lines on the canvas — independent of
    * canvasBackground (works with either a white or themed background).
@@ -398,6 +457,10 @@ interface MoleculeStore {
   setFunctionalGroupPendingPlacement: (p: { template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point } | null) => void;
   setSelected: (s: Set<string>) => void;
   setView: (v: ViewTransform | ((v: ViewTransform) => ViewTransform)) => void;
+  /** Applies one specific theme and persists it — what the ThemePicker
+   *  calls. See toggleTheme for the sequential alternative. */
+  setTheme: (theme: Theme) => void;
+  /** Steps to the next theme in presentation order, wrapping around. */
   toggleTheme: () => void;
   toggleCanvasBackground: () => void;
   toggleShowGrid: () => void;
@@ -677,21 +740,6 @@ interface MoleculeStore {
 }
 
 /**
- * The canvas background actually rendered, once the dark/light theme is
- * factored in: dark theme's atom/bond/text colors are calibrated to sit on
- * a dark background (light ink on dark canvas), so forcing a plain white
- * canvas underneath them (the "white" canvasBackground setting, meant for
- * light-theme screenshots) would make the whole molecule unreadable.
- * "white" only ever applies in light theme; dark theme always uses its own
- * themed background regardless of the stored preference. Shared by App.tsx
- * (which sets the data-canvas-bg attribute) and MoleculeCanvas (which
- * decides whether to draw the grid-dot pattern), so both agree.
- */
-export function effectiveCanvasBackground(theme: Theme, canvasBackground: CanvasBackground): CanvasBackground {
-  return theme === "dark" ? "theme" : canvasBackground;
-}
-
-/**
  * Every id a set of project documents already occupies: atoms, bonds, haptics,
  * ring displays and annotations across all tabs.
  *
@@ -847,10 +895,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     functionalGroupPendingPlacement: null,
     selected: new Set(),
     view: { scale: 1, tx: 0, ty: 0 },
-    theme: "light",
-    // Defaults to a plain white canvas (screenshot-ready out of the box);
-    // "theme" restores the normal off-white/dark themed background + grid.
-    canvasBackground: "white",
+    theme: detectInitialTheme(),
+    // Plain white canvas (screenshot-ready) until someone picks otherwise;
+    // "theme" restores the normal themed background + grid. Persisted — see
+    // detectInitialCanvasBackground.
+    canvasBackground: detectInitialCanvasBackground(),
     showGrid: false,
     autoIupacName: detectAutoIupacName(),
     language: detectInitialLanguage(),
@@ -874,8 +923,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     linkedAtomId: null,
     projectFileName: null,
     embed3DMethod: "quick",
-    structure3DStyle: detectStructure3DPreference(STRUCTURE3D_STYLE_STORAGE_KEY, STRUCTURE3D_STYLES.map((s) => s.id), "ball-and-stick"),
-    structure3DColorScheme: detectStructure3DPreference(STRUCTURE3D_COLOR_STORAGE_KEY, STRUCTURE3D_COLOR_SCHEMES, "element"),
+    structure3DStyle: detectStoredPreference(STRUCTURE3D_STYLE_STORAGE_KEY, STRUCTURE3D_STYLES.map((s) => s.id), "ball-and-stick"),
+    structure3DColorScheme: detectStoredPreference(STRUCTURE3D_COLOR_STORAGE_KEY, STRUCTURE3D_COLOR_SCHEMES, "element"),
     canvasSize: { width: 800, height: 600 },
 
     setTool: (t) => set((s) => ({ tool: t, pendingMapAtom: s.tool === "map-number" && t !== "map-number" ? null : s.pendingMapAtom })),
@@ -895,8 +944,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setFunctionalGroupPendingPlacement: (p) => set({ functionalGroupPendingPlacement: p }),
     setSelected: (s) => set({ selected: s }),
     setView: (v) => set((s) => ({ view: typeof v === "function" ? v(s.view) : v })),
-    toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
-    toggleCanvasBackground: () => set((s) => ({ canvasBackground: s.canvasBackground === "white" ? "theme" : "white" })),
+    toggleTheme: () => set((s) => persistTheme(nextTheme(s.theme))),
+    setTheme: (theme) => set(() => persistTheme(theme)),
+    toggleCanvasBackground: () => set((s) => persistCanvasBackground(s.canvasBackground === "white" ? "theme" : "white")),
     toggleShowGrid: () => set((s) => ({ showGrid: !s.showGrid })),
     toggleAutoIupacName: () =>
       set((s) => {

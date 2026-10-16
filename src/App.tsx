@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { useMoleculeStore, effectiveCanvasBackground } from "./store/useMoleculeStore";
+import { useMoleculeStore } from "./store/useMoleculeStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useClipboard } from "./hooks/useClipboard";
 import { useIsMobile } from "./hooks/useIsMobile";
@@ -108,8 +108,12 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-canvas-bg", effectiveCanvasBackground(theme, canvasBackground));
-  }, [theme, canvasBackground]);
+    // The stored preference is applied as-is in every theme: the canvas
+    // re-resolves its ink colors for a white background (see the rule in
+    // styles/theme.css), so a dark theme no longer has to force its own
+    // canvas here the way it used to.
+    document.documentElement.setAttribute("data-canvas-bg", canvasBackground);
+  }, [canvasBackground]);
 
   useEffect(() => {
     document.documentElement.setAttribute("lang", language);

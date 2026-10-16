@@ -4,6 +4,7 @@ import * as $3Dmol from "3dmol";
 import type { GLShape } from "3dmol/build/types/GLShape";
 import type { Label } from "3dmol/build/types/Label";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { themeViewerBackground } from "../../styles/themes";
 import { embedMolecule3DWithMethod, refineStructure3D, mmff94SinglePointEnergy, Embed3DError } from "../../io/embed3d";
 import type { Embed3DMethod } from "../../io/embed3d";
 import { XtbRefineError } from "../../io/xtbRefine";
@@ -301,7 +302,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     const container = containerRef.current;
     if (!container) return;
     const viewer = $3Dmol.createViewer(container, {
-      backgroundColor: theme === "dark" ? "#1b1e24" : "#ffffff",
+      backgroundColor: themeViewerBackground(theme),
     });
     viewerRef.current = viewer;
 
@@ -332,7 +333,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   // Background follows the app theme so the panel doesn't clash with a
   // dark UI around a bright-white 3D canvas.
   useEffect(() => {
-    viewerRef.current?.setBackgroundColor(theme === "dark" ? "#1b1e24" : "#ffffff", 1);
+    viewerRef.current?.setBackgroundColor(themeViewerBackground(theme), 1);
     viewerRef.current?.render();
   }, [theme]);
 

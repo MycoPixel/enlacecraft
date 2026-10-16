@@ -1,18 +1,30 @@
-/** Two small dots — represents a lone pair (matches how one is actually drawn on an atom). */
+/**
+ * Mark & mechanism icons for the sidebar and mobile toolbar.
+ *
+ * Each stands in for something the sidebar draws directly on a molecule, so
+ * these are drawn to match how the real thing renders (a lone pair really
+ * is two dots; a stereo label really is italic) rather than as generic
+ * pictograms. Small marks sit on a 16x16 box and the wider ones on 20x16,
+ * with the dots centered on the box's own optical center.
+ */
+
+/** Two small dots — represents a lone pair (matches how one is actually
+ *  drawn on an atom). Centered as a pair on x=8, spanning 3..13. */
 export function LonePairIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16">
-      <circle cx="5.5" cy="8" r="1.6" fill="currentColor" />
-      <circle cx="10.5" cy="8" r="1.6" fill="currentColor" />
+      <circle cx="5" cy="8" r="2" fill="currentColor" />
+      <circle cx="11" cy="8" r="2" fill="currentColor" />
     </svg>
   );
 }
 
-/** A single dot — represents an unpaired (radical) electron. */
+/** A single dot — represents an unpaired (radical) electron. 2.2px radius
+ *  is optically balanced against the lone pair's two 2px dots. */
 export function RadicalIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16">
-      <circle cx="8" cy="8" r="2" fill="currentColor" />
+      <circle cx="8" cy="8" r="2.2" fill="currentColor" />
     </svg>
   );
 }
@@ -21,7 +33,7 @@ export function RadicalIcon() {
 export function StereoLabelIcon() {
   return (
     <svg width="20" height="16" viewBox="0 0 20 16">
-      <text x="10" y="12" textAnchor="middle" fontSize="10" fontStyle="italic" fontWeight="700" fill="currentColor">
+      <text x="10" y="11.5" textAnchor="middle" fontSize="10.5" fontStyle="italic" fontWeight="700" fill="currentColor">
         R/S
       </text>
     </svg>
@@ -29,15 +41,15 @@ export function StereoLabelIcon() {
 }
 
 /** A reaction arrow with a couple of short lines above it, standing in for
- * reagent/condition text written over the arrow — the layout the "Add
- * reagent text" button reproduces. */
+ *  reagent/condition text written over the arrow — the layout the "Add
+ *  reagent text" button reproduces. */
 export function ReagentTextIcon() {
   return (
     <svg width="20" height="18" viewBox="0 0 20 18">
-      <line x1="2" y1="4" x2="9" y2="4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <line x1="11" y1="4" x2="16" y2="4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <line x1="2" y1="13" x2="14.5" y2="13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M13,10 L17,13 L13,16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="2" y1="3.5" x2="9" y2="3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="11" y1="3.5" x2="16" y2="3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="2" y1="13" x2="14.5" y2="13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M13,10 L17,13 L13,16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

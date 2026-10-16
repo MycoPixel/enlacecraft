@@ -1,10 +1,12 @@
 import { useRef } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Sun, Moon, Languages, AlertTriangle, HelpCircle, Box, History } from "lucide-react";
+import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { themeViewerBackground } from "../../styles/themes";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { ViewOptionsMenu } from "./ViewOptionsMenu";
+import { ThemePicker } from "./ThemePicker";
 import { CompoundSearch } from "./CompoundSearch";
 import { StructureSearchButton } from "./StructureSearchButton";
 import { IupacNameButton } from "./IupacNameButton";
@@ -35,7 +37,6 @@ interface TopBarProps {
 export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBarProps) {
   const molecule = useMoleculeStore((s) => s.molecule);
   const theme = useMoleculeStore((s) => s.theme);
-  const toggleTheme = useMoleculeStore((s) => s.toggleTheme);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const toggleCanvasBackground = useMoleculeStore((s) => s.toggleCanvasBackground);
   const showGrid = useMoleculeStore((s) => s.showGrid);
@@ -73,7 +74,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const resolveBackground = (bg: ExportBackground): string | null => {
     if (bg === "transparent") return null;
     if (bg === "white") return "#ffffff";
-    return theme === "dark" ? "#1c1f24" : "#ffffff";
+    return themeViewerBackground(theme);
   };
 
   /**
@@ -235,15 +236,12 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
           onToggleGrid={toggleShowGrid}
           canvasBackground={canvasBackground}
           onToggleCanvasBackground={toggleCanvasBackground}
-          isDarkTheme={theme === "dark"}
         />
         <ToolButton title={t("tool.language")} onClick={toggleLanguage}>
           <Languages size={18} />
         </ToolButton>
         <Divider />
-        <ToolButton title={t("tool.theme")} onClick={toggleTheme}>
-          {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-        </ToolButton>
+        <ThemePicker />
         <ToolButton title={t("tool.shortcuts")} onClick={onOpenShortcuts}>
           <HelpCircle size={18} />
         </ToolButton>
