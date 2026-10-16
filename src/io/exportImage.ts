@@ -174,6 +174,20 @@ function inlineDynamicColors(liveSvg: SVGSVGElement, clone: SVGSVGElement): void
 }
 
 /**
+ * Class marking the off-screen clone that an export measures text layout
+ * against (see drawAnnotationText). Purely a styling hook: it re-joins that
+ * clone to the canvas' own theme rules, which prepareExportClone's class
+ * removal otherwise severs — most visibly the white-canvas ink swap, without
+ * which a copy or export taken from a dark theme drew every condition box
+ * in the theme's light ink over a white background (invisible), while the
+ * bonds beside it came out correctly dark, because their colors are inlined
+ * from the *live* SVG — a different tree.
+ *
+ * Stripped again from the rasterizing clone so it never reaches a file.
+ */
+const MEASURE_CLASS = "export-measure";
+
+/**
  * Copies each live `<text>` element's computed font-family onto its
  * (index-aligned) clone counterpart. All the app's on-canvas text — atom
  * labels, charge/stereo labels, isotope prefixes — gets its font purely
@@ -362,6 +376,32 @@ export function exportSelectionPNGBlob(
     );
   }
 
+  // measureSvg has to be IN THE DOCUMENT before drawAnnotationText runs
+  // below. That function repositions annotation text by measuring each word
+  // with a DOM Range, and a detached SVG has no layout at all: every range
+  // rect comes back zero-sized, so every word hits the `rect.width === 0`
+  // skip and none of the text is drawn.
+  //
+  // Which is precisely how a copy of a reaction scheme could reach the
+  // clipboard with all its bonds, arrows and molecules but none of its
+  // "H2O, heat" condition boxes — the text was selected, kept in the clone,
+  // and then silently dropped at the last step. renderPNGBlob has always
+  // attached its own measuring clone for exactly this reason; this function
+  // was doing the same job but never got the matching append, leaving its
+  // own cleanup() calling remove() on a node that was never attached.
+  //
+  // Off-screen via fixed positioning rather than display:none, which would
+  // suppress layout entirely and reintroduce the same problem.
+  measureSvg.style.position = "fixed";
+  measureSvg.style.left = "-99999px";
+  measureSvg.style.top = "0";
+  // Re-attach it to the canvas' theme rules — see MEASURE_CLASS. Without
+  // this, text drawn from this clone uses the app theme's ink rather than
+  // the canvas', which on a white canvas in a dark theme means white text
+  // on white.
+  measureSvg.setAttribute("class", MEASURE_CLASS);
+  document.body.appendChild(measureSvg);
+
   // Second clone used only for rasterizing the vector artwork — Chromium
   // taints the destination canvas if the source image contains ANY
   // foreignObject (a copied text annotation), even an empty one, so those
@@ -369,6 +409,7 @@ export function exportSelectionPNGBlob(
   // text APIs, measured against the still-attached measureSvg above.
   const rasterSvg = measureSvg.cloneNode(true) as SVGSVGElement;
   rasterSvg.removeAttribute("style");
+  rasterSvg.removeAttribute("class");
   rasterSvg.setAttribute("width", String(finalWidth));
   rasterSvg.setAttribute("height", String(finalHeight));
   rasterSvg.querySelectorAll("foreignObject").forEach((fo) => fo.remove());
@@ -447,6 +488,12 @@ function renderPNGBlob(
   measureSvg.style.width = `${finalWidth}px`;
   measureSvg.style.height = `${finalHeight}px`;
   measureSvg.style.pointerEvents = "none";
+  // Same reasoning as the clipboard path: re-attach the measuring clone to
+  // the canvas' own theme rules, so the text redrawn from it uses the
+  // canvas' ink rather than the app theme's — see MEASURE_CLASS. Without it,
+  // a PNG exported from a dark theme with a white canvas drew every
+  // condition box in the theme's light ink, invisible on white.
+  measureSvg.setAttribute("class", MEASURE_CLASS);
   document.body.appendChild(measureSvg);
 
   // Chromium taints the whole destination canvas if the source image is an
@@ -462,6 +509,9 @@ function renderPNGBlob(
   // get serialized right along with it — strip it so the image used for
   // rasterization carries no positioning baggage, just its width/height/viewBox.
   rasterSvg.removeAttribute("style");
+  // The measuring-only class likewise: it exists to theme the off-screen
+  // clone, and has no business in a rasterized image or an exported file.
+  rasterSvg.removeAttribute("class");
   rasterSvg.setAttribute("width", String(finalWidth));
   rasterSvg.setAttribute("height", String(finalHeight));
   rasterSvg.querySelectorAll("foreignObject").forEach((fo) => fo.remove());

@@ -1103,7 +1103,18 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       }
     },
     setCanvasSize: (size) => set({ canvasSize: size }),
-    selectAll: () => set((s) => ({ selected: new Set(Object.keys(s.molecule.atoms)) })),
+    // Annotations are part of "everything" — a reaction scheme is mostly
+    // arrows and condition text, so selecting only the atoms and leaving
+    // the annotations behind made Ctrl+A useless for exactly the drawings
+    // it most looked like it was for: a following copy/paste, rotate, or
+    // Delete took the molecule and silently dropped the scheme around it.
+    // (The Delete shortcut already covers both sets — see
+    // useKeyboardShortcuts — so this doesn't strand anything half-selected.)
+    selectAll: () =>
+      set((s) => ({
+        selected: new Set(Object.keys(s.molecule.atoms)),
+        selectedAnnotationIds: new Set(Object.keys(s.annotations)),
+      })),
     clearSelection: () => set({ selected: new Set() }),
 
     setSelectedAnnotationIds: (ids) => set({ selectedAnnotationIds: ids }),
