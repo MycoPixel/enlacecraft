@@ -109,7 +109,16 @@ export function TextAnnotationView({ annotation, selected, editing, viewScale }:
     requestAnimationFrame(() => divRef.current?.focus());
   }, [beginEdit]);
 
-  const onBlur = useCallback(() => {
+  const onBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    // Focus moving into the floating formatting toolbar is not the user
+    // finishing their edit. Its font-size field is a real input and needs
+    // real focus (you have to be able to type a number into it), so clicking
+    // it blurs this box — and treating that as "done" would unmount the
+    // toolbar out from under the field the user just clicked, taking their
+    // half-typed number with it.
+    const next = e.relatedTarget;
+    if (next instanceof Element && next.closest(".annotation-toolbar")) return;
+
     setEditingTextId(null);
     if (editBeforeRef.current) {
       commitCheckpoint(editBeforeRef.current);

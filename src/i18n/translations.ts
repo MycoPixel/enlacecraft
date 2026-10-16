@@ -575,6 +575,8 @@ export const translations: Record<Lang, Dict> = {
     "annotation.superscript": "Superscript",
     "annotation.insertDelta": "Insert Δ (heat/reflux)",
     "annotation.fontSize": "Font size",
+    "annotation.fontSizeAll": "Font size — applies to all selected text boxes",
+    "annotation.closeFontSize": "Done",
     "annotation.increaseFontSize": "Increase text size",
     "annotation.decreaseFontSize": "Decrease text size",
 
@@ -1338,6 +1340,8 @@ export const translations: Record<Lang, Dict> = {
     "annotation.superscript": "Superíndice",
     "annotation.insertDelta": "Insertar Δ (calor/reflujo)",
     "annotation.fontSize": "Tamaño de texto",
+    "annotation.fontSizeAll": "Tamaño de texto — se aplica a todas las casillas seleccionadas",
+    "annotation.closeFontSize": "Listo",
     "annotation.increaseFontSize": "Aumentar tamaño de texto",
     "annotation.decreaseFontSize": "Reducir tamaño de texto",
 
