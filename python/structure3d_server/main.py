@@ -154,8 +154,159 @@ def embed3d_xtb(req: Embed3DXtbRequest):
     )
 
 
+class IrRequest(BaseModel):
+    # Same starting-3D-conformer molfile the refinement endpoint takes.
+    molfile: str
+    charge: int = 0
+
+
+class IrMode(BaseModel):
+    wavenumber: float  # cm**-1
+    intensity_km_mol: float
+
+
+class IrResponse(BaseModel):
+    modes: list[IrMode]
+    converged: bool
+    # Modes with a negative wavenumber: the Hessian says this geometry isn't
+    # actually a minimum. Reported rather than hidden because it usually means
+    # the optimizer stalled, and every frequency from that run is then
+    # suspect - see the frontend's warning.
+    imaginary_count: int
+
+
+# xtb's `vibspectrum` file. Data rows are
+#     <mode> <symmetry> <wavenumber cm-1> <IR intensity km/mol> <IR allowed>
+# The six zero rows xtb emits first (3 translations + 3 rotations) carry a
+# bare "-" instead of a selection-rule word, so they split into 4 fields
+# rather than 5 and drop out of the len==5 filter below for free.
+_VIBSPECTRUM_ROW = re.compile(r"^\s*(\d+)\s+(\S+)\s+(-?[\d.]+)\s+([\d.]+)\s+(\S+)\s*$")
+
+
+def parse_vibspectrum(text: str) -> tuple[list[IrMode], int]:
+    modes: list[IrMode] = []
+    imaginary = 0
+    for line in text.splitlines():
+        match = _VIBSPECTRUM_ROW.match(line)
+        if not match:
+            continue
+        wavenumber = float(match.group(3))
+        intensity = float(match.group(4))
+        if wavenumber <= 0:
+            # Negative = imaginary. Near-zero = the six translations/rotations,
+            # which the regex already let through when they had a 5th field.
+            if wavenumber < -1.0:
+                imaginary += 1
+            continue
+        modes.append(IrMode(wavenumber=wavenumber, intensity_km_mol=intensity))
+    return modes, imaginary
+
+
+def run_xtb_ir(xtb_bin: str, mol: Chem.Mol, charge: int) -> tuple[list[IrMode], bool, int]:
+    """Optimizes `mol` then computes its numerical Hessian, returning the
+    vibrational modes with IR intensities.
+
+    `--ohess` rather than `--hess`: the Hessian has to be taken at a real
+    minimum, and at a non-converged geometry every frequency is meaningless.
+    Optimizing first also costs nothing extra -- it is the same SCF work.
+
+    Note there is no `--vibspectrum` flag; the file is a side effect of
+    `--hess`. Passing it anyway is silently ignored by xtb (which is why an
+    earlier draft of this looked like it worked).
+    """
+    with tempfile.TemporaryDirectory(prefix="enlacecraft_ir_") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        write_xyz_from_mol(mol, tmpdir_path)
+
+        result = run_xtb(xtb_bin, tmpdir_path, ["--gfn", "2", "--chrg", str(charge), "--ohess", "tight"])
+
+        spectrum_path = tmpdir_path / "vibspectrum"
+        if not spectrum_path.exists():
+            tail = "\n".join(result.stdout.strip().splitlines()[-15:])
+            raise XtbFailure(f"xtb did not produce a vibrational spectrum.\n{tail}")
+
+        modes, imaginary = parse_vibspectrum(spectrum_path.read_text(errors="replace"))
+        if not modes:
+            raise XtbFailure("xtb produced a vibrational spectrum with no real modes")
+
+        return modes, result.returncode == 0, imaginary
+
+
+@app.post("/ir", response_model=IrResponse)
+def ir_spectrum(req: IrRequest):
+    xtb_bin = find_xtb_binary()
+    if xtb_bin is None:
+        raise HTTPException(
+            status_code=503,
+            detail="xtb binary not found — see python/structure3d_server/README.md for how to install it.",
+        )
+
+    mol = Chem.MolFromMolBlock(req.molfile, sanitize=True, removeHs=False)
+    if mol is None:
+        raise HTTPException(status_code=400, detail="Could not parse molfile")
+    if mol.GetNumConformers() == 0:
+        raise HTTPException(status_code=400, detail="Molfile has no 3D coordinates to analyze")
+
+    try:
+        modes, converged, imaginary = run_xtb_ir(xtb_bin, mol, req.charge)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="xtb vibrational analysis timed out")
+    except XtbFailure as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return IrResponse(modes=modes, converged=converged, imaginary_count=imaginary)
+
+
 class XtbFailure(RuntimeError):
     pass
+
+
+def run_xtb(xtb_bin: str, workdir: Path, extra_args: list[str]) -> subprocess.CompletedProcess:
+    """Runs the xtb CLI in `workdir` with `input.xyz` already written there.
+
+    Shared by the 3D refinement and the IR spectrum so the encoding handling
+    below can't be fixed on one path and left broken on the other.
+    """
+    try:
+        return subprocess.run(
+            [xtb_bin, "input.xyz", *extra_args],
+            cwd=workdir,
+            capture_output=True,
+            # Pin the encoding rather than relying on text=True's
+            # locale-dependent default. xtb writes UTF-8 - its citation
+            # header alone contains non-ASCII author names, e.g.
+            # "Hölzer" - but on Windows text=True decodes with cp1252,
+            # which raises UnicodeDecodeError inside subprocess's own
+            # reader thread the moment it hits a byte cp1252 can't
+            # represent. On Linux the locale is UTF-8 so this never
+            # showed up; on Windows it fired on *every* xtb call,
+            # losing the tail of stdout (the only diagnostic the
+            # XtbFailure messages have) and leaving the parent
+            # thread waiting on a stream nobody would ever finish
+            # writing to, so the request sat there until
+            # XTB_TIMEOUT_SECONDS instead of returning.
+            #
+            # errors="replace" as well as the explicit encoding: this
+            # output is only ever read for a human-readable error tail
+            # (the results themselves come from the files xtb writes),
+            # so an undecodable byte is never worth failing a request
+            # over.
+            encoding="utf-8",
+            errors="replace",
+            timeout=XTB_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError as exc:
+        raise XtbFailure(f"Could not run xtb binary at {xtb_bin!r}") from exc
+
+
+def write_xyz_from_mol(mol: Chem.Mol, workdir: Path) -> None:
+    """Writes `mol`'s current conformer to `workdir/input.xyz`."""
+    conformer = mol.GetConformer()
+    write_xyz(
+        workdir / "input.xyz",
+        [atom.GetSymbol() for atom in mol.GetAtoms()],
+        [conformer.GetAtomPosition(i) for i in range(mol.GetNumAtoms())],
+    )
 
 
 def run_xtb_optimization(
@@ -186,36 +337,7 @@ def run_xtb_optimization(
         xyz_path = tmpdir_path / "input.xyz"
         write_xyz(xyz_path, symbols, coords)
 
-        try:
-            result = subprocess.run(
-                [xtb_bin, str(xyz_path), "--opt", "--gfn", "2", "--chrg", str(charge)],
-                cwd=tmpdir_path,
-                capture_output=True,
-                # Pin the encoding rather than relying on text=True's
-                # locale-dependent default. xtb writes UTF-8 - its citation
-                # header alone contains non-ASCII author names, e.g.
-                # "Hölzer" - but on Windows text=True decodes with cp1252,
-                # which raises UnicodeDecodeError inside subprocess's own
-                # reader thread the moment it hits a byte cp1252 can't
-                # represent. On Linux the locale is UTF-8 so this never
-                # showed up; on Windows it fired on *every* xtb call,
-                # losing the tail of stdout (the only diagnostic the
-                # XtbFailure message below has) and leaving the parent
-                # thread waiting on a stream nobody would ever finish
-                # writing to, so the request sat there until
-                # XTB_TIMEOUT_SECONDS instead of returning.
-                #
-                # errors="replace" as well as the explicit encoding: this
-                # output is only ever read for a human-readable error tail
-                # (the optimized geometry itself comes from the xtbopt.xyz
-                # *file*, parsed as text), so an undecodable byte is never
-                # worth failing a request over.
-                encoding="utf-8",
-                errors="replace",
-                timeout=XTB_TIMEOUT_SECONDS,
-            )
-        except FileNotFoundError as exc:
-            raise XtbFailure(f"Could not run xtb binary at {xtb_bin!r}") from exc
+        result = run_xtb(xtb_bin, tmpdir_path, ["--opt", "--gfn", "2", "--chrg", str(charge)])
 
         optimized_path = tmpdir_path / "xtbopt.xyz"
         if not optimized_path.exists():

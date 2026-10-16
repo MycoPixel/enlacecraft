@@ -4853,6 +4853,43 @@
   white-space: nowrap;
 }
 
+/* Ring outlines on the canvas, keyed to the aromaticity verdict. Drawn
+   *under* the bonds (MoleculeCanvas emits them before them) and thick enough
+   to read as a halo rather than competing with the structure's own lines. */
+.aromaticity-overlay__ring {
+  fill: none;
+  stroke-width: 7;
+  stroke-linejoin: round;
+  opacity: 0.32;
+}
+
+.aromaticity-overlay__ring.is-aromatic { stroke: #2e7d32; }
+.aromaticity-overlay__ring.is-antiaromatic { stroke: #c62828; }
+.aromaticity-overlay__ring.is-non-aromatic { stroke: #808a96; }
+.aromaticity-overlay__ring.is-unknown { stroke: #c62828; stroke-dasharray: 5 4; }
+
+.aromaticity__overlayToggle {
+  margin-top: 8px;
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.aromaticity__overlayToggle:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+.aromaticity__overlayToggle.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
 .aromaticity-badge--aromatic { background: rgba(46, 125, 50, 0.16); color: #2e7d32; }
 .aromaticity-badge--antiaromatic { background: rgba(198, 40, 40, 0.16); color: #c62828; }
 .aromaticity-badge--non-aromatic { background: rgba(128, 138, 152, 0.18); color: var(--ink-soft); }
@@ -4918,6 +4955,182 @@
 .aromaticity-dropdown__close:hover {
   color: var(--ink);
   border-color: var(--ink-soft);
+}
+
+/* ---------- IR spectrum panel ---------- */
+.ir-dropdown {
+  width: 380px;
+  max-height: min(620px, calc(100vh - 140px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ir-dropdown__head {
+  font-size: 12px;
+  font-weight: 600;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: 8px;
+}
+
+.ir-panel {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ir-panel__run {
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.ir-panel__run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ir-panel__spin {
+  animation: ir-spin 0.9s linear infinite;
+}
+
+@keyframes ir-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ir-panel__spin { animation: none; }
+}
+
+.ir-panel__error {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.ir-panel__warn {
+  display: flex;
+  gap: 5px;
+  align-items: flex-start;
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--danger);
+}
+
+.ir-panel__warn svg { flex: none; margin-top: 1px; }
+
+.ir-panel__note {
+  display: flex;
+  gap: 5px;
+  align-items: flex-start;
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.ir-panel__note svg { flex: none; margin-top: 1px; }
+
+.ir-plot {
+  width: 100%;
+  margin-top: 8px;
+  display: block;
+}
+
+.ir-plot__band {
+  fill: var(--accent);
+  opacity: 0.07;
+}
+
+.ir-plot__band.is-broad { opacity: 0.12; }
+
+.ir-plot__bandLabel {
+  font-size: 7px;
+  fill: var(--ink-soft);
+  text-anchor: middle;
+}
+
+.ir-plot__axis {
+  stroke: var(--panel-border);
+  stroke-width: 1;
+}
+
+.ir-plot__tick {
+  font-size: 7px;
+  fill: var(--ink-soft);
+}
+
+.ir-plot__fill {
+  fill: var(--accent);
+  opacity: 0.16;
+}
+
+.ir-plot__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+
+.ir-table {
+  margin-top: 10px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 6px;
+}
+
+.ir-table__head,
+.ir-table__row {
+  display: grid;
+  grid-template-columns: 52px 1fr 96px;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+  padding: 2px 0;
+}
+
+.ir-table__head {
+  color: var(--ink-soft);
+  font-weight: 600;
+  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 3px;
+}
+
+.ir-table__wn {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ir-table__intensity {
+  position: relative;
+  height: 9px;
+  background: var(--accent-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ir-table__bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.ir-table__assignment {
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mass-spec-panel__tabs {

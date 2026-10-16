@@ -7,8 +7,8 @@ tagged with it.
 
 ## 1.14.0
 
-Five themes instead of two, an aromaticity check, and a pile of fixes to
-copying, text boxes and small screens.
+Five themes instead of two, an aromaticity check, a computed IR spectrum, and a
+pile of fixes to copying, text boxes and small screens.
 
 ### Aromatic, antiaromatic, or neither
 
@@ -52,6 +52,48 @@ It needs no backend and no network, so unlike NMR prediction it works in the
 web version too. Select a fragment and it analyses just that; a reaction scheme
 gets one labelled block per fragment, so a verdict never reads as a statement
 about the whole drawing.
+
+### An IR spectrum, computed rather than looked up
+
+The mass panel tells you what a molecule will weigh and fragment into. This one
+works out what it will absorb: a top-bar panel that runs a real vibrational
+calculation on the structure you've drawn and plots the result as a
+transmittance trace against a descending wavenumber axis, the way an IR
+spectrum is actually drawn.
+
+It reuses the xTB that already ships with the 3D view's high-accuracy mode, so
+there's no new backend to build and no new installer weight — the same service,
+given one more endpoint.
+
+Behind the plot, the textbook diagnostic ranges are shaded for whichever
+functional groups your structure actually has. Not every band on every
+molecule: a plot striped with ranges for groups you don't have teaches the wrong
+lesson by omission. Acetone gets C=O, CH₃ bend and sp³ C–H, and nothing else;
+so does a diketone, but counted twice. Amides are told apart from esters and
+acids (all three sit near 1700 but not on top of each other), and an
+abbreviated group suppresses the band it stands in for rather than being
+counted as a carbon.
+
+**There is deliberately no scale factor applied to the frequencies.** The
+obvious move is to multiply every wavenumber by a fitted constant so the numbers
+line up with a table, and that doesn't work here: measured against a 22-band
+calibration set, the error isn't a uniform bias. C–H and C–O stretches land
+within about 1% already, C=O comes out ~3% high, C≡N and C≡C and CO₂ are 7–10%
+high, and O–H and ring bends come out 2–5% *low*. Any single factor big enough
+to help the triple bonds would visibly break the C–H stretches, which are most
+of a teaching spectrum. So the frequencies are reported as calculated and each
+peak is matched against the diagnostic ranges instead, which keeps the
+comparison you're making visible rather than hiding it behind a constant.
+
+Two honest limits, both stated in the panel:
+
+- **It's a gas-phase molecule.** No hydrogen bonding, so an O–H or N–H stretch
+  comes out near 3650 where a liquid gives you the broad 3200–3600 smear the
+  textbook draws.
+- **The geometry isn't always a true minimum.** xTB sometimes reports
+  imaginary modes even after converging, which means the frequencies are
+  unreliable — so when it happens, the panel says so rather than drawing a
+  confident trace.
 
 ### Five themes, and a picker that shows them
 
