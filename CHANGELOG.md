@@ -5,6 +5,76 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.14.0
+
+Five themes instead of two, and a pile of fixes to copying, text boxes and
+small screens.
+
+### Five themes, and a picker that shows them
+
+Light and Dark are still there, joined by **ChemDraw Classic** (warm desktop
+framing, publication-white canvas, classic navy), **Slate Lab** (deep slate
+surfaces, hairline borders, laser cyan) and **Midnight OLED** (pure black for
+OLED screens and dark rooms).
+
+The light/dark button is now a popover listing all five with a palette swatch,
+a line on what each is for, and a check on the active one. Cycling needed up to
+four clicks to reach a given theme and never showed you what was coming. The
+choice is remembered between sessions, which it wasn't before.
+
+Bond and mark glyphs are also re-cut: uniform stroke weight across all seven
+bond tools, a proper sine curve for the wavy bond, a dash that steps evenly,
+and sharper wedge and chain vertices.
+
+### A white canvas now works in the dark themes
+
+It used to be silently unavailable there — the dark palettes' ink is calibrated
+for a dark canvas, so a white one made the molecule unreadable. Rather than
+taking the setting away, the canvas now re-resolves its ink for a white
+background. Chemists routinely draft in a dark theme and need publication-white
+figures out of it.
+
+### Copying a reaction scheme keeps its condition boxes
+
+Pasting into Word gave you the molecules and arrows with every text box
+missing. Two bugs, stacked:
+
+- **Ctrl+A only selected atoms.** A reaction scheme is mostly arrows and
+  "H2O, heat", so the one command that means "take the whole drawing" dropped
+  everything else — and copy, rotate, duplicate and Delete all inherited that.
+- **The copied image then dropped the text anyway.** Annotation text is redrawn
+  during export by measuring each word with a DOM range, and the clone doing
+  the measuring was never attached to the page. A detached SVG has no layout,
+  so every word measured as zero-sized and was skipped.
+
+### Font size is now visible, and typeable
+
+The text toolbar had `−` and `+` and nothing that told you what size a box was,
+so matching two condition boxes meant nudging one and comparing by eye. There's
+a number field now: it shows the caret's size while you type, and typing a
+number applies to the selected words. Select several text boxes and the same
+control sets them all at once — showing a dash instead of a number when they
+disagree.
+
+### The top bar's buttons are reachable on a small screen
+
+On a narrow window the action strip overflowed with no scrollbar and no sign
+that it did, and a mouse wheel couldn't move it sideways — so buttons like the
+3D view looked like they simply weren't there. The strip now scrolls under a
+plain wheel, and carries a soft shadow on whichever edge still has buttons
+beyond it.
+
+### Other fixes
+
+- **NMR structure diagrams were invisible** in a dark theme with a white
+  canvas: white ink on a white plate. They now follow the app theme in both the
+  predictor report and the spectrum tab's structure overlay.
+- **Copies and PNG exports from a dark theme drew their condition boxes in
+  light ink** over a white background, for the same reason, while the bonds
+  beside them came out correctly dark.
+- **"Match app theme" export background** in the light theme now uses the
+  theme's actual canvas colour instead of pure white.
+
 ## 1.13.0
 
 1.12.0 shipped with a bug that could freeze the app — the isotope pattern
