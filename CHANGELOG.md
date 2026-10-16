@@ -53,6 +53,21 @@ web version too. Select a fragment and it analyses just that; a reaction scheme
 gets one labelled block per fragment, so a verdict never reads as a statement
 about the whole drawing.
 
+### Ring verdicts on the canvas, not just in a panel
+
+The aromaticity panel tells you a ring is antiaromatic; this puts it on the
+ring. A toggle at the bottom of the panel outlines every ring on the drawing —
+green for aromatic, red for antiaromatic, grey for neither — and re-analyses as
+you edit, so it tracks the structure while you work.
+
+Drawn as an outline through each ring's own atoms rather than an inscribed
+circle. The circle used for the aromatic-ring glyph is right for a hexagon, but
+this has to work for any ring, and a circle inside a pentagon reads as a
+different shape from the ring it is labelling.
+
+Outlines are screen-only: they're stripped from exported PNGs and SVGs, since
+the figure is the structure rather than the app's opinion of it.
+
 ### An IR spectrum, computed rather than looked up
 
 The mass panel tells you what a molecule will weigh and fragment into. This one

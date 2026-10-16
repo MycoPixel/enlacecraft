@@ -385,6 +385,17 @@ interface MoleculeStore {
   showHydrogens: boolean;
   monochromeAtoms: boolean;
   /**
+   * Whether to outline each ring on the canvas with its aromaticity verdict
+   * (engine/aromaticity.ts) — green for aromatic, red for antiaromatic, grey
+   * for non-aromatic.
+   *
+   * Plain transient UI state alongside showHydrogens, deliberately NOT part of
+   * the Molecule: it must not be written into a saved project, and toggling it
+   * must not create an undo step, since it changes nothing about the
+   * structure.
+   */
+  showAromaticityOverlay: boolean;
+  /**
    * Sticky equivalent of holding Shift while drawing: disables the 30-degree
    * angle snap so bonds, chains, arrows and functional groups can be drawn at
    * any angle.
@@ -501,6 +512,8 @@ interface MoleculeStore {
    * matching is by topology *and* implicit-hydrogen count, never by formula. */
   collapseSelectionToGroups: () => number;
   toggleShowHydrogens: () => void;
+  /** See showAromaticityOverlay. */
+  toggleAromaticityOverlay: () => void;
   toggleFreeAngle: () => void;
   /** Real structural edit, not a view toggle: on the atom count going up
    * (i.e. hasExplicitHydrogens(molecule) is currently false), adds a real
@@ -916,6 +929,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     rotationSession: null,
     contextMenu: null,
     showHydrogens: false,
+    showAromaticityOverlay: false,
   freeAngle: false,
     snapAngleDegrees: detectSnapAngle(),
     monochromeAtoms: true,
@@ -1050,6 +1064,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       });
     },
     toggleShowHydrogens: () => set((s) => ({ showHydrogens: !s.showHydrogens })),
+    toggleAromaticityOverlay: () => set((s) => ({ showAromaticityOverlay: !s.showAromaticityOverlay })),
     toggleFreeAngle: () => set((s) => ({ freeAngle: !s.freeAngle })),
     toggleExplicitHydrogens: () => {
       const { molecule } = get();

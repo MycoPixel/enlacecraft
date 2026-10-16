@@ -22,6 +22,8 @@ import type { AromaticitySystem } from "../../engine/aromaticity";
 export function AromaticityPanel() {
   const t = useT();
   const selected = useMoleculeStore((s) => s.selected);
+  const overlayOn = useMoleculeStore((s) => s.showAromaticityOverlay);
+  const toggleOverlay = useMoleculeStore((s) => s.toggleAromaticityOverlay);
   const results = useAromaticity();
 
   const fragmentCount = results.length;
@@ -75,6 +77,15 @@ export function AromaticityPanel() {
       <p className="aromaticity__note">
         <Info size={12} /> {t("aromaticity.geometryNote")}
       </p>
+
+      <button
+        type="button"
+        className={`aromaticity__overlayToggle${overlayOn ? " is-active" : ""}`}
+        onClick={toggleOverlay}
+        aria-pressed={overlayOn}
+      >
+        {overlayOn ? t("aromaticity.overlayOn") : t("aromaticity.overlayOff")}
+      </button>
     </div>
   );
 }

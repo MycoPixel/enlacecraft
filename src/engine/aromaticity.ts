@@ -340,17 +340,30 @@ function oclAromaticPerAtomSet(mol: Molecule): Map<string, boolean> | null {
   }
 }
 
+export interface AromaticityOptions {
+  /**
+   * Run OpenChemLib's independent aromaticity verdict as well.
+   *
+   * On by default because the panel wants it, but it costs a molfile
+   * round-trip through OpenChemLib, which is far too expensive to repeat on
+   * every canvas repaint. The canvas overlay only needs the geometry and the
+   * verdict, so it turns this off.
+   */
+  crossCheck?: boolean;
+}
+
 /**
  * Classifies every ring in `mol`. Returns one entry per fused ring system, in
  * the order findRings first encountered them — so a monocyclic molecule gives
  * exactly one system with a single ring.
  */
-export function analyzeAromaticity(mol: Molecule): AromaticitySystem[] {
+export function analyzeAromaticity(mol: Molecule, options: AromaticityOptions = {}): AromaticitySystem[] {
+  const { crossCheck = true } = options;
   const rings = findRings(mol);
   if (rings.length === 0) return [];
 
   const adj = buildAdjacency(mol);
-  const crossCheckByRingSet = oclAromaticPerAtomSet(mol);
+  const crossCheckByRingSet = crossCheck ? oclAromaticPerAtomSet(mol) : null;
 
   return groupFusedRings(rings).map((group) => {
     const systemRings = group.map((i) => rings[i]);

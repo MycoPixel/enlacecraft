@@ -13,6 +13,7 @@ import { atomLabelRadius, isOverValent } from "../../model/valence";
 import { useAtomRenderContexts } from "./atomRenderContext";
 import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
 import { ringBondIds, ringCircleGeometry } from "../../engine/aromaticRings";
+import { AromaticityOverlay } from "./AromaticityOverlay";
 import { previewRingLoops } from "../../engine/ringPlacement";
 import { previewFunctionalGroupSegments } from "../../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../../model/geometry";
@@ -31,6 +32,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const lassoPath = useMoleculeStore((s) => s.lassoPath);
   const tool = useMoleculeStore((s) => s.tool);
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
+  const showAromaticityOverlay = useMoleculeStore((s) => s.showAromaticityOverlay);
   const atomLabelRevealTargets = useMoleculeStore((s) => s.atomLabelRevealTargets);
   const setCanvasSize = useMoleculeStore((s) => s.setCanvasSize);
   const annotations = useMoleculeStore((s) => s.annotations);
@@ -196,6 +198,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
           molecule={molecule}
           selected={selected}
           showHydrogens={showHydrogens}
+          showAromaticityOverlay={showAromaticityOverlay}
           atomLabelRevealTargets={atomLabelRevealTargets}
           svgRef={svgRef}
           annotations={annotations}
@@ -549,6 +552,8 @@ interface MoleculeContentProps {
   viewScale: number;
   /** The atom the 3D panel's link tool points at; see linkedAtomId in the store. */
   linkedAtomId: string | null;
+  /** Outline each ring with its aromaticity verdict; see showAromaticityOverlay. */
+  showAromaticityOverlay: boolean;
 }
 
 /**
@@ -583,6 +588,7 @@ const MoleculeContent = memo(function MoleculeContent({
   editingTextId,
   viewScale,
   linkedAtomId,
+  showAromaticityOverlay,
 }: MoleculeContentProps) {
   // Aromatic ring circles the person has toggled on (see
   // AromaticRingDisplay's own doc comment) -- one memo for which bonds
@@ -639,6 +645,7 @@ const MoleculeContent = memo(function MoleculeContent({
           pointerEvents="none"
         />
       ))}
+      {showAromaticityOverlay && <AromaticityOverlay molecule={molecule} />}
       {Object.values(molecule.hapticBonds).map((hb) => (
         <HapticBondView
           key={hb.id}
