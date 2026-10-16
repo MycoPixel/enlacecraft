@@ -25,6 +25,7 @@ import { exportSmiles } from "../../io/smiles";
 import { runProjectSave } from "../../io/projectSaver";
 import { downloadBlob } from "../../io/exportImage";
 import { useFileImport } from "../../hooks/useFileImport";
+import { useHorizontalStripScroll } from "../../hooks/useHorizontalStripScroll";
 import { LIMITS } from "../../io/validate";
 import { useT } from "../../i18n/useT";
 
@@ -61,6 +62,10 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const activeTabId = useMoleculeStore((s) => s.activeTabId);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The action strip scrolls sideways when the window is too narrow for
+  // every button; this is what makes a plain mouse wheel drive it.
+  const topActionsRef = useRef<HTMLDivElement>(null);
+  useHorizontalStripScroll(topActionsRef);
   const t = useT();
   const importFileContent = useFileImport();
 
@@ -200,7 +205,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
         </div>
       )}
 
-      <div className="top-actions">
+      <div className="top-actions" ref={topActionsRef}>
         <ToolButton title={t("tool.undo")} onClick={undo}>
           <Undo2 size={18} style={{ opacity: canUndo ? 1 : 0.35 }} />
         </ToolButton>
