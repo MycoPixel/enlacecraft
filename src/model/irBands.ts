@@ -43,30 +43,43 @@ export interface IrBand {
    * phase, so a computed gas-phase value will legitimately sit above it.
    */
   condensedPhase?: boolean;
+  /**
+   * Set on the bands that are a bond *stretching* vibration. The bend and
+   * deformation bands deliberately don't carry it, because their labels already
+   * name the motion ("CH₃ bend", "CH₂ scissor", "Ar C–H oop") — appending
+   * "bend" to those would just say it twice.
+   *
+   * This is here so a peak can be reported as "C–O stretch" rather than a bare
+   * "C–O", which reads as a bond rather than a vibration. It names the *kind* of
+   * vibration and nothing more: it does not claim the peak at 1089 cm⁻¹ is
+   * this molecule's particular C–O bond, which for a molecule with two of them
+   * is a question the calculation never answered (see the header).
+   */
+  motion?: "stretch";
 }
 
 export const IR_BANDS: IrBand[] = [
-  { key: "bond.oh", min: 3200, max: 3600, broad: true, condensedPhase: true },
-  { key: "bond.nh", min: 3300, max: 3500, broad: true, condensedPhase: true },
-  { key: "band.chSp2", min: 3000, max: 3100 },
-  { key: "bond.cTripleC", min: 2100, max: 2260 },
-  { key: "bond.cTripleN", min: 2210, max: 2260 },
-  { key: "band.chSp3", min: 2850, max: 3000 },
-  { key: "bond.cDoubleO.acid", min: 1700, max: 1725 },
-  { key: "bond.cDoubleO.ester", min: 1735, max: 1750 },
-  { key: "bond.cDoubleO.aldehyde", min: 1720, max: 1740 },
-  { key: "bond.cDoubleO.ketone", min: 1710, max: 1720 },
-  { key: "bond.cDoubleO.amide", min: 1650, max: 1690 },
-  { key: "bond.cDoubleC", min: 1620, max: 1680 },
-  { key: "bond.cDoubleN", min: 1620, max: 1680 },
-  { key: "bond.cDoubleO.aromatic", min: 1520, max: 1580 },
-  { key: "bond.cDoubleC.aromatic", min: 1450, max: 1600, broad: true },
+  { key: "bond.oh", min: 3200, max: 3600, broad: true, condensedPhase: true, motion: "stretch" },
+  { key: "bond.nh", min: 3300, max: 3500, broad: true, condensedPhase: true, motion: "stretch" },
+  { key: "band.chSp2", min: 3000, max: 3100, motion: "stretch" },
+  { key: "bond.cTripleC", min: 2100, max: 2260, motion: "stretch" },
+  { key: "bond.cTripleN", min: 2210, max: 2260, motion: "stretch" },
+  { key: "band.chSp3", min: 2850, max: 3000, motion: "stretch" },
+  { key: "bond.cDoubleO.acid", min: 1700, max: 1725, motion: "stretch" },
+  { key: "bond.cDoubleO.ester", min: 1735, max: 1750, motion: "stretch" },
+  { key: "bond.cDoubleO.aldehyde", min: 1720, max: 1740, motion: "stretch" },
+  { key: "bond.cDoubleO.ketone", min: 1710, max: 1720, motion: "stretch" },
+  { key: "bond.cDoubleO.amide", min: 1650, max: 1690, motion: "stretch" },
+  { key: "bond.cDoubleC", min: 1620, max: 1680, motion: "stretch" },
+  { key: "bond.cDoubleN", min: 1620, max: 1680, motion: "stretch" },
+  { key: "bond.cDoubleO.aromatic", min: 1520, max: 1580, motion: "stretch" },
+  { key: "bond.cDoubleC.aromatic", min: 1450, max: 1600, broad: true, motion: "stretch" },
   { key: "band.ch3Bend", min: 1370, max: 1390 },
-  { key: "bond.cSingleO", min: 1050, max: 1150, broad: true },
-  { key: "bond.cSingleN", min: 1020, max: 1250, broad: true },
+  { key: "bond.cSingleO", min: 1050, max: 1150, broad: true, motion: "stretch" },
+  { key: "bond.cSingleN", min: 1020, max: 1250, broad: true, motion: "stretch" },
   { key: "band.ch2Scissor", min: 1435, max: 1475 },
-  { key: "bond.cSingleCl", min: 600, max: 800 },
-  { key: "bond.cSingleBr", min: 500, max: 650 },
+  { key: "bond.cSingleCl", min: 600, max: 800, motion: "stretch" },
+  { key: "bond.cSingleBr", min: 500, max: 650, motion: "stretch" },
   { key: "band.aromaticOop", min: 690, max: 710 },
 ];
 
