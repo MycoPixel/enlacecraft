@@ -5,6 +5,67 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.15.0
+
+The IR spectrum gets the full-screen view it was missing: zoom in on a region,
+read every computed mode at once, and keep the molecule in a window you can
+drag around the spectrum rather than on a tab you have to switch away from.
+
+### A full IR spectrum, with the structure alongside it
+
+The panel in the toolbar shows a 360px sketch — enough to recognise the
+spectrum, not enough to read it. "Open full spectrum" now gives it room: the
+whole plot with labelled axes, every mode listed by wavenumber rather than
+filtered down to the strongest dozen, and a legend of which textbook ranges are
+shaded.
+
+The structure is a **floating window over the plot** rather than a second tab.
+That was the part worth getting right: a tab makes you look at one or the other
+and rely on memory for the correspondence, which is exactly the part nobody can
+do reliably. Drag it by its body, resize it from the lower-left corner, and it
+never covers the whole spectrum — the readout is a reading aid, and the spectrum
+is the thing being read. Arrow keys nudge it for anyone not using a mouse.
+
+### Zoom, by dragging across what you want
+
+Drag across the region of the spectrum you care about and it becomes the whole
+plot. A short drag is a click rather than a zoom, so aiming at a peak on a
+touchscreen doesn't collapse the view. The axis re-labels itself on round
+numbers at any depth.
+
+The axis runs backwards — 4000 cm⁻¹ on the left, 400 on the right — which is the
+IR convention rather than a mistake, and both axes are now named: wavenumber in
+cm⁻¹, transmittance in percent.
+
+### Atoms you can tell apart at a glance
+
+The structure window colours each atom the way the canvas does: oxygen red,
+nitrogen blue, sulfur amber, the halogens green, and so on for all 118 elements.
+The shading is deliberately faint, and the element symbol stays in the theme's
+own ink — because that palette is tuned for the canvas, where colour is a large
+shape, and 30 of those colours fall below 3:1 as *text* against the dark
+themes. Nitrogen is one of them.
+
+Hydrogen is the exception, and is white: the panel is white in the light theme,
+so a translucent white disc would be invisible there. It gets a solid disc with
+a ring, and a symbol pinned dark, because a fixed white disc needs a fixed dark
+letter in every theme.
+
+### Signal labels say what kind of vibration they are
+
+Peak assignments read "C–O stretch" rather than a bare "C–O", and a molecule with
+two carbonyls says "2 × C=O ketone stretch". The shaded ranges themselves are
+unchanged — they're still the reference table, not a claim about which peak is
+which.
+
+### And a fix for black-on-black text in dark themes
+
+The IR dropdown and report are rendered in a portal, outside the element that
+declares the app's text colour, so any text not naming a colour of its own fell
+back to black — invisible on a dark panel. The dropdown heading and the shaded
+range labels both hit it. Four other portaled surfaces share the latent problem
+and are worth a look.
+
 ## 1.14.1
 
 The IR spectrum didn't work in 1.14.0. The button was there and every other
