@@ -5,6 +5,33 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.14.1
+
+The IR spectrum didn't work in 1.14.0. The button was there and every other
+feature in that release behaved, but clicking "Calculate spectrum" always
+failed.
+
+### The IR spectrum button now works
+
+The panel is unchanged — same transmittance plot, same peak table, same
+correlation table shading the assigned bands. What was broken was everything
+underneath it.
+
+The app doesn't run xtb itself. It calls a small Python service bundled inside
+the installer, and 1.14.0 shipped a build of that service frozen *before* the
+spectrum code existed. So the request came back 404: 3D structure optimisation
+worked because that endpoint was in the old build, and the IR spectrum didn't
+because its endpoint wasn't. The frozen backend has been rebuilt, and water
+now comes back with its three expected bands.
+
+### Freezing now checks the IR endpoint too
+
+The freeze step only ever exercised 3D optimisation, which is why a backend
+missing the spectrum endpoint passed every check and shipped. Both the Linux
+and Windows freeze scripts now make a real IR request and check the three modes
+that come back — not just that the call succeeded, since a spectrum whose
+parser has stopped matching still answers 200 with an empty plot.
+
 ## 1.14.0
 
 Five themes instead of two, an aromaticity check, a computed IR spectrum, and a
