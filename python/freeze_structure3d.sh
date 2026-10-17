@@ -114,6 +114,48 @@ if [ "$embed_code" != "200" ]; then
 fi
 echo "    /embed3d/xtb(water) -> HTTP $embed_code"
 
+# The IR endpoint takes the identical request body, so the same water is
+# reused. This one is NOT redundant with the /embed3d/xtb check above: /ir
+# runs a different xtb code path (--ohess tight, reading `vibspectrum`) and
+# parses that file itself. A bundle whose xtb is fine but whose /ir parsing
+# or --ohess handling is broken still answers /embed3d/xtb with 200, which is
+# how a stale bundle once shipped with /ir missing entirely.
+ir_result=$(MOLFILE="$MOLFILE" python3 - "$PORT" <<'PY' 2>/dev/null || echo "000|"
+import json, os, sys, urllib.error, urllib.request
+body = json.dumps({"molfile": os.environ["MOLFILE"], "charge": 0}).encode()
+req = urllib.request.Request(
+    f"http://localhost:{sys.argv[1]}/ir",
+    data=body, headers={"Content-Type": "application/json"})
+try:
+    payload = urllib.request.urlopen(req, timeout=200).read()
+    print("%d|%d" % (200, len(json.loads(payload).get("modes", []))))
+except urllib.error.HTTPError as e:
+    print("%d|" % e.code)
+except Exception:
+    print("000|")
+PY
+)
+ir_code="${ir_result%%|*}"
+ir_modes="${ir_result##*|}"
+
+if [ "$ir_code" != "200" ]; then
+    echo "Smoke test FAILED: /ir returned HTTP $ir_code. Output:" >&2
+    cat "$SMOKE_LOG" >&2
+    exit 1
+fi
+
+# Water has 3 vibrational modes, so a 200 with none of them means the
+# vibspectrum file was produced but not parsed - a silent breakage that
+# would otherwise surface as an empty spectrum in the UI.
+if [ "$ir_modes" != "3" ]; then
+    echo "Smoke test FAILED: /ir returned $ir_modes modes, expected 3 for" >&2
+    echo "water. A 200 with no modes means parse_vibspectrum is not matching" >&2
+    echo "this xtb version's output." >&2
+    cat "$SMOKE_LOG" >&2
+    exit 1
+fi
+echo "    /ir(water) -> HTTP $ir_code, $ir_modes modes"
+
 smoke_stop
 trap - EXIT
 

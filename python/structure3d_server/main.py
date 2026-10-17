@@ -17,8 +17,9 @@ also converges faster and more reliably than cold-starting xtb.
 This is a small, deliberately boring FastAPI wrapper around the `xtb`
 command-line binary (not a Python xtb binding) — see the "Why shell out"
 note in run_xtb_optimization below for why. Mirrors NMRGraph's API shape
-(a small uvicorn/FastAPI service, /health + one real endpoint, CORS open
-for the file:// packaged-Electron origin) — see ../../electron/server.cjs
+(a small uvicorn/FastAPI service, /health plus two real endpoints,
+/embed3d/xtb and /ir, CORS open for the file:// packaged-Electron origin) —
+see ../../electron/server.cjs
 and src/io/nmrPredict.ts for that established pattern on the JS side.
 """
 

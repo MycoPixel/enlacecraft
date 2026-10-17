@@ -10,9 +10,25 @@ rationale (why refine rather than embed from scratch, why shell out to
 the `xtb` binary instead of a Python binding).
 
 This mirrors the NMRGraph prediction server's existing pattern in this
-app (small uvicorn/FastAPI service, `/health` + one real endpoint,
+app (small uvicorn/FastAPI service, `/health` + two real endpoints,
 spawned and health-checked by Electron in packaged builds — see
 `../../electron/server.cjs`) rather than introducing a new architecture.
+
+## Endpoints
+
+| Route | Purpose |
+| --- | --- |
+| `GET /health` | Liveness plus whether an `xtb` binary was found (`xtb_available`) |
+| `POST /embed3d/xtb` | Refines a 3D molfile with GFN2-xTB (`--opt`), returns the optimized molfile and energy |
+| `POST /ir` | Optimizes then takes a numerical Hessian (`--ohess tight`), returns the vibrational modes with IR intensities |
+
+`/ir` takes the same request body as `/embed3d/xtb` (`{"molfile": ..., "charge": ...}`)
+and answers `{"modes": [{"wavenumber": ..., "intensity_km_mol": ...}],
+"converged": bool, "imaginary_count": int}`. A non-zero `imaginary_count`
+means the geometry isn't a true minimum, so the frequencies are suspect.
+
+Frontend clients live in `src/io/xtbRefine.ts` (`/embed3d/xtb`) and
+`src/io/irSpectrum.ts` (`/ir`).
 
 ## Prerequisites
 

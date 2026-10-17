@@ -423,6 +423,22 @@ Invoke-SmokeTest (Join-Path $StructureDir "dist\structure3d_server\structure3d_s
         param($content)
         return ($content -match '"converged"')
     }
+
+# The IR endpoint, same body as above. Not redundant with /embed3d/xtb: /ir is a
+# different xtb code path (--ohess tight, parsing the vibspectrum file) and is
+# what the IR spectrum button in the top bar calls. Without this a bundle whose
+# xtb is fine but whose /ir is missing or whose vibspectrum parsing broke still
+# passes on /embed3d/xtb - which is exactly how a stale bundle shipped once with
+# /ir absent entirely.
+Invoke-SmokeTest (Join-Path $StructureDir "dist\structure3d_server\structure3d_server.exe") 18097 "/ir" `
+    '{"molfile":"water\n  Mrv\n\n  3  2  0  0  0  0            999 V2000\n    0.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n    0.9572    0.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.2400    0.9266    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  1  3  1  0\nM  END\n","charge":0}' {
+        param($content)
+        # Water has exactly 3 vibrational modes, so counting them also catches a
+        # parse_vibspectrum that has stopped matching this xtb version's output -
+        # which returns 200 with an empty spectrum, invisible to a status-code
+        # check and to the user until they open the IR panel.
+        return (([regex]::Matches($content, '"wavenumber"')).Count -eq 3)
+    }
 Publish-Bundle "structure3d_server"
 
 # ---------------------------------------------------------------------------
