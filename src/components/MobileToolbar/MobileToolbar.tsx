@@ -20,12 +20,14 @@ import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "../Sidebar/ArrowVariantPicker";
 import { BracketVariantPicker } from "../Sidebar/BracketVariantPicker";
-import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon } from "../Sidebar/MarkIcons";
+import { ShapeVariantPicker, MiniShape } from "../Sidebar/ShapeVariantPicker";
+import { OrbitalVariantPicker, MiniOrbital } from "../Sidebar/OrbitalVariantPicker";
+import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon, TlcIcon } from "../Sidebar/MarkIcons";
 import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import { useT } from "../../i18n/useT";
 import type { ArrowHeadSize, ArrowVariant, ToolId } from "../../types/chemistry";
 
-type MobilePanel = "bonds" | "atoms" | "rings" | "arrowsFull" | "arrowsFishhook" | "brackets" | "more" | null;
+type MobilePanel = "bonds" | "atoms" | "rings" | "arrowsFull" | "arrowsFishhook" | "brackets" | "shapes" | "orbitals" | "more" | null;
 
 export function MobileToolbar() {
   const [panel, setPanel] = useState<MobilePanel>(null);
@@ -58,6 +60,23 @@ export function MobileToolbar() {
     singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "arrow" ? singleSelectedAnnotationId : null;
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const setBracketVariant = useMoleculeStore((s) => s.setBracketVariant);
+  const arrowDashed = useMoleculeStore((s) => s.arrowDashed);
+  const setArrowDashed = useMoleculeStore((s) => s.setArrowDashed);
+  const setArrowDashedOf = useMoleculeStore((s) => s.setArrowDashedOf);
+  const shapeVariant = useMoleculeStore((s) => s.shapeVariant);
+  const setShapeVariant = useMoleculeStore((s) => s.setShapeVariant);
+  const shapeFilled = useMoleculeStore((s) => s.shapeFilled);
+  const setShapeFilled = useMoleculeStore((s) => s.setShapeFilled);
+  const setShapeStyleOf = useMoleculeStore((s) => s.setShapeStyleOf);
+  const orbitalVariant = useMoleculeStore((s) => s.orbitalVariant);
+  const setOrbitalVariant = useMoleculeStore((s) => s.setOrbitalVariant);
+  const orbitalFilled = useMoleculeStore((s) => s.orbitalFilled);
+  const setOrbitalFilled = useMoleculeStore((s) => s.setOrbitalFilled);
+  const setOrbitalStyleOf = useMoleculeStore((s) => s.setOrbitalStyleOf);
+  const selectedShapeId =
+    singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "shape" ? singleSelectedAnnotationId : null;
+  const selectedOrbitalId =
+    singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "orbital" ? singleSelectedAnnotationId : null;
   const t = useT();
 
   // --- state/actions only needed for the "More" panel ---
@@ -146,6 +165,27 @@ export function MobileToolbar() {
     }
   };
 
+  // Same dual behavior as the sidebar's identical helpers: the picked
+  // style arms the next placement AND restyles the selected shape/orbital.
+  const chooseShape = (variant: Parameters<typeof setShapeVariant>[0]) => {
+    setShapeVariant(variant);
+    choose("shape");
+    if (selectedShapeId) setShapeStyleOf(selectedShapeId, variant, shapeFilled);
+  };
+  const chooseShapeFilled = (filled: boolean) => {
+    setShapeFilled(filled);
+    if (selectedShapeId) setShapeStyleOf(selectedShapeId, shapeVariant, filled);
+  };
+  const chooseOrbital = (variant: Parameters<typeof setOrbitalVariant>[0]) => {
+    setOrbitalVariant(variant);
+    choose("orbital");
+    if (selectedOrbitalId) setOrbitalStyleOf(selectedOrbitalId, variant, orbitalFilled);
+  };
+  const chooseOrbitalFilled = (filled: boolean) => {
+    setOrbitalFilled(filled);
+    if (selectedOrbitalId) setOrbitalStyleOf(selectedOrbitalId, orbitalVariant, filled);
+  };
+
   return (
     <div className="mobile-toolbar">
       {panel && (
@@ -162,6 +202,8 @@ export function MobileToolbar() {
                 value={arrowBarb === "full" ? arrowVariant : "curved"}
                 barb="full"
                 headSize={arrowHeadSize}
+                dashed={arrowDashed}
+                onDashedChange={(d) => { setArrowDashed(d); if (selectedArrowId) setArrowDashedOf(selectedArrowId, d); }}
                 active
                 onChange={(v) => chooseArrow(v, "full")}
               />
@@ -183,6 +225,24 @@ export function MobileToolbar() {
               active
             />
           )}
+          {panel === "shapes" && (
+            <ShapeVariantPicker
+              variant={shapeVariant}
+              filled={shapeFilled}
+              active
+              onChange={chooseShape}
+              onFilledChange={chooseShapeFilled}
+            />
+          )}
+          {panel === "orbitals" && (
+            <OrbitalVariantPicker
+              variant={orbitalVariant}
+              filled={orbitalFilled}
+              active
+              onChange={chooseOrbital}
+              onFilledChange={chooseOrbitalFilled}
+            />
+          )}
           {panel === "bonds" && (
             <div className="row">
               <ToolButton big title={t("mobile.single")} active={tool === "bond-1"} onClick={() => choose("bond-1")}>{BondGlyph.single}</ToolButton>
@@ -191,6 +251,9 @@ export function MobileToolbar() {
               <ToolButton big title={t("mobile.wedge")} active={tool === "wedge"} onClick={() => choose("wedge")}>{BondGlyph.wedge}</ToolButton>
               <ToolButton big title={t("mobile.dash")} active={tool === "dash"} onClick={() => choose("dash")}>{BondGlyph.dash}</ToolButton>
               <ToolButton big title={t("mobile.wavy")} active={tool === "wavy"} onClick={() => choose("wavy")}>{BondGlyph.wavy}</ToolButton>
+              <ToolButton big title={t("tool.bold")} active={tool === "bold"} onClick={() => choose("bold")}>{BondGlyph.bold}</ToolButton>
+              <ToolButton big title={t("tool.boldHash")} active={tool === "bold-hash"} onClick={() => choose("bold-hash")}>{BondGlyph.boldHash}</ToolButton>
+              <ToolButton big title={t("tool.dashed")} active={tool === "dashed"} onClick={() => choose("dashed")}>{BondGlyph.dashed}</ToolButton>
               <ToolButton big title={t("tool.chain")} active={tool === "chain"} onClick={() => choose("chain")}>{BondGlyph.chain}</ToolButton>
             </div>
           )}
@@ -418,6 +481,15 @@ export function MobileToolbar() {
         </ToolButton>
         <ToolButton big title={t("tool.bracket")} active={panel === "brackets" || tool === "bracket"} onClick={() => setPanel(panel === "brackets" ? null : "brackets")}>
           <Brackets size={20} />
+        </ToolButton>
+        <ToolButton big title={t("tool.shape")} active={panel === "shapes" || tool === "shape"} onClick={() => setPanel(panel === "shapes" ? null : "shapes")}>
+          <MiniShape variant={shapeVariant} />
+        </ToolButton>
+        <ToolButton big title={t("tool.orbital")} active={panel === "orbitals" || tool === "orbital"} onClick={() => setPanel(panel === "orbitals" ? null : "orbitals")}>
+          <MiniOrbital variant={orbitalVariant} filled={orbitalFilled} />
+        </ToolButton>
+        <ToolButton big title={t("tool.tlc")} active={tool === "tlc"} onClick={() => choose("tlc")}>
+          <TlcIcon />
         </ToolButton>
         <ToolButton big title={t("tool.plus")} active={tool === "plus"} onClick={() => choose("plus")}>
           <Plus size={20} />

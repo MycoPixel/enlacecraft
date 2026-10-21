@@ -15,9 +15,15 @@ interface ArrowShapePickerProps {
    * comes in one size. Defaults to "medium" so callers that don't care
    * (the fishhook picker) can omit it entirely. */
   headSize?: ArrowHeadSize;
+  /** Dashed-shaft toggle (see ArrowAnnotation.dashed) — rendered as a
+   * small checkbox row under the shape grid in the full-arrow tool's
+   * dropdown. Absent (fishhook picker) = no toggle; fishhooks are curved
+   * in practice, and dashed curved arcs aren't a thing here. */
+  dashed?: boolean;
+  onDashedChange?: (d: boolean) => void;
 }
 
-const VARIANTS: ArrowVariant[] = ["forward", "equilibrium", "resonance", "curved", "curvedReverse"];
+const VARIANTS: ArrowVariant[] = ["forward", "equilibrium", "resonance", "retrosynthetic", "curved", "curvedReverse"];
 const HEAD_SIZES: ArrowHeadSize[] = ["small", "medium", "large"];
 
 /** Just the shape grid (straight, equilibrium, resonance, curved either
@@ -26,20 +32,32 @@ const HEAD_SIZES: ArrowHeadSize[] = ["small", "medium", "large"];
  * a second row in here, since crossing "which arrow tool did I open" with
  * "which barb is currently active" made it unclear which one you were
  * about to change. */
-export function ArrowShapePicker({ value, onChange, active, barb, headSize = "medium" }: ArrowShapePickerProps) {
+export function ArrowShapePicker({ value, onChange, active, barb, headSize = "medium", dashed, onDashedChange }: ArrowShapePickerProps) {
   const t = useT();
   return (
-    <div className="arrow-variant-grid">
-      {VARIANTS.map((v) => (
+    <div>
+      <div className="arrow-variant-grid">
+        {VARIANTS.map((v) => (
+          <button
+            key={v}
+            className={`arrow-variant-btn ${active && value === v ? "arrow-variant-btn--active" : ""}`}
+            onClick={() => onChange(v)}
+            title={t(`arrow.${v}`)}
+          >
+            <MiniArrow variant={v} barb={barb} headSize={headSize} />
+          </button>
+        ))}
+      </div>
+      {onDashedChange && (
         <button
-          key={v}
-          className={`arrow-variant-btn ${active && value === v ? "arrow-variant-btn--active" : ""}`}
-          onClick={() => onChange(v)}
-          title={t(`arrow.${v}`)}
+          className={`arrow-variant-btn shape-fill-toggle ${active && dashed ? "arrow-variant-btn--active" : ""}`}
+          onClick={() => onDashedChange(!dashed)}
+          title={t("arrow.dashed")}
         >
-          <MiniArrow variant={v} barb={barb} headSize={headSize} />
+          <MiniArrow variant="forward" barb="full" headSize={headSize} dashed />
+          <span className="shape-fill-toggle__label">{t("arrow.dashed")}</span>
         </button>
-      ))}
+      )}
     </div>
   );
 }
@@ -81,13 +99,16 @@ export function MiniArrow({
   variant,
   barb,
   headSize = "medium",
+  dashed = false,
 }: {
   variant: ArrowVariant;
   barb: "full" | "single";
   headSize?: ArrowHeadSize;
+  dashed?: boolean;
 }) {
-  const markerId = `mini-arrowhead-${variant}-${barb}-${headSize}`;
+  const markerId = `mini-arrowhead-${variant}-${barb}-${headSize}-${dashed ? "d" : "s"}`;
   const markerSize = barb === "full" ? MINI_HEAD_SIZE[headSize] : 6;
+  const dashAttrs = dashed ? { strokeDasharray: "4 3" } : {};
   return (
     <svg width="28" height="18" viewBox="0 0 28 18">
       <defs>
@@ -98,7 +119,7 @@ export function MiniArrow({
         </marker>
       </defs>
       {variant === "forward" && (
-        <line x1={3} y1={9} x2={23} y2={9} stroke="currentColor" strokeWidth={1.4} markerEnd={`url(#${markerId})`} />
+        <line x1={3} y1={9} x2={23} y2={9} stroke="currentColor" strokeWidth={1.4} markerEnd={`url(#${markerId})`} {...dashAttrs} />
       )}
       {variant === "curved" && (
         // Matches ArrowAnnotationView.tsx's real curveSign===+1 case: for a
@@ -115,14 +136,29 @@ export function MiniArrow({
         <path d="M 3,12 Q 13,1 23,9" stroke="currentColor" strokeWidth={1.4} fill="none" markerEnd={`url(#${markerId})`} />
       )}
       {variant === "resonance" && (
-        <line x1={3} y1={9} x2={23} y2={9} stroke="currentColor" strokeWidth={1.4} markerEnd={`url(#${markerId})`} markerStart={`url(#${markerId})`} />
+        <line x1={3} y1={9} x2={23} y2={9} stroke="currentColor" strokeWidth={1.4} markerEnd={`url(#${markerId})`} markerStart={`url(#${markerId})`} {...dashAttrs} />
       )}
       {variant === "equilibrium" && (
         <>
-          <line x1={3} y1={6} x2={23} y2={6} stroke="currentColor" strokeWidth={1.2} markerEnd={`url(#${markerId})`} />
-          <line x1={23} y1={12} x2={3} y2={12} stroke="currentColor" strokeWidth={1.2} markerEnd={`url(#${markerId})`} />
+          <line x1={3} y1={6} x2={23} y2={6} stroke="currentColor" strokeWidth={1.2} markerEnd={`url(#${markerId})`} {...dashAttrs} />
+          <line x1={23} y1={12} x2={3} y2={12} stroke="currentColor" strokeWidth={1.2} markerEnd={`url(#${markerId})`} {...dashAttrs} />
         </>
       )}
+      {variant === "retrosynthetic" && (() => {
+        // Double shaft + open V head, mirroring the canvas renderer's
+        // retrosynthetic case (ArrowAnnotationView.tsx).
+        const o = 1.8;
+        const headLen = 8;
+        const headHalf = 4.5;
+        return (
+          <g stroke="currentColor" strokeWidth={1.3} fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <line x1={3} y1={9 - o} x2={23} y2={9 - o} {...dashAttrs} />
+            <line x1={3} y1={9 + o} x2={23} y2={9 + o} {...dashAttrs} />
+            <line x1={24.5} y1={9} x2={24.5 - headLen} y2={9 - headHalf} />
+            <line x1={24.5} y1={9} x2={24.5 - headLen} y2={9 + headHalf} />
+          </g>
+        );
+      })()}
     </svg>
   );
 }

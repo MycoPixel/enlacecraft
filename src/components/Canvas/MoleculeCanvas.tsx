@@ -7,6 +7,9 @@ import { HapticBondView } from "./HapticBondView";
 import { ArrowAnnotationView } from "./ArrowAnnotationView";
 import { TextAnnotationView } from "./TextAnnotationView";
 import { BracketAnnotationView, bracketPath } from "./BracketAnnotationView";
+import { ShapeAnnotationView } from "./ShapeAnnotationView";
+import { OrbitalAnnotationView, lobePath as orbitalLobePath } from "./OrbitalAnnotationView";
+import { TlcPlateAnnotationView } from "./TlcPlateAnnotationView";
 import { AnnotationToolbar } from "./AnnotationToolbar";
 import { DragReadout } from "./DragReadout";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
@@ -42,6 +45,13 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const arrowPreview = useMoleculeStore((s) => s.arrowPreview);
   const arrowBarb = useMoleculeStore((s) => s.arrowBarb);
   const arrowHeadSize = useMoleculeStore((s) => s.arrowHeadSize);
+  const shapePreview = useMoleculeStore((s) => s.shapePreview);
+  const orbitalPreview = useMoleculeStore((s) => s.orbitalPreview);
+  const tlcPreview = useMoleculeStore((s) => s.tlcPreview);
+  const shapeVariant = useMoleculeStore((s) => s.shapeVariant);
+  const shapeFilled = useMoleculeStore((s) => s.shapeFilled);
+  const orbitalVariant = useMoleculeStore((s) => s.orbitalVariant);
+  const orbitalFilled = useMoleculeStore((s) => s.orbitalFilled);
   const bracketPairPreview = useMoleculeStore((s) => s.bracketPairPreview);
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
@@ -241,6 +251,66 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             </g>
           );
         })()}
+        {shapePreview && (() => {
+          // Shape-tool drag preview — ghost of what addShapeAnnotation will
+          // commit, in the currently-picked shape variant/fill.
+          const { x1, y1, x2, y2 } = shapePreview;
+          const x = Math.min(x1, x2);
+          const y = Math.min(y1, y2);
+          const w = Math.abs(x2 - x1);
+          const h = Math.abs(y2 - y1);
+          const color = "var(--accent)";
+          const fill = shapeFilled ? color : "none";
+          return (
+            <g opacity={0.65} pointerEvents="none" data-export-exclude="true" style={{ color }}>
+              {shapeVariant === "rectangle" && <rect x={x} y={y} width={w} height={h} fill={fill} stroke={color} strokeWidth={1.6} strokeLinejoin="round" fillOpacity={0.4} />}
+              {shapeVariant === "ellipse" && <ellipse cx={x + w / 2} cy={y + h / 2} rx={w / 2} ry={h / 2} fill={fill} stroke={color} strokeWidth={1.6} fillOpacity={0.4} />}
+              {shapeVariant === "line" && <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.6} strokeLinecap="round" />}
+            </g>
+          );
+        })()}
+        {orbitalPreview && (() => {
+          // Orbital-tool drag preview — the nucleus stays pinned where the
+          // drag started; the current point sets the axis direction and lobe
+          // length, exactly what addOrbitalAnnotation will commit.
+          const { cx, cy, x, y } = orbitalPreview;
+          const size = Math.max(8, Math.min(400, Math.hypot(x - cx, y - cy)));
+          const angle = (Math.atan2(y - cy, x - cx) * 180) / Math.PI;
+          const color = "var(--accent)";
+          return (
+            <g opacity={0.65} pointerEvents="none" data-export-exclude="true">
+              <g transform={`translate(${cx} ${cy}) rotate(${orbitalVariant === "s" ? 0 : angle})`}>
+                {orbitalVariant === "s" ? (
+                  <circle r={size * 0.55} fill={orbitalFilled ? color : "none"} fillOpacity={0.4} stroke={color} strokeWidth={1.6} />
+                ) : (
+                  <>
+                    <path d={orbitalLobePath(size)} fill={orbitalFilled ? color : "none"} fillOpacity={0.4} stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
+                    {orbitalVariant === "p" && (
+                      <path d={orbitalLobePath(size)} fill={orbitalFilled ? color : "none"} fillOpacity={0.4} stroke={color} strokeWidth={1.6} strokeLinejoin="round" transform="rotate(180)" />
+                    )}
+                  </>
+                )}
+              </g>
+              <circle cx={cx} cy={cy} r={3} fill={color} />
+            </g>
+          );
+        })()}
+        {tlcPreview && (() => {
+          // TLC-tool drag preview — the plate outline only; spots come after
+          // placement, by clicking with the same tool.
+          const { x1, y1, x2, y2 } = tlcPreview;
+          const x = Math.min(x1, x2);
+          const y = Math.min(y1, y2);
+          const w = Math.abs(x2 - x1);
+          const h = Math.abs(y2 - y1);
+          return (
+            <g opacity={0.65} pointerEvents="none" data-export-exclude="true">
+              <rect x={x} y={y} width={w} height={h} fill="none" stroke="var(--accent)" strokeWidth={1.6} strokeLinejoin="round" />
+              <line x1={x} y1={y + h * 0.88} x2={x + w} y2={y + h * 0.88} stroke="var(--accent)" strokeWidth={1.2} />
+              <line x1={x} y1={y + h * 0.1} x2={x + w} y2={y + h * 0.1} stroke="var(--accent)" strokeWidth={1.2} strokeDasharray="4 3" />
+            </g>
+          );
+        })()}
         {bondPreview && molecule.atoms[bondPreview.from] && (
           <g style={{ color: "var(--accent)" }} opacity={0.55} pointerEvents="none" data-export-exclude="true">
             <BondView
@@ -249,7 +319,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
                 a1: bondPreview.from,
                 a2: "__preview_atom__",
                 order: tool === "bond-2" ? 2 : tool === "bond-3" ? 3 : 1,
-                stereo: tool === "wedge" ? "wedge" : tool === "dash" ? "dash" : "none",
+                stereo: tool === "wedge" ? "wedge" : tool === "dash" ? "dash" : tool === "wavy" ? "wavy" : tool === "bold" ? "bold" : tool === "bold-hash" ? "boldHash" : tool === "dashed" ? "dashed" : "none",
                 doubleSide: "center",
               }}
               a1={molecule.atoms[bondPreview.from]}
@@ -664,6 +734,12 @@ const MoleculeContent = memo(function MoleculeContent({
           <ArrowAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
         ) : ann.kind === "bracket" ? (
           <BracketAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
+        ) : ann.kind === "shape" ? (
+          <ShapeAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
+        ) : ann.kind === "orbital" ? (
+          <OrbitalAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
+        ) : ann.kind === "tlc" ? (
+          <TlcPlateAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
         ) : (
           <TextAnnotationView
             key={ann.id}

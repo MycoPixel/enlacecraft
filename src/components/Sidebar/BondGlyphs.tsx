@@ -57,6 +57,35 @@ export const BondGlyph = {
       <path d="M 2 8 C 5.5 3.2 10.5 3.2 14 8 C 17.5 12.8 21.5 12.8 26 8" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
     </svg>
   ),
+  /** Bold bond: the plain single-bond line at double weight — the only
+   *  difference from `single` is the stroke, which IS the tool's whole
+   *  point, so it must read as "same bond, heavier" at a glance. */
+  bold: (
+    <svg viewBox="0 0 28 16" width="22" height="14">
+      <line x1="2" y1="8" x2="26" y2="8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+    </svg>
+  ),
+  /** Bold wedged hash: same six growing hashes as `dash` but drawn at a
+   *  heavier stroke and a slightly wider spread, so the bold weight is
+   *  visible even at this size without turning into a solid wedge. */
+  boldHash: (
+    <svg viewBox="0 0 28 16" width="22" height="14">
+      {[0, 1, 2, 3, 4, 5].map((i) => {
+        const t = i / 5;
+        const h = 3 + t * 8;
+        const x = 4 + i * 4;
+        return <line key={i} x1={x} y1={8 - h / 2} x2={x} y2={8 + h / 2} stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />;
+      })}
+    </svg>
+  ),
+  /** Plain dashed bond: uniform dashes ALONG the bond axis — deliberately
+   *  unlike `dash` (the hashed wedge), whose marks grow across it, so the
+   *  two glyphs can't be confused side by side. */
+  dashed: (
+    <svg viewBox="0 0 28 16" width="22" height="14">
+      <line x1="2" y1="8" x2="26" y2="8" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeDasharray="4.5 3.5" />
+    </svg>
+  ),
   /** Five-node zigzag with miter joins, so the vertices stay sharp points
    *  instead of rounding off at this size. */
   chain: (

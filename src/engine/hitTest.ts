@@ -127,6 +127,28 @@ export function atomsInPolygon(mol: Molecule, polygon: Point[]): Set<string> {
   return result;
 }
 
+/** The axis-aligned bounding box an annotation occupies, in the shape every
+ * marquee/lasso check wants: x/y/width/height. Arrows are anchored at two
+ * points, orbitals at a center + radius — everything else already carries
+ * its own box. */
+function annotationBox(ann: Annotation): { x: number; y: number; width: number; height: number } {
+  if (ann.kind === "arrow") {
+    return {
+      x: Math.min(ann.x1, ann.x2),
+      y: Math.min(ann.y1, ann.y2),
+      width: Math.abs(ann.x2 - ann.x1),
+      height: Math.abs(ann.y2 - ann.y1),
+    };
+  }
+  if (ann.kind === "orbital") {
+    // Nucleus ± the lobe length — generous for the lobes' width, which is
+    // the right bias for selection (grabbing a bit of empty air near an
+    // orbital beats failing to enclose a rotated lobe).
+    return { x: ann.x - ann.size, y: ann.y - ann.size, width: ann.size * 2, height: ann.size * 2 };
+  }
+  return { x: ann.x, y: ann.y, width: ann.width, height: ann.height };
+}
+
 /** Lasso equivalent of annotationsInRect — same "fully enclosed, not just
  * touched" spirit, approximated (since exactly clipping a rectangle
  * against an arbitrary polygon is overkill here) by requiring every
@@ -137,15 +159,13 @@ export function annotationsInPolygon(annotations: Record<string, Annotation>, po
   if (polygon.length < 3) return result;
   for (const id in annotations) {
     const ann = annotations[id];
-    const corners: Point[] =
-      ann.kind === "arrow"
-        ? [{ x: ann.x1, y: ann.y1 }, { x: ann.x2, y: ann.y2 }]
-        : [
-            { x: ann.x, y: ann.y },
-            { x: ann.x + ann.width, y: ann.y },
-            { x: ann.x, y: ann.y + ann.height },
-            { x: ann.x + ann.width, y: ann.y + ann.height },
-          ];
+    const box = annotationBox(ann);
+    const corners: Point[] = [
+      { x: box.x, y: box.y },
+      { x: box.x + box.width, y: box.y },
+      { x: box.x, y: box.y + box.height },
+      { x: box.x + box.width, y: box.y + box.height },
+    ];
     if (corners.every((c) => pointInPolygon(c, polygon))) result.add(id);
   }
   return result;
@@ -165,19 +185,8 @@ export function annotationsInRect(annotations: Record<string, Annotation>, corne
   const result = new Set<string>();
   for (const id in annotations) {
     const ann = annotations[id];
-    let boxMinX: number, boxMaxX: number, boxMinY: number, boxMaxY: number;
-    if (ann.kind === "arrow") {
-      boxMinX = Math.min(ann.x1, ann.x2);
-      boxMaxX = Math.max(ann.x1, ann.x2);
-      boxMinY = Math.min(ann.y1, ann.y2);
-      boxMaxY = Math.max(ann.y1, ann.y2);
-    } else {
-      boxMinX = ann.x;
-      boxMaxX = ann.x + ann.width;
-      boxMinY = ann.y;
-      boxMaxY = ann.y + ann.height;
-    }
-    if (boxMinX >= xmin && boxMaxX <= xmax && boxMinY >= ymin && boxMaxY <= ymax) result.add(id);
+    const box = annotationBox(ann);
+    if (box.x >= xmin && box.x + box.width <= xmax && box.y >= ymin && box.y + box.height <= ymax) result.add(id);
   }
   return result;
 }

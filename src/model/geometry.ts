@@ -105,3 +105,56 @@ export function bracketPairLayout(corner1: Point, corner2: Point): { left: numbe
   const cy = (corner1.y + corner2.y) / 2;
   return { left: cx - gap / 2, right: cx + gap / 2, top: cy - height / 2, height };
 }
+
+// --- TLC plate geometry -----------------------------------------------------
+// Fractions-of-height where a TLC plate's baseline (near the bottom, where
+// samples are spotted) and solvent front (near the top, how far the solvent
+// climbed) sit. Shared by the store (converting click points to spot
+// fractions) and the view (drawing and hit areas), so both always agree.
+
+export const TLC_BASELINE_FRACTION = 0.88;
+export const TLC_FRONT_FRACTION = 0.1;
+
+/** A TLC spot's absolute pixel position on the canvas, from its fractional
+ * spot coordinates: fx is simply across the plate's width; fy maps the
+ * baseline(0)-to-front(1) interval between the two fixed lines. */
+export function tlcSpotPosition(
+  plate: { x: number; y: number; width: number; height: number },
+  spot: { fx: number; fy: number }
+): Point {
+  const span = TLC_BASELINE_FRACTION - TLC_FRONT_FRACTION;
+  return {
+    x: plate.x + spot.fx * plate.width,
+    y: plate.y + plate.height * (TLC_BASELINE_FRACTION - span * spot.fy),
+  };
+}
+
+/** Inverse of tlcSpotPosition: a canvas point inside (or near) the plate
+ * becomes fractional spot coordinates, clamped to 0..1 on both axes. */
+export function tlcPointToFractions(
+  plate: { x: number; y: number; width: number; height: number },
+  p: Point
+): { fx: number; fy: number } {
+  const span = TLC_BASELINE_FRACTION - TLC_FRONT_FRACTION;
+  const fx = plate.width > 0 ? (p.x - plate.x) / plate.width : 0;
+  const fy = plate.height > 0 ? (TLC_BASELINE_FRACTION - (p.y - plate.y) / plate.height) / span : 0;
+  return {
+    fx: Math.min(1, Math.max(0, fx)),
+    fy: Math.min(1, Math.max(0, fy)),
+  };
+}
+
+/** Whether a point is inside the plate rectangle (spots can't be placed on
+ * the bench top, so to speak). */
+export function pointInRect(
+  p: Point,
+  rect: { x: number; y: number; width: number; height: number },
+  pad = 0
+): boolean {
+  return (
+    p.x >= rect.x - pad &&
+    p.x <= rect.x + rect.width + pad &&
+    p.y >= rect.y - pad &&
+    p.y <= rect.y + rect.height + pad
+  );
+}

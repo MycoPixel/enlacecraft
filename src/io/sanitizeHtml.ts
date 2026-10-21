@@ -4,8 +4,8 @@ import type { Annotation } from "../types/chemistry";
 /**
  * Restricts a TextAnnotation's `html` to the small subset the annotation
  * toolbar actually produces (see AnnotationToolbar.tsx and TextAnnotation's
- * own doc comment in types/chemistry.ts): bold/italic/sub/superscript, line
- * breaks, and inline font-size spans.
+ * own doc comment in types/chemistry.ts): bold/italic/underline, sub/
+ * superscript, line breaks, and inline font-size/color spans.
  *
  * MUST run on any `html` that didn't just come straight out of this app's
  * own contentEditable `onInput` handler in the current session — imported
@@ -28,7 +28,7 @@ import type { Annotation } from "../types/chemistry";
  * (`url(...)`, `expression(...)`, etc.) even though the attribute name
  * itself is allowed.
  */
-const ALLOWED_TAGS = ["b", "i", "sub", "sup", "span", "br", "div"];
+const ALLOWED_TAGS = ["b", "i", "u", "sub", "sup", "span", "br", "div"];
 const ALLOWED_ATTR = ["style"];
 
 /**

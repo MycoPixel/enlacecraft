@@ -53,3 +53,18 @@ export function ReagentTextIcon() {
     </svg>
   );
 }
+
+/** A TLC plate as the tool draws it: portrait frame, baseline near the
+ *  bottom, dashed solvent front near the top, and two spots on the run —
+ *  the exact elements TlcPlateAnnotationView renders on the canvas. */
+export function TlcIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16">
+      <rect x="4" y="1.5" width="8" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <line x1="4" y1="12.8" x2="12" y2="12.8" stroke="currentColor" strokeWidth="1.2" />
+      <line x1="4" y1="3.2" x2="12" y2="3.2" stroke="currentColor" strokeWidth="1.1" strokeDasharray="2 1.4" />
+      <circle cx="6.6" cy="10.8" r="1.4" fill="currentColor" />
+      <circle cx="9.4" cy="7.6" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}

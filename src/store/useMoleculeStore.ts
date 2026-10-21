@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, Point, RingAttachment, RingTemplate, RotationSession, TextAnnotation, Theme, ToolId, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, Point, RingAttachment, RingTemplate, RotationSession, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
@@ -9,8 +9,8 @@ import { nextId, reserveIds } from "../model/id";
 import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { addExplicitHydrogens } from "../engine/explicitHydrogens";
-import { bracketPairLayout } from "../model/geometry";
-import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, ISOTOPE_PRESETS, REACTIVE_SITE_PRESETS } from "../model/constants";
+import { bracketPairLayout, tlcPointToFractions, tlcSpotPosition, pointInRect, dist } from "../model/geometry";
+import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, BOND_LEN, ISOTOPE_PRESETS, REACTIVE_SITE_PRESETS } from "../model/constants";
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { collapseToGroup, findCollapsibleGroups } from "../model/groupCollapse";
@@ -24,6 +24,26 @@ import {
 import { THEME_IDS, nextTheme } from "../styles/themes";
 
 const HISTORY_LIMIT = 100;
+
+/** Default size for a shape placed by a near-zero drag (a plain click):
+ * a ChemDraw-ish starting box you resize from, not a degenerate sliver. */
+const DEFAULT_SHAPE_WIDTH = 72;
+const DEFAULT_SHAPE_HEIGHT = 48;
+/** Default lobe length for a click-placed orbital (matches a bond-length
+ * and a half, so a p orbital spans a bond's width readably). */
+const DEFAULT_ORBITAL_SIZE = 42;
+/** Default TLC plate for a click: portrait, like a real microscope slide. */
+const DEFAULT_TLC_WIDTH = 90;
+const DEFAULT_TLC_HEIGHT = 130;
+/** TLC spot defaults: radius in world px and the click-grab radius for
+ * removing one (world px, matching the annotation hit tolerances). */
+const DEFAULT_TLC_SPOT_R = 4;
+const TLC_SPOT_GRAB_RADIUS = 12;
+/** Minimum sizes the shape/bracket resize handles enforce (a zero-width
+ * shape can't be re-selected or resized back). */
+const MIN_SHAPE_SIZE = 4;
+const MIN_ORBITAL_SIZE = 8;
+const MAX_ORBITAL_SIZE = 400;
 
 const DEFAULT_VIEW: ViewTransform = { scale: 1, tx: 0, ty: 0 };
 
@@ -278,11 +298,25 @@ interface MoleculeStore {
   arrowBarb: "full" | "single";
   /** Full-arrowhead size for newly-drawn arrows; see ArrowAnnotation.headSize. */
   arrowHeadSize: ArrowHeadSize;
+  /** Dashed-shaft flag for newly-drawn arrows; see ArrowAnnotation.dashed. */
+  arrowDashed: boolean;
   arrowPreview: ArrowPreview | null;
   /** Live drag-to-place preview for the paired open/close bracket tool (see addBracketPair). */
   bracketPairPreview: ArrowPreview | null;
+  /** Live drag-to-place preview for the shape tool (corners of the dragged rectangle). */
+  shapePreview: ArrowPreview | null;
+  /** Live drag-to-place preview for the orbital tool (nucleus + current drag point). */
+  orbitalPreview: OrbitalDragPreview | null;
+  /** Live drag-to-place preview for the TLC tool (the plate's corner rectangle). */
+  tlcPreview: ArrowPreview | null;
   bracketVariant: BracketVariant;
   bracketFacing: BracketFacing;
+  /** Shape tool defaults for the next shape drawn; see ShapeAnnotation. */
+  shapeVariant: ShapeVariant;
+  shapeFilled: boolean;
+  /** Orbital tool defaults for the next orbital placed; see OrbitalAnnotation. */
+  orbitalVariant: OrbitalVariant;
+  orbitalFilled: boolean;
 
   // --- UI / tool state ---
   tool: ToolId;
@@ -543,14 +577,39 @@ interface MoleculeStore {
   setArrowVariant: (v: ArrowVariant) => void;
   setArrowBarb: (b: "full" | "single") => void;
   setArrowHeadSize: (s: ArrowHeadSize) => void;
+  setArrowDashed: (d: boolean) => void;
   setArrowPreview: (p: ArrowPreview | null) => void;
   setBracketPairPreview: (p: ArrowPreview | null) => void;
+  setShapePreview: (p: ArrowPreview | null) => void;
+  setOrbitalPreview: (p: OrbitalDragPreview | null) => void;
+  setTlcPreview: (p: ArrowPreview | null) => void;
   setBracketVariant: (v: BracketVariant) => void;
   setBracketFacing: (f: BracketFacing) => void;
+  setShapeVariant: (v: ShapeVariant) => void;
+  setShapeFilled: (f: boolean) => void;
+  setOrbitalVariant: (v: OrbitalVariant) => void;
+  setOrbitalFilled: (f: boolean) => void;
   addTextAnnotation: (p: Point) => string;
   addArrowAnnotation: (p1: Point, p2: Point, variant: ArrowVariant, barb?: "full" | "single", headSize?: ArrowHeadSize) => string;
   addBracketAnnotation: (p: Point, variant: BracketVariant, facing: BracketFacing) => string;
   addBracketPair: (corner1: Point, corner2: Point, variant: BracketVariant) => { openId: string; closeId: string };
+  /** Places a graphics-primitive shape (rectangle/ellipse/line) from the
+   * dragged rectangle's corners. A near-zero drag falls back to a sensible
+   * default (like the arrow/bracket tools) instead of a degenerate sliver. */
+  addShapeAnnotation: (corner1: Point, corner2: Point, variant: ShapeVariant, filled: boolean) => string;
+  /** Places an orbital from the drag vector: nucleus at `center`, size and
+   * axis from the vector to `point` (a near-zero drag falls back to the
+   * default size/axis, like the arrow tool). */
+  addOrbitalAnnotation: (center: Point, point: Point, variant: OrbitalVariant, filled: boolean) => string;
+  /** Places a TLC plate from the dragged rectangle's corners; a near-zero
+   * drag falls back to a default portrait plate. */
+  addTlcPlate: (corner1: Point, corner2: Point) => string;
+  /** Adds a spot at the given point inside the plate (fractional coords);
+   * returns the spot or null if the point is outside the plate. */
+  addTlcSpot: (id: string, p: Point) => TlcSpot | null;
+  /** Removes the spot nearest to `p` (within a small grab radius); returns
+   * true when a spot was removed. */
+  removeNearestTlcSpot: (id: string, p: Point) => boolean;
   /** The "wrap this in [ ]^charge" convenience for coordination complexes
    * / polyatomic ions: an open+close square bracket pair sized around
    * atomIds' current positions, plus an empty, immediately-editable text
@@ -580,6 +639,13 @@ interface MoleculeStore {
   stepTextFontSize: (id: string, delta: number) => void;
   updateBracketSize: (id: string, width: number, height: number) => void;
   setBracketStyleOf: (id: string, variant: BracketVariant, facing: BracketFacing) => void;
+  updateShapeSize: (id: string, width: number, height: number) => void;
+  updateTlcSize: (id: string, width: number, height: number) => void;
+  setShapeStyleOf: (id: string, variant: ShapeVariant, filled: boolean) => void;
+  /** Live rotate/resize of an orbital: `size` is the lobe length, `angle`
+   * the axis in degrees (both clamped); committed by the view's checkpoint. */
+  updateOrbitalTransformTransient: (id: string, size: number, angle: number) => void;
+  setOrbitalStyleOf: (id: string, variant: OrbitalVariant, filled: boolean) => void;
   moveAnnotationTransient: (id: string, p: Point) => void;
   moveAnnotationsTransient: (origins: Record<string, Annotation>, dx: number, dy: number) => void;
   updateArrowEndpointTransient: (id: string, which: "start" | "end", p: Point) => void;
@@ -587,6 +653,7 @@ interface MoleculeStore {
   setArrowVariantOf: (id: string, variant: ArrowVariant) => void;
   setArrowBarbOf: (id: string, barb: "full" | "single") => void;
   setArrowHeadSizeOf: (id: string, headSize: ArrowHeadSize) => void;
+  setArrowDashedOf: (id: string, dashed: boolean) => void;
   deleteAnnotation: (id: string) => void;
   deleteAnnotations: (ids: Set<string>) => void;
   snapshotBefore: () => Snapshot;
@@ -671,8 +738,13 @@ interface MoleculeStore {
   loadProject: (data: { activeTabId: string; tabs: SavedTab[] }) => void;
   /** Brings in an imported MOL/CDXML molecule as a brand-new tab instead of
    * overwriting whatever's in the current one — used by the toolbar Import
-   * button, so importing a file never destroys the active drawing. */
-  importMoleculeAsNewTab: (mol: Molecule, title?: string) => void;
+   * button, so importing a file never destroys the active drawing. CDXML
+   * files can also carry arrows/text/brackets around the molecule; those
+   * come in through the optional `annotations` record (already sanitized
+   * and id-fresh — minted through nextId() during parsing, same as the
+   * molecule's own ids, so no reserveIds() dance is needed here, unlike
+   * the project-restore paths which install ids verbatim). */
+  importMoleculeAsNewTab: (mol: Molecule, title?: string, annotations?: Record<string, Annotation>) => void;
   /** Brings in a full saved .enlacecraft project as additional new tabs
    * alongside whatever tabs already exist, instead of replacing them —
    * used by the toolbar Import button. */
@@ -886,10 +958,18 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     arrowVariant: "forward",
     arrowBarb: "full",
     arrowHeadSize: "medium",
+    arrowDashed: false,
     arrowPreview: null,
     bracketPairPreview: null,
+    shapePreview: null,
+    orbitalPreview: null,
+    tlcPreview: null,
     bracketVariant: "paren",
     bracketFacing: "open",
+    shapeVariant: "rectangle",
+    shapeFilled: false,
+    orbitalVariant: "p",
+    orbitalFilled: false,
 
     tool: "select",
     atomElement: "C",
@@ -1137,10 +1217,18 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setArrowVariant: (v) => set({ arrowVariant: v }),
     setArrowBarb: (b) => set({ arrowBarb: b }),
     setArrowHeadSize: (s) => set({ arrowHeadSize: s }),
+    setArrowDashed: (d) => set({ arrowDashed: d }),
     setArrowPreview: (p) => set({ arrowPreview: p }),
     setBracketPairPreview: (p) => set({ bracketPairPreview: p }),
+    setShapePreview: (p) => set({ shapePreview: p }),
+    setOrbitalPreview: (p) => set({ orbitalPreview: p }),
+    setTlcPreview: (p) => set({ tlcPreview: p }),
     setBracketVariant: (v) => set({ bracketVariant: v }),
     setBracketFacing: (f) => set({ bracketFacing: f }),
+    setShapeVariant: (v) => set({ shapeVariant: v }),
+    setShapeFilled: (f) => set({ shapeFilled: f }),
+    setOrbitalVariant: (v) => set({ orbitalVariant: v }),
+    setOrbitalFilled: (f) => set({ orbitalFilled: f }),
 
     addAtom: (p, element, group, isotope) => {
       const id = nextId();
@@ -1316,7 +1404,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         ...transientResetFields(),
       });
     },
-    importMoleculeAsNewTab: (mol, title) => {
+    importMoleculeAsNewTab: (mol, title, annotations = {}) => {
       tabNumberCounter += 1;
       const id = `tab-${nextId()}`;
       const tabTitle = title ?? translate(get().language, "tab.defaultTitle", { n: tabNumberCounter });
@@ -1328,7 +1416,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         },
         activeTabId: id,
         molecule: mol,
-        annotations: {},
+        annotations,
         view: DEFAULT_VIEW,
         past: [],
         future: [],
@@ -1524,6 +1612,12 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         if (ann.kind === "arrow") {
           minX = Math.min(minX, ann.x1, ann.x2); maxX = Math.max(maxX, ann.x1, ann.x2);
           minY = Math.min(minY, ann.y1, ann.y2); maxY = Math.max(maxY, ann.y1, ann.y2);
+        } else if (ann.kind === "orbital") {
+          // The one annotation anchored at a center instead of a corner: its
+          // extent is the nucleus ± the lobe length (roundly generous for
+          // the lobes' width, which is fine for a fit-to-content box).
+          minX = Math.min(minX, ann.x - ann.size); maxX = Math.max(maxX, ann.x + ann.size);
+          minY = Math.min(minY, ann.y - ann.size); maxY = Math.max(maxY, ann.y + ann.size);
         } else {
           minX = Math.min(minX, ann.x); maxX = Math.max(maxX, ann.x + ann.width);
           minY = Math.min(minY, ann.y); maxY = Math.max(maxY, ann.y + ann.height);
@@ -1572,6 +1666,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         if (ann.kind === "arrow") {
           minX = Math.min(minX, ann.x1, ann.x2); maxX = Math.max(maxX, ann.x1, ann.x2);
           minY = Math.min(minY, ann.y1, ann.y2); maxY = Math.max(maxY, ann.y1, ann.y2);
+        } else if (ann.kind === "orbital") {
+          minX = Math.min(minX, ann.x - ann.size); maxX = Math.max(maxX, ann.x + ann.size);
+          minY = Math.min(minY, ann.y - ann.size); maxY = Math.max(maxY, ann.y + ann.size);
         } else {
           minX = Math.min(minX, ann.x); maxX = Math.max(maxX, ann.x + ann.width);
           minY = Math.min(minY, ann.y); maxY = Math.max(maxY, ann.y + ann.height);
@@ -1770,6 +1867,124 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       };
       commitAnnotations((anns) => ({ ...anns, [openId]: open, [closeId]: close }));
       return { openId, closeId };
+    },
+
+    /**
+     * Places a graphics-primitive shape (rectangle/ellipse/line) from the
+     * dragged rectangle's corners, normalized so width/height are always
+     * positive regardless of drag direction. For "line" the box stores the
+     * two endpoints' relative offset, so a dragged diagonal survives exactly
+     * (see ShapeAnnotation's doc comment). A near-zero drag (a plain click)
+     * falls back to a sensible default box/horizontal line — same reasoning
+     * as the arrow/bracket tools' fallbacks.
+     */
+    addShapeAnnotation: (corner1, corner2, variant, filled) => {
+      const id = nextId();
+      const dragged = Math.hypot(corner2.x - corner1.x, corner2.y - corner1.y) > 8;
+      let x: number, y: number, width: number, height: number;
+      if (!dragged) {
+        // Click: a default box centered on the click (or a default-length
+        // horizontal line, since a line's "box" is its endpoint offset).
+        if (variant === "line") {
+          x = corner1.x - (BOND_LEN * 1.5) / 2;
+          y = corner1.y;
+          width = BOND_LEN * 1.5;
+          height = 0;
+        } else {
+          x = corner1.x - DEFAULT_SHAPE_WIDTH / 2;
+          y = corner1.y - DEFAULT_SHAPE_HEIGHT / 2;
+          width = DEFAULT_SHAPE_WIDTH;
+          height = DEFAULT_SHAPE_HEIGHT;
+        }
+      } else {
+        x = Math.min(corner1.x, corner2.x);
+        y = Math.min(corner1.y, corner2.y);
+        width = Math.abs(corner2.x - corner1.x);
+        height = Math.abs(corner2.y - corner1.y);
+      }
+      const ann: ShapeAnnotation = { id, kind: "shape", x, y, width, height, variant, filled };
+      commitAnnotations((anns) => ({ ...anns, [id]: ann }));
+      return id;
+    },
+
+    /**
+     * Places an orbital from the drag gesture: the nucleus sits where the
+     * drag started, and the vector to the release point sets both the lobe
+     * length (clamped) and the axis angle — one gesture places a correctly
+     * oriented orbital, the same way an arrow drag sets length + direction.
+     * A near-zero drag falls back to the default size pointing right.
+     */
+    addOrbitalAnnotation: (center, point, variant, filled) => {
+      const id = nextId();
+      const dragged = dist(center, point) > 8;
+      const size = dragged ? Math.min(MAX_ORBITAL_SIZE, Math.max(MIN_ORBITAL_SIZE, dist(center, point))) : DEFAULT_ORBITAL_SIZE;
+      const angle = dragged && variant !== "s" ? (Math.atan2(point.y - center.y, point.x - center.x) * 180) / Math.PI : 0;
+      const ann: OrbitalAnnotation = { id, kind: "orbital", x: center.x, y: center.y, size, angle, variant, filled };
+      commitAnnotations((anns) => ({ ...anns, [id]: ann }));
+      return id;
+    },
+
+    /**
+     * Places a TLC plate from the dragged rectangle's corners, normalized to
+     * positive width/height. A near-zero drag falls back to a default
+     * portrait plate centered on the click — the shape you'd start from on a
+     * real bench, not a sliver.
+     */
+    addTlcPlate: (corner1, corner2) => {
+      const id = nextId();
+      const dragged = Math.hypot(corner2.x - corner1.x, corner2.y - corner1.y) > 8;
+      const x = dragged ? Math.min(corner1.x, corner2.x) : corner1.x - DEFAULT_TLC_WIDTH / 2;
+      const y = dragged ? Math.min(corner1.y, corner2.y) : corner1.y - DEFAULT_TLC_HEIGHT / 2;
+      const width = dragged ? Math.max(MIN_SHAPE_SIZE, Math.abs(corner2.x - corner1.x)) : DEFAULT_TLC_WIDTH;
+      const height = dragged ? Math.max(MIN_SHAPE_SIZE, Math.abs(corner2.y - corner1.y)) : DEFAULT_TLC_HEIGHT;
+      const ann: TlcPlateAnnotation = { id, kind: "tlc", x, y, width, height, spots: [] };
+      commitAnnotations((anns) => ({ ...anns, [id]: ann }));
+      return id;
+    },
+
+    /**
+     * Spots a TLC plate at the given canvas point (converted to the plate's
+     * fractional spot coordinates). Outside the plate — even slightly —
+     * returns null and places nothing: a spot on the bench top is a
+     * mistake, not a wish.
+     */
+    addTlcSpot: (id, p) => {
+      const ann = get().annotations[id];
+      if (!ann || ann.kind !== "tlc") return null;
+      if (!pointInRect(p, ann)) return null;
+      const { fx, fy } = tlcPointToFractions(ann, p);
+      const spot: TlcSpot = { fx, fy, r: DEFAULT_TLC_SPOT_R };
+      commitAnnotations((anns) => {
+        const plate = anns[id];
+        if (!plate || plate.kind !== "tlc") return anns;
+        return { ...anns, [id]: { ...plate, spots: [...plate.spots, spot] } };
+      });
+      return spot;
+    },
+
+    /** Removes the spot nearest to `p` (within TLC_SPOT_GRAB_RADIUS), so a
+     * click with the right modifier undoes a misplaced spotting without
+     * needing pixel-perfect aim. Returns whether anything was removed. */
+    removeNearestTlcSpot: (id, p) => {
+      const ann = get().annotations[id];
+      if (!ann || ann.kind !== "tlc" || ann.spots.length === 0) return false;
+      let bestIdx = -1;
+      let bestD = Infinity;
+      ann.spots.forEach((spot, i) => {
+        const pos = tlcSpotPosition(ann, spot);
+        const d = dist(pos, p);
+        if (d < bestD) {
+          bestD = d;
+          bestIdx = i;
+        }
+      });
+      if (bestIdx < 0 || bestD > TLC_SPOT_GRAB_RADIUS) return false;
+      commitAnnotations((anns) => {
+        const plate = anns[id];
+        if (!plate || plate.kind !== "tlc") return anns;
+        return { ...anns, [id]: { ...plate, spots: plate.spots.filter((_, i) => i !== bestIdx) } };
+      });
+      return true;
     },
 
     /**
@@ -1974,11 +2189,83 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       });
     },
 
+    updateShapeSize: (id, width, height) => {
+      set((s) => {
+        const ann = s.annotations[id];
+        if (!ann || ann.kind !== "shape") return s;
+        const w = Math.max(MIN_SHAPE_SIZE, width);
+        const h = Math.max(MIN_SHAPE_SIZE, height);
+        if (ann.width === w && ann.height === h) return s;
+        return {
+          annotations: { ...s.annotations, [id]: { ...ann, width: w, height: h } },
+          // See hasUnsavedChangesInTransientAnnotationEdit above.
+          hasUnsavedChanges: true,
+        };
+      });
+    },
+
+    /** TLC plate resize — same transient contract as updateShapeSize, but
+     * for the plate (whose spots ride along in fractional coordinates). */
+    updateTlcSize: (id, width, height) => {
+      set((s) => {
+        const ann = s.annotations[id];
+        if (!ann || ann.kind !== "tlc") return s;
+        const w = Math.max(MIN_SHAPE_SIZE, width);
+        const h = Math.max(MIN_SHAPE_SIZE, height);
+        if (ann.width === w && ann.height === h) return s;
+        return {
+          annotations: { ...s.annotations, [id]: { ...ann, width: w, height: h } },
+          hasUnsavedChanges: true,
+        };
+      });
+    },
+
+    setShapeStyleOf: (id, variant, filled) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "shape") return anns;
+        return { ...anns, [id]: { ...ann, variant, filled } };
+      });
+    },
+
+    /** Live orbital rotate/resize from the view's one handle: the handle
+     * sits at the orbital's axis tip, so one drag does both (angle from the
+     * handle's direction, size from its distance). "s" orbitals are round —
+     * their angle is normalized to 0 so it can't drift meaninglessly. */
+    updateOrbitalTransformTransient: (id, size, angle) => {
+      set((s) => {
+        const ann = s.annotations[id];
+        if (!ann || ann.kind !== "orbital") return s;
+        const nextSize = Math.min(MAX_ORBITAL_SIZE, Math.max(MIN_ORBITAL_SIZE, size));
+        const nextAngle = ann.variant === "s" ? 0 : angle;
+        if (ann.size === nextSize && ann.angle === nextAngle) return s;
+        return {
+          annotations: { ...s.annotations, [id]: { ...ann, size: nextSize, angle: nextAngle } },
+          // See hasUnsavedChangesInTransientAnnotationEdit above.
+          hasUnsavedChanges: true,
+        };
+      });
+    },
+
+    setOrbitalStyleOf: (id, variant, filled) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "orbital") return anns;
+        // Switching to/from "s" resets the angle — a circle has no axis, and
+        // coming back from "s" at angle 0 is the natural restart.
+        const angle = variant === "s" ? 0 : ann.angle;
+        return { ...anns, [id]: { ...ann, variant, filled, angle } };
+      });
+    },
+
     moveAnnotationTransient: (id, p) => {
       set((s) => {
         const ann = s.annotations[id];
         if (!ann) return s;
-        if (ann.kind === "text" || ann.kind === "bracket") {
+        // Everything anchored at an (x, y) origin — text boxes, brackets,
+        // shapes, TLC plates (spots ride along in fractional coords), and
+        // orbitals (x/y is the nucleus) — just translates.
+        if (ann.kind !== "arrow") {
           return {
             annotations: { ...s.annotations, [id]: { ...ann, x: p.x, y: p.y } },
             // See hasUnsavedChangesInTransientAnnotationEdit above.
@@ -2066,6 +2353,14 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const ann = anns[id];
         if (!ann || ann.kind !== "arrow") return anns;
         return { ...anns, [id]: { ...ann, headSize } };
+      });
+    },
+
+    setArrowDashedOf: (id, dashed) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "arrow") return anns;
+        return { ...anns, [id]: { ...ann, dashed } };
       });
     },
 

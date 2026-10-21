@@ -11,7 +11,9 @@ const GROUP_BY_LABEL = Object.fromEntries(ABBREVIATED_GROUPS.map((g) => [g.label
 /**
  * Basic MDL MOL (V2000) reader/writer.
  * Supports: atom block (element, x/y, charge, isotope mass-difference,
- * abbreviated-group labels), bond block (order, wedge/dash/wavy).
+ * abbreviated-group labels), bond block (order, wedge/dash/wavy), and the
+ * `M  CHG` / `M  ISO` property lines (charges / absolute isotope mass
+ * numbers — the modern, unbounded encodings most real writers use).
  * Does not support: 3D coordinates, SGroups, or extended (V3000) format.
  */
 
@@ -312,15 +314,41 @@ export function importMol(text: string): Molecule {
   for (let i = 4 + natoms + nbonds; i < lines.length; i++) {
     const line = lines[i];
     if (!line || line.startsWith("M  END")) break;
-    if (!line.startsWith("M  CHG")) continue;
-    const count = parseInt(line.slice(6, 9), 10) || 0;
-    for (let k = 0; k < count; k++) {
-      const base = 9 + k * 8;
-      const atomIndex = parseInt(line.slice(base, base + 4), 10);
-      const chargeValue = parseInt(line.slice(base + 4, base + 8), 10);
-      const atomId = ids[atomIndex - 1];
-      if (atomId && mol.atoms[atomId] && Number.isFinite(chargeValue)) {
-        mol.atoms[atomId] = { ...mol.atoms[atomId], charge: chargeValue };
+    if (line.startsWith("M  CHG")) {
+      const count = parseInt(line.slice(6, 9), 10) || 0;
+      for (let k = 0; k < count; k++) {
+        const base = 9 + k * 8;
+        const atomIndex = parseInt(line.slice(base, base + 4), 10);
+        const chargeValue = parseInt(line.slice(base + 4, base + 8), 10);
+        const atomId = ids[atomIndex - 1];
+        if (atomId && mol.atoms[atomId] && Number.isFinite(chargeValue)) {
+          mol.atoms[atomId] = { ...mol.atoms[atomId], charge: chargeValue };
+        }
+      }
+      continue;
+    }
+    // "M  ISO" uses the exact same 8-char entry stride as "M  CHG" (count
+    // field, then atom-index + value pairs), but the two isotope encodings
+    // in V2000 differ in *semantics*, which is easy to get wrong: the atom
+    // block's inline column holds a mass DIFFERENCE (13C is written as +1
+    // relative to 12C, deuterium as +1 relative to 1H — see the atom loop
+    // above), while "M  ISO" holds the ABSOLUTE mass number (13, 2, ...).
+    // OpenChemLib, PubChem, and ChemDraw all write the absolute form, so
+    // reading it as a difference would turn every 13C into 14C.
+    // A value equal to the element's standard mass is stored as absent —
+    // same meaning, but keeps Atom.isotope's "absent = standard" convention.
+    if (line.startsWith("M  ISO")) {
+      const isoCount = parseInt(line.slice(6, 9), 10) || 0;
+      for (let k = 0; k < isoCount; k++) {
+        const base = 9 + k * 8;
+        const atomIndex = parseInt(line.slice(base, base + 4), 10);
+        const massNumber = parseInt(line.slice(base + 4, base + 8), 10);
+        const atomId = ids[atomIndex - 1];
+        if (!atomId || !mol.atoms[atomId] || !Number.isFinite(massNumber) || massNumber <= 0) continue;
+        const atom = mol.atoms[atomId];
+        const standard = STANDARD_MASS_NUMBER[atom.element];
+        const isotope = standard !== undefined && standard === massNumber ? undefined : massNumber;
+        mol.atoms[atomId] = { ...atom, isotope };
       }
     }
   }

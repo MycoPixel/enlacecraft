@@ -5,6 +5,135 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.16.0
+
+Two frontiers move at once: chemistry *data* can now come in as text (SMILES,
+isotope-carrying MOL files), and CDXML files stop being stripped down to bare
+molecules — reaction arrows, mechanism arrows, brackets, braces and styled
+text captions now come in, and go back out. A new curly-brace tool completes
+the bracket family so everything the importer can deliver can also be drawn
+from scratch. And the drawing palette itself takes its biggest step toward
+ChemDraw parity: bold/hash/dashed bond styles, the retrosynthetic arrow,
+graphics primitives, orbital glyphs, a TLC-plate tool, and text underline &
+color close the gaps the first CDXML round-trip exposed.
+
+### SMILES import
+
+The export menu already copied SMILES out; now the same strings can come back
+in. Paste `CC(=O)Oc1ccccc1C(=O)O` and aspirin lands on the canvas with a real
+2D layout. The parsing is OpenChemLib's (already bundled for the 3D panel and
+descriptors), bridged through the *existing* MOL importer — so an imported
+SMILES gets exactly the same scale calibration, skeletal-H treatment, and
+wedge/dash handling as a dropped .mol file or a PubChem search result. Isomeric
+SMILES (`C[C@H](O)Cl`) arrive as drawn wedge or dash bonds; bracket charges and
+multi-fragment salts (`.Na+`) come through as drawn.
+
+### Paste structure
+
+A new clipboard button in the top bar opens a paste dialog that takes SMILES,
+MOL text, or CDXML — whichever you copied, it detects the format live and shows
+what it's about to do before you commit. The structure is added to the *current*
+canvas next to whatever's already drawn (or centered when it's empty), selected,
+and undoable as one step, the same way compound search inserts results. Ctrl/Cmd+Enter
+submits; Escape dismisses.
+
+### .smi / .smiles files
+
+Those extensions now work everywhere a file can come in: the Import picker, the
+desktop Open dialog, and drag-and-drop onto the window. Loose extensions like
+.txt are sniffed by content — a recognizable SMILES or MOL inside is parsed as
+such regardless of the name. One molecule per line files (the usual "SMILES
+name" convention) work; the first line that parses wins.
+
+### MOL files keep isotopes now
+
+`M  ISO` property lines — how OpenChemLib, PubChem, and ChemDraw encode isotope
+labels — were silently ignored on import, so a 13C in any of those files came
+in as plain carbon. They're read now, with the semantics got right: the M ISO
+value is the *absolute* mass number (13), not the inline column's difference
+(+1). Deuterium and tritium survive the explicit-hydrogen strip they'd
+otherwise have been eaten by, since `isSimpleTerminalHydrogen` already
+excluded labeled H.
+
+### Full-document CDXML import
+
+Importing a scheme from ChemDraw used to deliver just the atoms and bonds;
+every arrow and annotation in the file was silently dropped, which made
+CDXML useless for reaction schemes — the most common thing a CDXML file *is*.
+The importer now walks the whole document, not just the `<fragment>` nodes:
+
+- `<arrow>` elements map to the app's arrow annotations by their Head/Tail
+  classes — regular reaction arrows, resonance (both-ends-barbed) arrows,
+  and equilibrium arrows; two antiparallel harpoons are recognized as the
+  pair that draws one equilibrium arrow. Curved mechanism arrows
+  (fishhook/full) import as curved arrows.
+- `<graphic>` elements become square brackets, curly braces (spans and frame
+  styles), and plain lines/arcs where nothing better applies.
+- Top-level `<t>`/`<s>` runs become text captions with their styling —
+  bold/italic/superscript/subscript faces, font size, and color. Atom-label
+  text inside `<n>` elements is correctly *not* imported as a caption — it's
+  already part of the atom.
+
+Everything lands in the same annotation layer the drawing tools use, so
+imported arrows and captions are selectable, draggable, and editable like
+anything drawn by hand. Text is sanitized on the way in, and coordinates and
+font sizes share the bond-length self-calibration scale, so a file written
+at any ChemDraw zoom level lands at the app's standard scale.
+
+### CDXML export catches up
+
+Export writes the whole document too: reaction and resonance arrows,
+equilibrium as the harpoon pair ChemDraw expects, bracket pairs as one
+spanning graphic, and captions with their face/size/color runs (including a
+dynamic colortable when non-default colors are used). Round-tripping a file
+through EnlaceCraft keeps arrows, brackets, and captions at their original
+coordinates. Curved mechanism arrows are the one deliberate gap — CDX's arc
+geometry for them is undocumented, and guessing it would produce files other
+editors render wrong, so curved arrows stay import-only.
+
+### Curly braces, draw-your-own
+
+The renderer knew how to draw a proper curly brace, but no tool could produce
+one: the bracket picker offered only ( ) and [ ], and CDXML braces degraded to
+paren glyphs on import. The bracket picker now has a third glyph — { } — and
+CDXML `Brace` graphics import as real curly braces (spanning pairs included).
+CDX has only two bracket types, so parens and braces both write back as
+`Brace` graphics and both re-open as curly; visually adjacent, and every
+glyph stays editable either way.
+
+### The drawing palette closes the ChemDraw gaps
+
+The first tool audit against ChemDraw's palette found a set of drawing
+conventions the app couldn't produce — mostly the "non-chemistry" glyphs that
+real schemes are full of. They're all in now:
+
+- **Bold, bold-wedged-hash, and dashed bonds.** Bold is the heavy emphasis
+  line for reaction-center callouts; the bold wedged hash is its hashed-wedge
+  sibling; the plain dashed bond (uniform dashes *along* the bond, unlike the
+  hashed wedge's growing marks *across* it) covers partial bonds, hydrogen
+  bonds, and transition states. Clicking an existing bond with any of the
+  three applies the style in place, exactly like the wedge/dash tools.
+- **The retrosynthetic arrow.** The double-shaft, open-head disconnection
+  arrow of synthetic analysis, with a dashed-shaft option on all straight
+  arrows (for projected/multi-step flows). CDXML round-trips it through
+  CDX's own `RetroSynthetic` head class.
+- **Shapes: rectangle, ellipse, line.** The generic graphics primitives,
+  with an outline/filled toggle. This also closes the CDXML import gap —
+  ChemDraw `Rectangle` and `Oval` graphics and plain headless lines used to
+  be dropped; now they import as shape annotations and export back.
+- **Orbitals: s, p, and a free single lobe**, outline or shaded, for
+  mechanism and MO pictures. One gesture places size *and* axis; a single
+  handle later rotates/resizes.
+- **A TLC plate tool.** Drag out a plate — frame, pencil baseline, dashed
+  solvent front — then click inside it to spot samples (Shift+click removes).
+  Spots store fractional positions, so resizing the plate carries them and
+  a spot's vertical fraction *is* its Rf. App-only: CDXML has no TLC
+  concept; the project format preserves everything.
+- **Text underline and color.** The caption toolbar gains underline and a
+  font-color control (plus a reset-to-ink). Underline round-trips through
+  CDXML's underline face bit; colors already survived, but could never be
+  authored before.
+
 ## 1.15.0
 
 The IR spectrum gets the full-screen view it was missing: zoom in on a region,

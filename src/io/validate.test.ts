@@ -182,6 +182,39 @@ describe("annotations", () => {
     const out = sanitizeAnnotationRecord({ a1: { id: "a1", kind: "arrow", x1: 0, y1: 0, x2: Number.POSITIVE_INFINITY, y2: 0, variant: "forward" } });
     expect(out).toEqual({});
   });
+
+  test("shape, orbital and TLC annotations sanitize with defaults and bounds", () => {
+    const out = sanitizeAnnotationRecord({
+      s1: { id: "s1", kind: "shape", x: 0, y: 0, width: 80, height: 40, variant: "ellipse", filled: true },
+      o1: { id: "o1", kind: "orbital", x: 10, y: 10, size: 40, angle: 45, variant: "p", filled: false },
+      p1: { id: "p1", kind: "tlc", x: 0, y: 0, width: 90, height: 130, spots: [{ fx: 0.5, fy: 0.6, r: 4, color: "#ff0000" }, { fx: 2, fy: -1 }] },
+      s2: { id: "s2", kind: "shape", x: 0, y: 0, width: 80, height: 40, variant: "hexagon" },
+      o2: { id: "o2", kind: "orbital", x: 0, y: 0, size: -5, angle: 0, variant: "s" },
+    });
+    // The two valid ones survive plus the plate; the negative-size orbital
+    // is dropped (bad REQUIRED field). The unknown shape variant is REPAIRED
+    // to the default — the same policy as an unknown arrow variant, since
+    // variant is an optional field.
+    expect(Object.keys(out).sort()).toEqual(["o1", "p1", "s1", "s2"]);
+    expect((out.s1 as { variant: string }).variant).toBe("ellipse");
+    expect((out.s2 as { variant: string }).variant).toBe("rectangle");
+    expect((out.o1 as { angle: number }).angle).toBe(45);
+    const plate = out.p1 as { spots: { fx: number; fy: number; color?: string }[] };
+    // The in-bounds spot keeps its color; the out-of-range spot is skipped
+    // without failing the plate.
+    expect(plate.spots).toHaveLength(1);
+    expect(plate.spots[0].fx).toBe(0.5);
+    expect(plate.spots[0].color).toBe("#ff0000");
+  });
+
+  test("new bond stereo styles and arrow fields pass validation", () => {
+    const out = sanitizeAnnotationRecord({
+      a1: { id: "a1", kind: "arrow", x1: 0, y1: 0, x2: 90, y2: 0, variant: "retrosynthetic", dashed: true },
+    });
+    const arrow = out.a1 as { variant: string; dashed?: boolean };
+    expect(arrow.variant).toBe("retrosynthetic");
+    expect(arrow.dashed).toBe(true);
+  });
 });
 
 describe("sanitizeView", () => {

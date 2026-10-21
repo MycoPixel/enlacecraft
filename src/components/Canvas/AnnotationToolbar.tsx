@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bold, Italic, Subscript, Superscript, Minus, Plus, X } from "lucide-react";
+import { Bold, Italic, Underline, Subscript, Superscript, Minus, Plus, X, Palette, Baseline } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 
@@ -117,6 +117,69 @@ export function AnnotationToolbar() {
     e.preventDefault();
     document.execCommand(cmd);
     notifyInput();
+  };
+
+  /** Applies a font color to the current selection (or, via the browser's
+   * own command behavior, at the caret for the next typed characters).
+   * styleWithCSS makes foreColor produce a <span style="color:..."> —
+   * the only form the annotation HTML sanitizer keeps (a legacy <font
+   * color> would be stripped) and the only form the CDXML exporter's
+   * run-walker understands. Same saved-range dance as the font-size field:
+   * opening the native color input blurs the editor, so the selection is
+   * captured on mousedown and restored before applying. */
+  const applyColor = (e: React.MouseEvent) => {
+    e.preventDefault();
+    captureRange();
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = "#000000";
+    input.addEventListener("change", () => {
+      const sel = window.getSelection();
+      const editor = editorEl();
+      const range = savedRangeRef.current;
+      const usableRange =
+        range && editor && editor.contains(range.startContainer) ? range : null;
+      if (usableRange && sel) {
+        sel.removeAllRanges();
+        sel.addRange(usableRange);
+      }
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand("foreColor", false, input.value);
+      document.execCommand("styleWithCSS", false, "false");
+      savedRangeRef.current = null;
+      notifyInput(editor);
+    });
+    input.click();
+  };
+
+  /** Resets the selection's color back to the annotation's inherited ink:
+   * wraps it in a span styled `color: inherit`, which the sanitizer keeps
+   * (named colors are allowed) and which the CDXML exporter's color parser
+   * treats as "no explicit color" — so an exported caption loses nothing.
+   * Manual wrapping rather than execCommand because no command sets a
+   * color to "unspecified" rather than some concrete value. */
+  const resetColor = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    const sel = window.getSelection();
+    const editor = editorEl();
+    const range = savedRangeRef.current;
+    const usableRange =
+      range && editor && editor.contains(range.startContainer) ? range : sel && sel.rangeCount > 0 && !sel.isCollapsed ? sel.getRangeAt(0) : null;
+    if (!usableRange || !sel) return;
+    sel.removeAllRanges();
+    sel.addRange(usableRange);
+    const span = document.createElement("span");
+    span.style.color = "inherit";
+    try {
+      usableRange.surroundContents(span);
+    } catch {
+      const contents = usableRange.extractContents();
+      span.appendChild(contents);
+      usableRange.insertNode(span);
+    }
+    savedRangeRef.current = null;
+    notifyInput(editor);
   };
 
   // Reaction conditions conventionally use Δ for "heat"/reflux over an
@@ -290,11 +353,21 @@ export function AnnotationToolbar() {
       <button onMouseDown={runCommand("italic")} title={t("annotation.italic")} aria-label={t("annotation.italic")}>
         <Italic size={14} />
       </button>
+      <button onMouseDown={runCommand("underline")} title={t("annotation.underline")} aria-label={t("annotation.underline")}>
+        <Underline size={14} />
+      </button>
       <button onMouseDown={runCommand("subscript")} title={t("annotation.subscript")} aria-label={t("annotation.subscript")}>
         <Subscript size={14} />
       </button>
       <button onMouseDown={runCommand("superscript")} title={t("annotation.superscript")} aria-label={t("annotation.superscript")}>
         <Superscript size={14} />
+      </button>
+      <span className="annotation-toolbar__divider" />
+      <button onMouseDown={applyColor} title={t("annotation.color")} aria-label={t("annotation.color")}>
+        <Palette size={14} />
+      </button>
+      <button onMouseDown={resetColor} title={t("annotation.colorReset")} aria-label={t("annotation.colorReset")}>
+        <Baseline size={14} />
       </button>
       <span className="annotation-toolbar__divider" />
       <button onMouseDown={insertSymbol("\u0394")} className="annotation-toolbar__symbol" title={t("annotation.insertDelta")} aria-label={t("annotation.insertDelta")}>

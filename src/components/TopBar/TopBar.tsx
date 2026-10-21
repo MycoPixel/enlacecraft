@@ -1,10 +1,11 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History } from "lucide-react";
+import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History, ClipboardPaste } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { themeViewerBackground } from "../../styles/themes";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
+import { PasteStructureDialog } from "./PasteStructureDialog";
 import { ViewOptionsMenu } from "./ViewOptionsMenu";
 import { ThemePicker } from "./ThemePicker";
 import { CompoundSearch } from "./CompoundSearch";
@@ -22,7 +23,7 @@ import { hasExplicitHydrogens } from "../../model/molecule";
 import { exportPNG, exportSVG } from "../../io/exportImage";
 import { printMolecule } from "../../io/printExport";
 import { exportMol } from "../../io/molfile";
-import { exportCdxml } from "../../io/cdxml";
+import { exportCdxmlDocument } from "../../io/cdxml";
 import { exportSmiles } from "../../io/smiles";
 import { runProjectSave } from "../../io/projectSaver";
 import { downloadBlob } from "../../io/exportImage";
@@ -39,6 +40,7 @@ interface TopBarProps {
 
 export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBarProps) {
   const molecule = useMoleculeStore((s) => s.molecule);
+  const annotations = useMoleculeStore((s) => s.annotations);
   const theme = useMoleculeStore((s) => s.theme);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const toggleCanvasBackground = useMoleculeStore((s) => s.toggleCanvasBackground);
@@ -64,6 +66,10 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const activeTabId = useMoleculeStore((s) => s.activeTabId);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Paste-to-import dialog (SMILES / MOL / CDXML text) — open state lives
+  // here rather than in the dialog so the trigger button stays a plain
+  // ToolButton like every other top-bar action.
+  const [pasteOpen, setPasteOpen] = useState(false);
   // The action strip scrolls sideways when the window is too narrow for
   // every button; this is what makes a plain mouse wheel drive it.
   const topActionsRef = useRef<HTMLDivElement>(null);
@@ -134,7 +140,12 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     withDeselected(() => printMolecule(svgRef.current!, resolveBackground(bg), title));
   };
   const doExportMol = () => downloadBlob(new Blob([exportMol(molecule)], { type: "chemical/x-mdl-molfile" }), "molecule.mol");
-  const doExportCdxml = () => downloadBlob(new Blob([exportCdxml(molecule)], { type: "chemical/x-cdxml" }), "molecule.cdxml");
+  // Document-level export: arrows, brackets and caption text go into the
+  // file alongside the molecule, so a drawing saved as .cdxml opens in
+  // ChemDraw with its reaction arrows and labels intact (and re-imports
+  // here losslessly — see io/cdxml.ts for what round-trips and what is
+  // deliberately dropped, e.g. curved mechanism arrows).
+  const doExportCdxml = () => downloadBlob(new Blob([exportCdxmlDocument(molecule, Object.values(annotations))], { type: "chemical/x-cdxml" }), "molecule.cdxml");
   const doExportSmiles = async () => {
     const smiles = exportSmiles(molecule);
     try {
@@ -220,6 +231,9 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
         <ToolButton title={t("tool.import")} onClick={doOpen}>
           <Upload size={18} />
         </ToolButton>
+        <ToolButton title={t("tool.pasteStructure")} onClick={() => setPasteOpen(true)}>
+          <ClipboardPaste size={18} />
+        </ToolButton>
         <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onPrint={doExportPrint} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} onSaveProjectAs={doSaveProjectAs} projectFileName={projectFileName} />
         <ToolButton title={t("tool.versionHistory")} onClick={onOpenVersionHistory}>
           <History size={18} />
@@ -261,10 +275,14 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       <input
         ref={fileInputRef}
         type="file"
-        accept=".mol,.cdxml,.enlacecraft"
+        accept=".mol,.cdxml,.smi,.smiles,.enlacecraft"
         style={{ display: "none" }}
         onChange={(e) => e.target.files?.[0] && doImportFile(e.target.files[0])}
       />
+
+      {/* Mounted only while open — the dialog's text/error state then
+          initializes fresh each time, no reset-on-open effect needed. */}
+      {pasteOpen && <PasteStructureDialog onClose={() => setPasteOpen(false)} />}
     </header>
   );
 }

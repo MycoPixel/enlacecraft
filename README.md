@@ -28,11 +28,16 @@ build.
   registry (Me, Et, tBu, Ph, Bn, Ac, OMe, Boc, Ts), plus free-text atom labels that
   parse as elements, isotopes, condensed formulas (e.g. "COOH", "CF3"), or
   placeholder substituents (R, R1, R', Ar, X, Nu, E, ...)
-- Reaction/mechanism-arrow tool: straight, equilibrium, resonance, and curved arrows,
-  in both full (electron-pair) and fishhook (single-electron) barb styles, with
-  adjustable arrowhead size
-- Brackets (for polymers, ions, and other grouped structures), text annotations,
-  and the "+" annotation for reaction schemes
+- Reaction/mechanism-arrow tool: straight, equilibrium, resonance, retrosynthetic,
+  and curved arrows, in both full (electron-pair) and fishhook (single-electron)
+  barb styles, with adjustable arrowhead size and a dashed-shaft option
+- Bond styles: bold, bold wedged hash, and plain dashed bonds alongside the
+  usual single/double/triple/wedge/hash/wavy set
+- Brackets (for polymers, ions, and other grouped structures), text annotations
+  (bold/italic/underline/sub/superscript, font size, color), the "+" annotation
+  for reaction schemes, graphics primitives (rectangle/ellipse/line, outline or
+  filled), orbital glyphs (s, p, single lobe), and TLC plates (baseline,
+  solvent front, spot with click; Shift+click to erase a spot)
 - Full element palette with charges, radicals, lone pairs, isotope labeling
   (D/T shorthands and mass-number notation), implicit-hydrogen labeling, R/S
   stereo-descriptor labels, and a live molecular formula readout
@@ -73,9 +78,19 @@ build.
   and defaults to your browser's language on first visit
 - Compound search understands Spanish names too (e.g. "cafeína", "ácido acético")
   even though PubChem itself is indexed mostly in English — see below
-- Import/export MOL (V2000), import/export CDXML (ChemDraw's documented XML
-  interchange format — see `io/cdxml.ts` for what does and doesn't round-trip),
-  export SMILES, and export PNG/SVG
+- Import/export MOL (V2000, including `M  CHG` charges and `M  ISO` isotope
+  labels), import/export CDXML as a full document — molecules *plus* reaction/
+  resonance/equilibrium/retrosynthetic/curved arrows, brackets & braces,
+  rectangles/ovals/lines, bold & dashed bonds, and styled text captions
+  (underline, size, color — see `io/cdxml.ts` for what does and doesn't
+  round-trip), import SMILES and
+  .smi/.smiles files (via OpenChemLib's parser bridged onto the MOL importer —
+  stereochemistry, charges, and multi-fragment salts included), export SMILES,
+  and export PNG/SVG
+- **Paste structure**: a top-bar dialog that accepts SMILES, MOL text, or
+  CDXML pasted as text — it detects the format live, shows what it's about to
+  do, and inserts the structure next to whatever's already drawn as one
+  undoable step (`components/TopBar/PasteStructureDialog.tsx`)
 - **3D structure view**: a toggleable panel next to the 2D canvas showing a real,
   computed 3D structure of what you're drawing, with a choice of three generation
   methods (see below) — fast collision-free conformer, MMFF94 force-field
@@ -429,4 +444,9 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
   library yet. See "Extending it" above for where more would plug in.
 - No reaction atom-mapping (numbering corresponding atoms across reactants/products).
 - CDXML import/export only; no native `.cdx` (ChemDraw's binary format is undocumented —
-  see the comment at the top of `io/cdxml.ts`).
+  see the comment at the top of `io/cdxml.ts`). Within CDXML, curved mechanism
+  arrows import but don't export (CDX's arc geometry for them is undocumented);
+  the bold wedged hash degrades to the ordinary wedged hash on export (CDX has
+  no distinct Display value for it), and dashed arrow shafts are app-only.
+  Orbitals and TLC plates have no CDXML representation at all — they persist
+  through the project format only.

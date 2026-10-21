@@ -25,7 +25,7 @@ export type Element =
 
 export type BondOrder = 1 | 2 | 3;
 
-export type BondStereo = "none" | "wedge" | "dash" | "wavy";
+export type BondStereo = "none" | "wedge" | "dash" | "wavy" | "bold" | "boldHash" | "dashed";
 
 export interface Atom {
   id: string;
@@ -328,6 +328,9 @@ export type ToolId =
   | "wedge"
   | "dash"
   | "wavy"
+  | "bold"
+  | "bold-hash"
+  | "dashed"
   | "atom"
   | "chain"
   | "ring"
@@ -342,6 +345,9 @@ export type ToolId =
   | "text"
   | "arrow"
   | "bracket"
+  | "shape"
+  | "orbital"
+  | "tlc"
   | "plus";
 
 /** Live, uncommitted rectangle-selection ("marquee") drag, in world coordinates. */
@@ -491,11 +497,14 @@ export type CanvasBackground = "white" | "theme";
  *  - "forward": a single straight arrow, A -> B
  *  - "equilibrium": two stacked full arrows pointing opposite directions
  *  - "resonance": a double-headed arrow (<->), for resonance structures
+ *  - "retrosynthetic": the disconnection arrow (a double-shafted arrow with
+ *    an open head, pointing at the precursor) — the reverse-planning
+ *    notation of synthetic analysis
  *  - "curved" / "curvedReverse": a single curved arrow bulging to one side
  *    or the other (e.g. for mechanism/electron-pushing style flow). Bulge
  *    amount is user-adjustable via `curvature` (see ArrowAnnotation).
  */
-export type ArrowVariant = "forward" | "equilibrium" | "resonance" | "curved" | "curvedReverse";
+export type ArrowVariant = "forward" | "equilibrium" | "resonance" | "retrosynthetic" | "curved" | "curvedReverse";
 
 /** Full-arrowhead (electron pair) size. Doesn't apply to the fishhook
  * (single-electron) style, which only ever comes in one size. */
@@ -532,9 +541,19 @@ export interface ArrowAnnotation {
    * annotations render identically to how they always did.
    */
   headSize?: ArrowHeadSize;
+  /**
+   * Renders the arrow's shaft as a dashed line instead of solid — the
+   * notation for a projected/multi-step flow (or simply a lighter visual
+   * weight in a busy scheme). Optional for backward compatibility; absent
+   * means solid. Applies to the straight variants (forward, equilibrium,
+   * resonance, retrosynthetic); curved arrows ignore it (their bulge is
+   * the distinguisher, and a dashed curve reads as something else
+   * entirely — a delocalization path).
+   */
+  dashed?: boolean;
 }
 
-export type BracketVariant = "paren" | "square";
+export type BracketVariant = "paren" | "square" | "curly";
 /** Which way the glyph opens: "open" renders ( [ { , "close" renders ) ] } */
 export type BracketFacing = "open" | "close";
 
@@ -552,7 +571,7 @@ export interface BracketAnnotation {
 
 /**
  * A draggable, richly-formatted text box for reaction conditions, labels,
- * etc. `html` holds a small safe subset of inline markup (b, i, sub, sup,
+ * etc. `html` holds a small safe subset of inline markup (b, i, u, sub, sup,
  * span with inline font-size/color) produced by the annotation format
  * toolbar. `height` is kept in sync with the rendered content (see
  * TextAnnotationView) purely so the surrounding <foreignObject> is sized
@@ -569,7 +588,79 @@ export interface TextAnnotation {
   fontSize: number;
 }
 
-export type Annotation = ArrowAnnotation | TextAnnotation | BracketAnnotation;
+export type Annotation = ArrowAnnotation | TextAnnotation | BracketAnnotation | ShapeAnnotation | OrbitalAnnotation | TlcPlateAnnotation;
+
+/** Graphics-primitive shapes: the plain drawing objects ChemDraw's tools
+ * palette offers alongside chemistry-specific glyphs (boxes around scheme
+ * steps, an oval callout, a plain divider line). `x`/`y`/`width`/`height`
+ * is the object's bounding box; "line" connects the box's (x, y) corner to
+ * its (x + width, y + height) corner, so a dragged-out diagonal survives.
+ * `filled` solid-fills rectangles/ellipses (ChemDraw's "Filled" toggle) and
+ * is ignored by lines. */
+export type ShapeVariant = "rectangle" | "ellipse" | "line";
+
+export interface ShapeAnnotation {
+  id: string;
+  kind: "shape";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  variant: ShapeVariant;
+  filled?: boolean;
+}
+
+/**
+ * Orbital glyphs for mechanism/EMF diagrams — the same drawing objects
+ * ChemDraw's "Orbitals" palette offers: a single circle ("s"), the
+ * two-lobed dumbbell ("p"), and one free teardrop lobe ("lobe", the
+ * half-filled/hybrid single-lobe orbital). `x`/`y` is the nucleus (the
+ * lobe's pointed end), `size` the lobe length in world px, `angle` the
+ * orbital axis in degrees (0 = pointing right; meaningless for "s", which
+ * is round). `filled` shades the lobes solid instead of drawing outlines.
+ */
+export type OrbitalVariant = "s" | "p" | "lobe";
+
+export interface OrbitalAnnotation {
+  id: string;
+  kind: "orbital";
+  x: number;
+  y: number;
+  size: number;
+  angle: number;
+  variant: OrbitalVariant;
+  filled?: boolean;
+}
+
+/**
+ * A thin-layer chromatography plate: the frame, the pencil baseline near
+ * the bottom, the solvent front near the top, and the spots that migrated
+ * up it. Spots are stored as *fractional* positions (0-1 across, and 0 at
+ * the baseline to 1 at the solvent front) rather than absolute pixels so
+ * resizing the plate carries its spots with it — the same convention as
+ * the plate's own Rf values, which is what the fraction actually is.
+ */
+export interface TlcSpot {
+  /** Horizontal position as a fraction of the plate width (0 = left edge). */
+  fx: number;
+  /** Migration as a fraction of the baseline-to-front distance (0 = on the
+   * baseline, 1 = at the solvent front — numerically the spot's Rf). */
+  fy: number;
+  /** Spot radius in world px; absent means the default. */
+  r?: number;
+  /** Optional spot color (a hex string like the atom-highlight colors). */
+  color?: string;
+}
+
+export interface TlcPlateAnnotation {
+  id: string;
+  kind: "tlc";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  spots: TlcSpot[];
+}
 
 /** Live, uncommitted preview of an arrow being dragged out on the canvas. */
 export interface ArrowPreview {
@@ -577,4 +668,17 @@ export interface ArrowPreview {
   y1: number;
   x2: number;
   y2: number;
+}
+
+/**
+ * Live, uncommitted preview of an orbital being dragged out: the nucleus
+ * sits at (cx, cy) and the drag's current point at (x, y) — the vector
+ * between them is the orbital's size and axis, so one gesture sets both,
+ * the same way an arrow drag sets both its length and direction.
+ */
+export interface OrbitalDragPreview {
+  cx: number;
+  cy: number;
+  x: number;
+  y: number;
 }

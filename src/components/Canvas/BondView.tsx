@@ -117,6 +117,45 @@ function BondStrokes({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1 = 0
     return <g>{lines}</g>;
   }
 
+  // Bold bond: the same solid line as an ordinary single bond but drawn
+  // heavy — the "this bond is the point" emphasis ChemDraw's Bold Bond
+  // tool gives (reaction-center callouts, discussion figures).
+  if (bond.stereo === "bold") {
+    return <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={color} strokeWidth="4.6" strokeLinecap="round" />;
+  }
+
+  // Bold wedged hash: the hashed wedge's marks both start thicker AND
+  // grow wider along the bond, reading as the heavy-stroke sibling of the
+  // plain hashed dash above (ChemDraw's Wedged Hash, bold weight).
+  if (bond.stereo === "boldHash") {
+    const n = 6;
+    const lines = [];
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      const w = 1.4 + t * 7.2;
+      const x = p1.x + (p2.x - p1.x) * t;
+      const y = p1.y + (p2.y - p1.y) * t;
+      lines.push(
+        <line key={i} x1={x + ux * w} y1={y + uy * w} x2={x - ux * w} y2={y - uy * w} stroke={color} strokeWidth="2.6" strokeLinecap="round" />
+      );
+    }
+    return <g>{lines}</g>;
+  }
+
+  // Plain dashed bond: a non-stereochemical broken line — partial bonds,
+  // transition states, hydrogen bonds, "here be a forming interaction".
+  // Unlike the hashed "dash" above, the marks run ALONG the bond and are
+  // uniform, so it reads as a gap, not as depth.
+  if (bond.stereo === "dashed") {
+    return (
+      <line
+        x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+        stroke={color} strokeWidth="1.8" strokeLinecap="round"
+        strokeDasharray="5 4"
+      />
+    );
+  }
+
   if (bond.stereo === "wavy") {
     // A sine wave along the bond axis — the standard notation for
     // unspecified/mixed stereochemistry at this bond (as opposed to wedge/

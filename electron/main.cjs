@@ -294,10 +294,11 @@ handleTrusted("dialog:open-file", async (event) => {
     title: "Open",
     properties: ["openFile"],
     filters: [
-      { name: "All supported files", extensions: ["enlacecraft", "mol", "cdxml"] },
+      { name: "All supported files", extensions: ["enlacecraft", "mol", "cdxml", "smi", "smiles"] },
       { name: "EnlaceCraft project", extensions: ["enlacecraft"] },
       { name: "MDL Molfile", extensions: ["mol"] },
       { name: "ChemDraw XML", extensions: ["cdxml"] },
+      { name: "SMILES", extensions: ["smi", "smiles"] },
     ],
   });
   if (canceled || filePaths.length === 0) return { canceled: true };

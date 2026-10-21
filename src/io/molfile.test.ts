@@ -114,6 +114,69 @@ describe("importMol: real-world file quirks", () => {
     expect(atom.charge).toBe(1);
   });
 
+  test("M  ISO property lines carry the ABSOLUTE mass number (13C stays 13C, not 14C)", () => {
+    // Two carbons: the first labeled 13C via M ISO (the encoding OpenChemLib,
+    // PubChem, and ChemDraw write), the second unlabeled. The value in an
+    // M ISO entry is the isotope's actual mass number — unlike the atom
+    // block's inline column, which holds a *difference* from the standard
+    // mass — so 13 must land as isotope 13, not 12+13.
+    const molText = [
+      "test",
+      "  EnlaceCraft",
+      "",
+      "  2  1  0  0  0  0  0  0  0  0999 V2000",
+      "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+      "    1.5000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+      "  1  2  1  0  0  0  0",
+      "M  ISO  1   1  13",
+      "M  END",
+    ].join("\n");
+
+    const mol = importMol(molText);
+    const atoms = Object.values(mol.atoms);
+    expect(atoms[0].isotope).toBe(13);
+    expect(atoms[1].isotope).toBeUndefined();
+  });
+
+  test("M  ISO with the standard mass number stores absent (13C file saying 12 stays unlabeled)", () => {
+    const molText = [
+      "test",
+      "  EnlaceCraft",
+      "",
+      "  1  0  0  0  0  0  0  0  0  0999 V2000",
+      "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+      "M  ISO  1   1  12",
+      "M  END",
+    ].join("\n");
+
+    const mol = importMol(molText);
+    const atom = Object.values(mol.atoms)[0];
+    expect(atom.isotope).toBeUndefined();
+  });
+
+  test("M  ISO keeps isotope-labeled hydrogens through the explicit-H strip (deuterium)", () => {
+    // Deuterium is exactly the case the strip must NOT eat: element H,
+    // single terminal bond — but isotopically labeled, which is chemically
+    // meaningful and deliberately preserved (see isSimpleTerminalHydrogen).
+    const molText = [
+      "test",
+      "  EnlaceCraft",
+      "",
+      "  2  1  0  0  0  0  0  0  0  0999 V2000",
+      "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+      "    1.5000    0.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0",
+      "  1  2  1  0  0  0  0",
+      "M  ISO  1   2   2",
+      "M  END",
+    ].join("\n");
+
+    const mol = importMol(molText);
+    const atoms = Object.values(mol.atoms);
+    expect(atoms).toHaveLength(2); // the D survives the strip
+    const d = atoms.find((a) => a.element === "H");
+    expect(d?.isotope).toBe(2);
+  });
+
   test("aromatic bond type 4 is approximated as a double bond", () => {
     const molText = [
       "test",

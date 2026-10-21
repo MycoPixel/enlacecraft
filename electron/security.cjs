@@ -10,7 +10,10 @@ const { fileURLToPath } = require("node:url");
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 const PROJECT_EXTENSION = ".enlacecraft";
-const OPENABLE_EXTENSIONS = new Set([PROJECT_EXTENSION, ".mol", ".cdxml"]);
+// Structure formats the Open dialog / drag-onto-window flows may read.
+// .smi/.smiles are plain-text SMILES files (one molecule per line, often
+// "SMILES name" pairs) — parsed by io/smilesImport.ts on the renderer side.
+const OPENABLE_EXTENSIONS = new Set([PROJECT_EXTENSION, ".mol", ".cdxml", ".smi", ".smiles"]);
 
 // ---------------------------------------------------------------------------
 // External links

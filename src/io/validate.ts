@@ -9,7 +9,11 @@ import type {
   Element,
   HapticBond,
   Molecule,
+  OrbitalAnnotation,
+  ShapeAnnotation,
   TextAnnotation,
+  TlcPlateAnnotation,
+  TlcSpot,
   ViewTransform,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
@@ -198,7 +202,7 @@ const BOND_SPEC: Spec<Bond> = {
   a1: ID,
   a2: ID,
   order: bondOrder,
-  stereo: oneOf("none", "wedge", "dash", "wavy"),
+  stereo: oneOf("none", "wedge", "dash", "wavy", "bold", "boldHash", "dashed"),
   doubleSide: oneOf("auto", "center", "left", "right"),
   highlightColor: hexColor,
   dative: flag,
@@ -218,10 +222,11 @@ const ARROW_SPEC: Spec<ArrowAnnotation> = {
   y1: COORD,
   x2: COORD,
   y2: COORD,
-  variant: oneOf("forward", "equilibrium", "resonance", "curved", "curvedReverse"),
+  variant: oneOf("forward", "equilibrium", "resonance", "retrosynthetic", "curved", "curvedReverse"),
   curvature: finite(-10_000, 10_000),
   barb: oneOf("full", "single"),
   headSize: oneOf("small", "medium", "large"),
+  dashed: flag,
 };
 const ARROW_REQUIRED = ["x1", "y1", "x2", "y2"] as const;
 
@@ -232,7 +237,7 @@ const BRACKET_SPEC: Spec<BracketAnnotation> = {
   y: COORD,
   width: SIZE,
   height: SIZE,
-  variant: oneOf("paren", "square"),
+  variant: oneOf("paren", "square", "curly"),
   facing: oneOf("open", "close"),
 };
 const BRACKET_REQUIRED = ["x", "y", "width", "height"] as const;
@@ -248,6 +253,66 @@ const TEXT_SPEC: Spec<TextAnnotation> = {
   fontSize: finite(1, 500),
 };
 const TEXT_REQUIRED = ["x", "y", "width", "height", "html"] as const;
+
+const SHAPE_SPEC: Spec<ShapeAnnotation> = {
+  id: ID,
+  kind: oneOf("shape"),
+  x: COORD,
+  y: COORD,
+  width: SIZE,
+  height: SIZE,
+  variant: oneOf("rectangle", "ellipse", "line"),
+  filled: flag,
+};
+const SHAPE_REQUIRED = ["x", "y", "width", "height"] as const;
+
+const ORBITAL_SPEC: Spec<OrbitalAnnotation> = {
+  id: ID,
+  kind: oneOf("orbital"),
+  x: COORD,
+  y: COORD,
+  size: finite(1, LIMITS.maxCoord),
+  angle: finite(-3_600, 3_600),
+  variant: oneOf("s", "p", "lobe"),
+  filled: flag,
+};
+const ORBITAL_REQUIRED = ["x", "y", "size", "angle"] as const;
+
+const TLC_SPOT_SPEC: Spec<TlcSpot> = {
+  fx: finite(0, 1),
+  fy: finite(0, 1),
+  r: finite(0.5, 200),
+  color: hexColor,
+};
+const TLC_SPOT_REQUIRED = ["fx", "fy"] as const;
+
+/** TLC spots have their own nested sanitizer (fractional coords + optional
+ * size/color). A spot that fails validation is SKIPPED rather than failing
+ * the whole plate — one hand-edited bad coordinate shouldn't throw away
+ * twenty good measurements, and the plate itself stays intact. */
+const tlcSpots: Parser<TlcSpot[]> = (v) => {
+  if (!Array.isArray(v) || v.length > LIMITS.maxAnnotations) return BAD;
+  const out: TlcSpot[] = [];
+  for (const e of v) {
+    if (!isPlainObject(e)) continue;
+    const spot = parseFields<TlcSpot>(e, TLC_SPOT_SPEC, TLC_SPOT_REQUIRED, newRepairReport());
+    // parseFields validates the required fx/fy are present (returns null
+    // otherwise), so the cast only narrows away the optional-field noise.
+    if (spot) out.push(spot as TlcSpot);
+  }
+  return out;
+};
+
+const TLC_SPEC: Spec<TlcPlateAnnotation> = {
+  id: ID,
+  kind: oneOf("tlc"),
+  x: COORD,
+  y: COORD,
+  width: SIZE,
+  height: SIZE,
+  spots: tlcSpots,
+};
+const TLC_REQUIRED = ["x", "y", "width", "height", "spots"] as const;
 
 /**
  * Copies only the fields named in `spec` out of `raw`, each checked by its
@@ -382,6 +447,18 @@ export function sanitizeAnnotation(raw: unknown, report: RepairReport, forcedId?
       id: forcedId ?? p.id ?? nextId(),
       html: sanitizeAnnotationHtml(p.html!),
     } as TextAnnotation;
+  }
+  if (kind === "shape") {
+    const p = parseFields<ShapeAnnotation>(raw, SHAPE_SPEC, SHAPE_REQUIRED, report);
+    return p ? ({ variant: "rectangle", ...p, kind: "shape", id: forcedId ?? p.id ?? nextId() } as ShapeAnnotation) : null;
+  }
+  if (kind === "orbital") {
+    const p = parseFields<OrbitalAnnotation>(raw, ORBITAL_SPEC, ORBITAL_REQUIRED, report);
+    return p ? ({ variant: "p", angle: 0, ...p, kind: "orbital", id: forcedId ?? p.id ?? nextId() } as OrbitalAnnotation) : null;
+  }
+  if (kind === "tlc") {
+    const p = parseFields<TlcPlateAnnotation>(raw, TLC_SPEC, TLC_REQUIRED, report);
+    return p ? ({ spots: [], ...p, kind: "tlc", id: forcedId ?? p.id ?? nextId() } as TlcPlateAnnotation) : null;
   }
   return null;
 }

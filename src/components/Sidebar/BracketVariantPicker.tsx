@@ -8,7 +8,7 @@ interface BracketVariantPickerProps {
   active: boolean;
 }
 
-const VARIANTS: BracketVariant[] = ["paren", "square"];
+const VARIANTS: BracketVariant[] = ["paren", "square", "curly"];
 
 /**
  * Picks the bracket *style* only — the bracket tool always places a

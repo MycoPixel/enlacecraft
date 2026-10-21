@@ -24,7 +24,10 @@ type DragState =
   | { mode: "marquee"; base: Set<string>; annotationBase: Set<string>; start: Point }
   | { mode: "lasso"; base: Set<string>; annotationBase: Set<string>; points: Point[] }
   | { mode: "arrow-draw"; start: Point }
-  | { mode: "bracket-draw"; start: Point };
+  | { mode: "bracket-draw"; start: Point }
+  | { mode: "shape-draw"; start: Point }
+  | { mode: "orbital-draw"; start: Point }
+  | { mode: "tlc-draw"; start: Point };
 
 /** The user's angle-snapping preference, in radians, read fresh from the
  * store at each use rather than captured in a hook dependency. Every call
@@ -187,6 +190,9 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     store.setChainPreview(null);
     store.setArrowPreview(null);
     store.setBracketPairPreview(null);
+    store.setShapePreview(null);
+    store.setOrbitalPreview(null);
+    store.setTlcPreview(null);
     store.setAtomMoveAnchor(null);
 
     // Only these three modes mutate the molecule before release, and each
@@ -326,6 +332,24 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (tool === "arrow") {
       store.setSelectedAnnotationIds(new Set());
       dragRef.current = { mode: "arrow-draw", start: pt };
+      return;
+    }
+
+    if (tool === "shape") {
+      store.setSelectedAnnotationIds(new Set());
+      dragRef.current = { mode: "shape-draw", start: pt };
+      return;
+    }
+
+    if (tool === "orbital") {
+      store.setSelectedAnnotationIds(new Set());
+      dragRef.current = { mode: "orbital-draw", start: pt };
+      return;
+    }
+
+    if (tool === "tlc") {
+      store.setSelectedAnnotationIds(new Set());
+      dragRef.current = { mode: "tlc-draw", start: pt };
       return;
     }
 
@@ -522,7 +546,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
-    if (tool.startsWith("bond") || tool === "wedge" || tool === "dash" || tool === "wavy") {
+    if (tool.startsWith("bond") || tool === "wedge" || tool === "dash" || tool === "wavy" || tool === "bold" || tool === "bold-hash" || tool === "dashed") {
       if (hitBond) {
         if (tool === "wedge" || tool === "dash") {
           // Clicking the wedge/dash tool again on a bond that's already
@@ -536,6 +560,12 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
           }
         } else if (tool === "wavy") {
           store.setBondStereo(hitBond, "wavy");
+        } else if (tool === "bold") {
+          store.setBondStereo(hitBond, "bold");
+        } else if (tool === "bold-hash") {
+          store.setBondStereo(hitBond, "boldHash");
+        } else if (tool === "dashed") {
+          store.setBondStereo(hitBond, "dashed");
         } else if (tool === "bond-2" && molecule.bonds[hitBond].order === 2) {
           // Clicking the double-bond tool again on an existing double bond
           // cycles the second line: center -> left -> right -> center.
@@ -800,6 +830,24 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
     if (drag.mode === "bracket-draw") {
       store.setBracketPairPreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
+      return;
+    }
+
+    if (drag.mode === "shape-draw") {
+      store.setShapePreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
+      store.setStatus("status.dragShape");
+      return;
+    }
+
+    if (drag.mode === "orbital-draw") {
+      store.setOrbitalPreview({ cx: drag.start.x, cy: drag.start.y, x: pt.x, y: pt.y });
+      store.setStatus("status.dragOrbital");
+      return;
+    }
+
+    if (drag.mode === "tlc-draw") {
+      store.setTlcPreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
+      store.setStatus("status.dragTlc");
     }
   }, [clientToWorld, abortDrag, pickAtom, pickBond, clearLongPress]);
 
@@ -942,7 +990,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       }
 
       const order = (tool === "bond-2" ? 2 : tool === "bond-3" ? 3 : 1) as BondOrder;
-      const stereo: BondStereo = tool === "wedge" ? "wedge" : tool === "dash" ? "dash" : tool === "wavy" ? "wavy" : "none";
+      const stereo: BondStereo = tool === "wedge" ? "wedge"
+        : tool === "dash" ? "dash"
+        : tool === "wavy" ? "wavy"
+        : tool === "bold" ? "bold"
+        : tool === "bold-hash" ? "boldHash"
+        : tool === "dashed" ? "dashed"
+        : "none";
       store.addBond(from, toAtom, stereo === "none" ? order : 1, stereo);
       store.setStatus("status.ready");
       return;
@@ -1017,6 +1071,33 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const pt = clientToWorld(e.clientX, e.clientY);
       const { openId, closeId } = store.addBracketPair(drag.start, pt, store.bracketVariant);
       store.setSelectedAnnotationIds(new Set([openId, closeId]));
+      store.setTool("select");
+      return;
+    }
+
+    if (drag.mode === "shape-draw") {
+      store.setShapePreview(null);
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const id = store.addShapeAnnotation(drag.start, pt, store.shapeVariant, store.shapeFilled);
+      store.setSelectedAnnotationIds(new Set([id]));
+      store.setTool("select");
+      return;
+    }
+
+    if (drag.mode === "orbital-draw") {
+      store.setOrbitalPreview(null);
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const id = store.addOrbitalAnnotation(drag.start, pt, store.orbitalVariant, store.orbitalFilled);
+      store.setSelectedAnnotationIds(new Set([id]));
+      store.setTool("select");
+      return;
+    }
+
+    if (drag.mode === "tlc-draw") {
+      store.setTlcPreview(null);
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const id = store.addTlcPlate(drag.start, pt);
+      store.setSelectedAnnotationIds(new Set([id]));
       store.setTool("select");
     }
   }, [clientToWorld, pickAtom, pickBond, abortDrag, clearLongPress]);

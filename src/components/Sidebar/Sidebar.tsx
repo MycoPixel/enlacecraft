@@ -19,13 +19,15 @@ import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
 import { BracketVariantPicker } from "./BracketVariantPicker";
+import { ShapeVariantPicker, MiniShape } from "./ShapeVariantPicker";
+import { OrbitalVariantPicker, MiniOrbital } from "./OrbitalVariantPicker";
 import { ToolDropdown } from "./ToolDropdown";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { HighlightColorPicker } from "./HighlightColorPicker";
 import { SnapAnglePicker } from "./SnapAnglePicker";
-import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon } from "./MarkIcons";
+import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon, TlcIcon } from "./MarkIcons";
 import { useT } from "../../i18n/useT";
-import type { ArrowHeadSize, ArrowVariant, BracketVariant } from "../../types/chemistry";
+import type { ArrowHeadSize, ArrowVariant, BracketVariant, OrbitalVariant, ShapeVariant } from "../../types/chemistry";
 
 export function Sidebar() {
   const tool = useMoleculeStore((s) => s.tool);
@@ -79,6 +81,19 @@ export function Sidebar() {
   const setArrowBarb = useMoleculeStore((s) => s.setArrowBarb);
   const arrowHeadSize = useMoleculeStore((s) => s.arrowHeadSize);
   const setArrowHeadSize = useMoleculeStore((s) => s.setArrowHeadSize);
+  const arrowDashed = useMoleculeStore((s) => s.arrowDashed);
+  const setArrowDashed = useMoleculeStore((s) => s.setArrowDashed);
+  const setArrowDashedOf = useMoleculeStore((s) => s.setArrowDashedOf);
+  const shapeVariant = useMoleculeStore((s) => s.shapeVariant);
+  const setShapeVariant = useMoleculeStore((s) => s.setShapeVariant);
+  const shapeFilled = useMoleculeStore((s) => s.shapeFilled);
+  const setShapeFilled = useMoleculeStore((s) => s.setShapeFilled);
+  const setShapeStyleOf = useMoleculeStore((s) => s.setShapeStyleOf);
+  const orbitalVariant = useMoleculeStore((s) => s.orbitalVariant);
+  const setOrbitalVariant = useMoleculeStore((s) => s.setOrbitalVariant);
+  const orbitalFilled = useMoleculeStore((s) => s.orbitalFilled);
+  const setOrbitalFilled = useMoleculeStore((s) => s.setOrbitalFilled);
+  const setOrbitalStyleOf = useMoleculeStore((s) => s.setOrbitalStyleOf);
   const t = useT();
   const sidebarWidth = useMoleculeStore((s) => s.sidebarWidth);
   const setSidebarWidth = useMoleculeStore((s) => s.setSidebarWidth);
@@ -108,6 +123,10 @@ export function Sidebar() {
   const singleSelectedAnnotationId = selectedAnnotationIds.size === 1 ? [...selectedAnnotationIds][0] : null;
   const selectedArrowId =
     singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "arrow" ? singleSelectedAnnotationId : null;
+  const selectedShapeId =
+    singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "shape" ? singleSelectedAnnotationId : null;
+  const selectedOrbitalId =
+    singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "orbital" ? singleSelectedAnnotationId : null;
 
   // Sets both the shape and barb a *newly drawn* arrow will use. But if an
   // existing arrow is selected when you pick one — the whole reason the
@@ -123,6 +142,34 @@ export function Sidebar() {
       setArrowVariantOf(selectedArrowId, variant);
       setArrowBarbOf(selectedArrowId, barb);
     }
+  };
+
+  // Dashed toggle: same dual behavior — updates the next arrow's default
+  // AND any arrow currently selected (what the toggle is visibly for).
+  const chooseArrowDashed = (d: boolean) => {
+    setArrowDashed(d);
+    if (selectedArrowId) setArrowDashedOf(selectedArrowId, d);
+  };
+
+  // Shape/orbital pickers: same pattern as chooseArrow — picking a style
+  // arms the tool for the next placement and restyles a selected one.
+  const chooseShape = (variant: ShapeVariant) => {
+    setShapeVariant(variant);
+    setTool("shape");
+    if (selectedShapeId) setShapeStyleOf(selectedShapeId, variant, shapeFilled);
+  };
+  const chooseShapeFilled = (filled: boolean) => {
+    setShapeFilled(filled);
+    if (selectedShapeId) setShapeStyleOf(selectedShapeId, shapeVariant, filled);
+  };
+  const chooseOrbital = (variant: OrbitalVariant) => {
+    setOrbitalVariant(variant);
+    setTool("orbital");
+    if (selectedOrbitalId) setOrbitalStyleOf(selectedOrbitalId, variant, orbitalFilled);
+  };
+  const chooseOrbitalFilled = (filled: boolean) => {
+    setOrbitalFilled(filled);
+    if (selectedOrbitalId) setOrbitalStyleOf(selectedOrbitalId, orbitalVariant, filled);
   };
 
   // Head size only applies to the full-arrowhead style, so picking one
@@ -283,6 +330,15 @@ export function Sidebar() {
         <ToolButton title={t("tool.wavy")} active={tool === "wavy"} onClick={() => setTool("wavy")}>
           {BondGlyph.wavy}
         </ToolButton>
+        <ToolButton title={t("tool.bold")} active={tool === "bold"} onClick={() => setTool("bold")}>
+          {BondGlyph.bold}
+        </ToolButton>
+        <ToolButton title={t("tool.boldHash")} active={tool === "bold-hash"} onClick={() => setTool("bold-hash")}>
+          {BondGlyph.boldHash}
+        </ToolButton>
+        <ToolButton title={t("tool.dashed")} active={tool === "dashed"} onClick={() => setTool("dashed")}>
+          {BondGlyph.dashed}
+        </ToolButton>
         <ToolButton title={t("tool.chain")} active={tool === "chain"} onClick={() => setTool("chain")}>
           {BondGlyph.chain}
         </ToolButton>
@@ -401,6 +457,8 @@ export function Sidebar() {
                 value={arrowBarb === "full" ? arrowVariant : "curved"}
                 barb="full"
                 headSize={arrowHeadSize}
+                dashed={arrowDashed}
+                onDashedChange={(d) => chooseArrowDashed(d)}
                 active={tool === "arrow" && arrowBarb === "full"}
                 onChange={(v) => { chooseArrow(v, "full"); close(); }}
               />
@@ -412,7 +470,7 @@ export function Sidebar() {
             </div>
           )}
         >
-          <MiniArrow variant={arrowBarb === "full" ? arrowVariant : "curved"} barb="full" headSize={arrowHeadSize} />
+          <MiniArrow variant={arrowBarb === "full" ? arrowVariant : "curved"} barb="full" headSize={arrowHeadSize} dashed={arrowDashed} />
         </ToolDropdown>
         <ToolDropdown
           title={t("tool.arrowFishhook")}
@@ -433,6 +491,39 @@ export function Sidebar() {
         )}>
           <Brackets size={18} />
         </ToolDropdown>
+        <ToolDropdown
+          title={t("tool.shape")}
+          active={tool === "shape"}
+          renderContent={(close) => (
+            <ShapeVariantPicker
+              variant={shapeVariant}
+              filled={shapeFilled}
+              active={tool === "shape"}
+              onChange={(v) => { chooseShape(v); close(); }}
+              onFilledChange={(f) => chooseShapeFilled(f)}
+            />
+          )}
+        >
+          <MiniShape variant={shapeVariant} />
+        </ToolDropdown>
+        <ToolDropdown
+          title={t("tool.orbital")}
+          active={tool === "orbital"}
+          renderContent={(close) => (
+            <OrbitalVariantPicker
+              variant={orbitalVariant}
+              filled={orbitalFilled}
+              active={tool === "orbital"}
+              onChange={(v) => { chooseOrbital(v); close(); }}
+              onFilledChange={(f) => chooseOrbitalFilled(f)}
+            />
+          )}
+        >
+          <MiniOrbital variant={orbitalVariant} filled={orbitalFilled} />
+        </ToolDropdown>
+        <ToolButton title={t("tool.tlc")} active={tool === "tlc"} onClick={() => setTool("tlc")}>
+          <TlcIcon />
+        </ToolButton>
         <ToolButton title={t("tool.plus")} active={tool === "plus"} onClick={() => setTool("plus")}>
           <Plus size={18} />
         </ToolButton>

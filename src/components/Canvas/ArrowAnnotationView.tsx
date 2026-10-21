@@ -157,6 +157,9 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
   const midX = (x1 + x2) / 2 + nx * bow;
   const midY = (y1 + y2) / 2 + ny * bow;
   const isCurved = variant === "curved" || variant === "curvedReverse";
+  // Dashed-shaft option (see ArrowAnnotation.dashed) — applies to the
+  // straight variants only; curved arrows ignore it.
+  const dashAttrs = annotation.dashed && !isCurved ? { strokeDasharray: "6 4" } : {};
 
   return (
     <g
@@ -169,7 +172,7 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth={16} onPointerDown={onBodyPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} style={{ cursor: "move" }} />
 
       {variant === "forward" && (
-        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.6} markerEnd={`url(#${markerId})`} pointerEvents="none" />
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.6} markerEnd={`url(#${markerId})`} pointerEvents="none" {...dashAttrs} />
       )}
 
       {isCurved && (
@@ -181,20 +184,50 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
       )}
 
       {variant === "resonance" && (
-        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.6} markerEnd={`url(#${markerId})`} markerStart={`url(#${markerId})`} pointerEvents="none" />
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.6} markerEnd={`url(#${markerId})`} markerStart={`url(#${markerId})`} pointerEvents="none" {...dashAttrs} />
       )}
+
+      {variant === "retrosynthetic" && (() => {
+        // The disconnection arrow of retrosynthetic analysis: a double-shaft
+        // arrow with a large OPEN (bar-only, unfilled) head pointing back at
+        // the precursor. Drawn with plain strokes rather than the fill
+        // markers the other variants use, so the head stays open and the
+        // two shafts stay parallel regardless of zoom.
+        const o = 2.6; // half-spacing between the two shafts
+        const headLen = Math.min(16, len * 0.3); // shaft-to-tip distance of the open head
+        const headHalf = Math.min(7, len * 0.16); // half-width of the open head's bar
+        const ux = dx / len, uy = dy / len;
+        const tipX = x2, tipY = y2;
+        return (
+          <g stroke={color} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" {...dashAttrs}>
+            <line x1={x1 + nx * o} y1={y1 + ny * o} x2={x2 + nx * o} y2={y2 + ny * o} />
+            <line x1={x1 - nx * o} y1={y1 - ny * o} x2={x2 - nx * o} y2={y2 - ny * o} />
+            {/* Open head: two bars from the tip, one hugging each shaft's side. */}
+            <line
+              x1={tipX} y1={tipY}
+              x2={tipX - ux * headLen + nx * headHalf}
+              y2={tipY - uy * headLen + ny * headHalf}
+            />
+            <line
+              x1={tipX} y1={tipY}
+              x2={tipX - ux * headLen - nx * headHalf}
+              y2={tipY - uy * headLen - ny * headHalf}
+            />
+          </g>
+        );
+      })()}
 
       {variant === "equilibrium" && (
         <>
           {/* Top line points from start toward end (right, in the arrow's own direction). */}
           <line
             x1={x1 - nx * gap} y1={y1 - ny * gap} x2={x2 - nx * gap} y2={y2 - ny * gap}
-            stroke={color} strokeWidth={1.4} markerEnd={`url(#${markerId})`} pointerEvents="none"
+            stroke={color} strokeWidth={1.4} markerEnd={`url(#${markerId})`} pointerEvents="none" {...dashAttrs}
           />
           {/* Bottom line points the opposite way (from end back toward start). */}
           <line
             x1={x2 + nx * gap} y1={y2 + ny * gap} x2={x1 + nx * gap} y2={y1 + ny * gap}
-            stroke={color} strokeWidth={1.4} markerEnd={`url(#${markerId})`} pointerEvents="none"
+            stroke={color} strokeWidth={1.4} markerEnd={`url(#${markerId})`} pointerEvents="none" {...dashAttrs}
           />
         </>
       )}
