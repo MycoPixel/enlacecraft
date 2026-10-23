@@ -80,10 +80,11 @@ build.
   even though PubChem itself is indexed mostly in English — see below
 - Import/export MOL (V2000, including `M  CHG` charges and `M  ISO` isotope
   labels), import/export CDXML as a full document — molecules *plus* reaction/
-  resonance/equilibrium/retrosynthetic/curved arrows, brackets & braces,
-  rectangles/ovals/lines, bold & dashed bonds, and styled text captions
-  (underline, size, color — see `io/cdxml.ts` for what does and doesn't
-  round-trip), import SMILES and
+  resonance/equilibrium/retrosynthetic/curved arrows, square/curly/paren
+  brackets, rectangles/ovals/lines, bold & dashed bonds, and styled text
+  captions (underline, size, color — see `io/cdxml.ts` for what does and
+  doesn't round-trip), with orbitals and TLC plates imported too, import
+  SMILES and
   .smi/.smiles files (via OpenChemLib's parser bridged onto the MOL importer —
   stereochemistry, charges, and multi-fragment salts included), export SMILES,
   and export PNG/SVG
@@ -448,5 +449,5 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
   arrows import but don't export (CDX's arc geometry for them is undocumented);
   the bold wedged hash degrades to the ordinary wedged hash on export (CDX has
   no distinct Display value for it), and dashed arrow shafts are app-only.
-  Orbitals and TLC plates have no CDXML representation at all — they persist
-  through the project format only.
+  ChemDraw's orbital glyphs and TLC plates import, but this writer does not
+  emit them — they persist losslessly through the project format only.

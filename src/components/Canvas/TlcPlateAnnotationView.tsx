@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import type { Annotation, Molecule, Point, TlcPlateAnnotation } from "../../types/chemistry";
-import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { TLC_BASELINE_FRACTION, TLC_FRONT_FRACTION, tlcSpotPosition } from "../../model/geometry";
+import { TLC_SPOT_GRAB_RADIUS, useMoleculeStore } from "../../store/useMoleculeStore";
+import { dist, TLC_BASELINE_FRACTION, TLC_FRONT_FRACTION, tlcSpotPosition } from "../../model/geometry";
 
 interface TlcPlateAnnotationViewProps {
   annotation: TlcPlateAnnotation;
@@ -12,6 +12,22 @@ interface TlcPlateAnnotationViewProps {
 type Snapshot = { molecule: Molecule; annotations: Record<string, Annotation> };
 
 const MIN_SIZE = 20;
+
+/** Index of the spot nearest to `pt` if it lies within the grab radius, else
+ * null — used by the TLC tool to decide whether a click drags an existing
+ * spot or spots a new one. */
+const nearestTlcSpotHit = (plate: TlcPlateAnnotation, pt: Point): number | null => {
+  let bestIdx = -1;
+  let bestD = Infinity;
+  plate.spots.forEach((spot, i) => {
+    const d = dist(tlcSpotPosition(plate, spot), pt);
+    if (d < bestD) {
+      bestD = d;
+      bestIdx = i;
+    }
+  });
+  return bestIdx < 0 || bestD > TLC_SPOT_GRAB_RADIUS ? null : bestIdx;
+};
 
 /**
  * A thin-layer chromatography plate: frame, pencil baseline, solvent front,
@@ -28,6 +44,7 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
   const moveAnnotationTransient = useMoleculeStore((s) => s.moveAnnotationTransient);
   const moveAnnotationsTransient = useMoleculeStore((s) => s.moveAnnotationsTransient);
   const updateTlcSize = useMoleculeStore((s) => s.updateTlcSize);
+  const moveTlcSpot = useMoleculeStore((s) => s.moveTlcSpot);
   const commitCheckpoint = useMoleculeStore((s) => s.commitCheckpoint);
   const deleteAnnotation = useMoleculeStore((s) => s.deleteAnnotation);
 
@@ -35,6 +52,7 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
     | { kind: "move"; startClient: Point; origin: Point; before: Snapshot }
     | { kind: "group"; startClient: Point; origins: Record<string, Annotation>; before: Snapshot }
     | { kind: "resize"; startClient: Point; startSize: { width: number; height: number }; before: Snapshot }
+    | { kind: "spot"; startClient: Point; spotIndex: number; origin: { fx: number; fy: number }; before: Snapshot }
     | null
   >(null);
 
@@ -54,8 +72,23 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
         const rect = svg.getBoundingClientRect();
         const { view } = useMoleculeStore.getState();
         const pt: Point = { x: (e.clientX - rect.left - view.tx) / view.scale, y: (e.clientY - rect.top - view.ty) / view.scale };
-        if (e.shiftKey) store.removeNearestTlcSpot(annotation.id, pt);
-        else store.addTlcSpot(annotation.id, pt);
+        // Drag an existing spot if the click lands on one; otherwise add a
+        // new spot (Shift+click removes the nearest one).
+        const hit = nearestTlcSpotHit(annotation, pt);
+        if (hit != null) {
+          (e.currentTarget as Element).setPointerCapture(e.pointerId);
+          const spot = annotation.spots[hit];
+          dragRef.current = {
+            kind: "spot",
+            startClient: { x: e.clientX, y: e.clientY },
+            spotIndex: hit,
+            origin: { fx: spot.fx, fy: spot.fy },
+            before: store.snapshotBefore(),
+          };
+          return;
+        }
+        if (e.shiftKey) { store.removeNearestTlcSpot(annotation.id, pt); return; }
+        store.addTlcSpot(annotation.id, pt);
       }
       return;
     }
@@ -89,7 +122,7 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
       origin: { x: annotation.x, y: annotation.y },
       before: store.snapshotBefore(),
     };
-  }, [annotation.id, annotation.x, annotation.y, deleteAnnotation, setSelectedAnnotationIds]);
+  }, [annotation, deleteAnnotation, setSelectedAnnotationIds]);
 
   const onResizePointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation();
@@ -106,6 +139,19 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;
     if (!drag) return;
+    if (drag.kind === "spot") {
+      const svg = (e.target as SVGElement).ownerSVGElement;
+      if (svg) {
+        const rect = svg.getBoundingClientRect();
+        const { view } = useMoleculeStore.getState();
+        const pt: Point = {
+          x: (e.clientX - rect.left - view.tx) / view.scale,
+          y: (e.clientY - rect.top - view.ty) / view.scale,
+        };
+        moveTlcSpot(annotation.id, drag.spotIndex, pt);
+      }
+      return;
+    }
     if (drag.kind === "move") {
       const dx = (e.clientX - drag.startClient.x) / viewScale;
       const dy = (e.clientY - drag.startClient.y) / viewScale;
@@ -121,7 +167,7 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
     const dw = (e.clientX - drag.startClient.x) / viewScale;
     const dh = (e.clientY - drag.startClient.y) / viewScale;
     updateTlcSize(annotation.id, Math.max(MIN_SIZE, drag.startSize.width + dw), Math.max(MIN_SIZE, drag.startSize.height + dh));
-  }, [annotation.id, moveAnnotationTransient, moveAnnotationsTransient, updateTlcSize, viewScale]);
+  }, [annotation.id, moveAnnotationTransient, moveAnnotationsTransient, updateTlcSize, moveTlcSpot, viewScale]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;

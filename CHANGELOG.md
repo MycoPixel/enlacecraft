@@ -5,6 +5,49 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## Unreleased
+
+CDXML import is fixed and widened — opening a ChemDraw drawing now lands what
+was actually drawn on the canvas:
+
+- **`<arrow>` elements from current ChemDraw** (which write `Head3D`/`Tail3D`,
+  `ArrowheadHead`/`ArrowheadTail`, and `AngularSize` instead of `x1/y1/x2/y2`)
+  now import — plain reaction arrows, resonance arrows, curved mechanism
+  arrows with the correct bulge side via the arc's bounding box, and both
+  ends-headed/half-headed variants.
+- **Stale graphics no longer import twice**: a graphic ChemDraw marked
+  `SupersededBy` (left behind when it upgraded an arrow) is skipped, so its
+  replacement arrow arrives once and no stray line remains.
+- **Brackets** import with normalized boxes (a bracket drawn bottom-up no
+  longer collapses to zero height), `BracketType` (`Curly`/`Round`) selects
+  curly-brace vs. paren glyphs, and `<bracketedgroup>`/`<bracketattachment>`
+  pairs decide each narrow glyph's open/close facing.
+- **Orbital glyphs** (`<graphic GraphicType="Orbital">`, s/p/lobe) map onto
+  the app's orbital annotations, and **TLC plates** (`<tlcplate>`/`<tlclane>`/
+  `<tlcspot>` with `Rf`) map onto TLC plate annotations — both import-only,
+  preserved losslessly in the project format.
+- CDX color indexing corrected: color `0` is black/default, `1` is white, and
+  the `<colortable>` entries start at index 2 — so TLC spots no longer import
+  white/invisible, and caption color round-trips correctly.
+- Imported CDXML drawings are reframed after import (`resetView`), since their
+  coordinates are absolute page coordinates and could open partly off-screen.
+- The user's reported file (`C:\Users\Paulo\Downloads\dibujo prueba.cdxml`,
+  duplicate `untitled.cdxml`) is bundled as `src/io/fixtures/chemdraw-scheme.cdxml`
+  and covered by an end-to-end regression test (14 atoms, 14 bonds, 1 charged
+  atom, wavy/wedge/bold bonds, 2 arrows, 1 orbital, 4 brackets, 1 TLC plate).
+
+### Brackets and TLC plates
+- **Curly brackets no longer import/draw backwards**: `open` now anchors at the
+  right edge and curls left, `close` anchors at the left and curls right, so a
+  pair faces inward toward the enclosed fragment the way ChemDraw (and the
+  app's own bracket tool) draws them. Square brackets and parentheses were
+  already correct; only the curly-brace path had its anchor/protrude swapped.
+- **TLC spots are draggable**: with the TLC tool active, clicking an existing
+  spot grabs it and dragging moves it (fractional `fx`/`fy` recomputed and
+  clamped to the plate); click still adds a spot, and Shift+click still removes
+  the nearest one. Previously spots could only be added or removed, never
+  repositioned.
+
 ## 1.16.0
 
 Two frontiers move at once: chemistry *data* can now come in as text (SMILES,

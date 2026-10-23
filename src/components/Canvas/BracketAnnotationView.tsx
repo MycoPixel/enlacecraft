@@ -51,9 +51,13 @@ export function bracketPath(ann: BracketAnnotation): string {
     return `M ${anchorX},${y} C ${peakX},${y + h * 0.15} ${peakX},${y + h * 0.85} ${anchorX},${y + h}`;
   }
 
-  // curly
-  const anchorX = open ? x : x + w;
-  const protrude = open ? w : -w;
+  // curly — anchor sits on the edge that abuts the enclosed content and the
+  // brace curls inward (toward the other glyph), so "open" on the left of a
+  // pair faces right and "close" on the right faces left. The protrusion is
+  // deliberately inverted relative to anchorX so the tip lands on the far
+  // side of the anchor.
+  const anchorX = open ? x + w : x;
+  const protrude = open ? -w : w;
   return curlyBracePath(anchorX, y, y + h, protrude);
 }
 

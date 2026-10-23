@@ -1,13 +1,17 @@
 import type {
   Annotation,
   ArrowAnnotation,
+  ArrowHeadSize,
   BondOrder,
   BondStereo,
   BracketAnnotation,
   Element as ChemElement,
   Molecule,
+  OrbitalAnnotation,
   ShapeAnnotation,
   TextAnnotation,
+  TlcPlateAnnotation,
+  TlcSpot,
 } from "../types/chemistry";
 import { emptyMolecule } from "../model/molecule";
 import { BOND_LEN, PERIODIC_TABLE } from "../model/constants";
@@ -36,10 +40,11 @@ import { sanitizeAnnotationList } from "./sanitizeHtml";
  * this app's annotation layer: reaction and mechanism arrows (straight,
  * equilibrium, resonance, retrosynthetic, curved arcs with full or fishhook
  * heads), caption text (bold/italic/underline/sub/superscript plus inline
- * font-size and color runs), square/curly brackets, and the plain graphics
+ * font-size and color runs), square/curly/paren brackets, the plain graphics
  * primitives (rectangles, ovals, headless lines — imported as this app's
- * shape annotations). See importCdxmlDocument's doc comment for the honest
- * list of approximations the arrow/text mapping makes, and
+ * shape annotations), orbital glyphs, and TLC plates with their lanes/spots.
+ * See importCdxmlDocument's doc comment for the honest list of
+ * approximations the arrow/text mapping makes, and
  * exportCdxmlDocument's for what is deliberately left out of the written
  * file.
  *
@@ -55,9 +60,7 @@ import { sanitizeAnnotationList } from "./sanitizeHtml";
  * ChemDraw can't open, which is worse than the label simply not surviving
  * the round trip; MOL export (molfile.ts) preserves the label instead, via
  * the well-established convention of writing the abbreviation directly as
- * the atom symbol), and the annotation kinds CDXML has no concept of at all
- * (orbital glyphs, TLC plates — this app-only, preserved by the project
- * format).
+ * the atom symbol).
  */
 
 /** Atomic number <-> element symbol, derived from the full PERIODIC_TABLE
@@ -103,8 +106,10 @@ type CdxHeadClass = "none" | "half" | "full";
 function cdxHeadClass(raw: string | null): CdxHeadClass {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v || v === "nohead" || v === "none") return "none";
-  if (v === "halfhead") return "half";
-  if (v.includes("head") || v.includes("retro")) return "full";
+  // ChemDraw writes bare "Half"/"Full" on <arrow> elements (ArrowheadHead,
+  // ArrowheadTail) and the longer "...Head" names on legacy line graphics.
+  if (v === "half" || v === "halfhead") return "half";
+  if (v === "full" || v.includes("head") || v.includes("retro")) return "full";
   return "none";
 }
 
@@ -122,7 +127,8 @@ interface CdxTextRun {
   /** Effective run size in points (already converted from the annotation's
    * px fontSize), or null to omit the size attribute entirely. */
   sizePt: number | null;
-  /** Index into the file's colortable, or null for plain black. */
+  /** CDX color index: 0 = black (the default), 1 = white, 2+ = the file's
+   * colortable entries in order. */
   colorIdx: number | null;
 }
 
@@ -279,17 +285,21 @@ function to2(v: number): string {
   return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
 }
 
-/** The colortable shared by one exported document. CDX references colors
- * by index; entry 0 is white and entry 1 is black by convention (matching
- * what ChemDraw itself writes), so any non-black text color the annotation
+/** The colortable shared by one exported document. CDX reserves color
+ * indexes 0 (black) and 1 (white); the saved table's entries are indexes
+ * 2, 3, 4... in order (see the CDX ColorTable property: "Color indexes 0
+ * and 1 always correspond to black and white and are not saved in the
+ * color table"). Entry 0 is white and entry 1 black, matching what
+ * ChemDraw itself writes, so any non-black text color the annotation
  * toolbar produced gets appended on first use. */
 let exportPalette: string[] = [];
 
 function colorPaletteIndex(cssColor: string): number {
-  const idx = exportPalette.indexOf(cssColor.toLowerCase());
-  if (idx >= 0) return idx;
-  exportPalette.push(cssColor.toLowerCase());
-  return exportPalette.length - 1;
+  const color = cssColor.toLowerCase();
+  const idx = exportPalette.indexOf(color);
+  if (idx >= 0) return idx + 2;
+  exportPalette.push(color);
+  return exportPalette.length + 1;
 }
 
 export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], name = "molecule"): string {
@@ -482,7 +492,9 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
         if (run.sizePt != null) attrs += ` size="${run.sizePt.toFixed(2)}"`;
         else if (sizePt != null) attrs += ` size="${sizePt}"`;
         if (run.face) attrs += ` face="${run.face}"`;
-        if (run.colorIdx != null && run.colorIdx !== 1) attrs += ` color="${run.colorIdx}"`;
+        // 3 is the index of the reserved black entry; default ink needs no
+        // color attribute at all.
+        if (run.colorIdx != null && run.colorIdx !== 3) attrs += ` color="${run.colorIdx}"`;
         out += `<s${attrs}>${escapeXml(run.text)}</s>`;
       }
       out += `</t>\n`;
@@ -574,6 +586,62 @@ function parseBBox(el: Element): [number, number, number, number] | null {
   return parts as [number, number, number, number];
 }
 
+/** Parses one of ChemDraw's 2D/3D point attributes ("x y" or "x y z") into
+ * its two drawing coordinates. Z is irrelevant here — this app's canvas is
+ * purely 2D. */
+function parsePoint(el: Element, attr: string): { x: number; y: number } | null {
+  const parts = (el.getAttribute(attr) ?? "").trim().split(/\s+/).map(Number);
+  if (parts.length < 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) return null;
+  return { x: parts[0], y: parts[1] };
+}
+
+/** Maps CDX's HeadSize (a width in 1/1000 drawing units) onto the app's
+ * three arrowhead sizes. Unknown/absent values keep the renderer's default
+ * ("medium"), so the common case writes nothing. */
+function cdxHeadSize(raw: string | null): ArrowHeadSize | undefined {
+  const v = parseFloat(raw ?? "");
+  if (!Number.isFinite(v) || v <= 0) return undefined;
+  if (v < 1400) return "small";
+  if (v <= 2600) return "medium";
+  return "large";
+}
+
+/**
+ * Works out which way a CDX arc bulges, from the arc's bounding box. The
+ * file gives us the two endpoints and the bounding box the arc sweeps out;
+ * if the box's centre sits to the left of the straight tail→head chord, the
+ * arc bows one way, otherwise the other. (CDX's AngularSize angle is not
+ * enough on its own — ChemDraw writes -270° for arcs that visually sweep a
+ * quarter turn, and the exact convention is undocumented.)
+ *
+ * Returns the app's "curved"/"curvedReverse" variant plus the curvature to
+ * store (the quadratic control-point offset, so twice the arc's sagitta).
+ */
+function arcBow(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  bbox: [number, number, number, number] | null
+): { variant: "curved" | "curvedReverse"; curvature: number } {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  if (!bbox) return { variant: "curved", curvature: len * 0.22 };
+  const nx = -dy / len, ny = dx / len;
+  const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+  const boxX = (bbox[0] + bbox[2]) / 2, boxY = (bbox[1] + bbox[3]) / 2;
+  const side = (boxX - midX) * nx + (boxY - midY) * ny;
+  // Twice the distance from the chord to the box centre approximates the
+  // arc's sagitta well for the shallow arcs mechanism arrows use; longer
+  // (near-circular) sweeps are capped at the chord length so the resulting
+  // quadratic stays a useable single bulge rather than an enormous loop.
+  const sagitta = Math.hypot(boxX - midX, boxY - midY) * 2;
+  return {
+    variant: side >= 0 ? "curved" : "curvedReverse",
+    curvature: clamp(sagitta * 2, len * 0.08, len),
+  };
+}
+
 /** One single-barbed (HalfHead) straight line, oriented so (x2,y2) is the
  * harpoon's pointed end — the raw material equilibrium pairs are detected
  * from. */
@@ -653,7 +721,9 @@ function makeArrow(
   y2: number,
   variant: ArrowAnnotation["variant"],
   scale: number,
-  barb?: ArrowAnnotation["barb"]
+  barb?: ArrowAnnotation["barb"],
+  curvature?: number,
+  headSize?: ArrowAnnotation["headSize"]
 ): ArrowAnnotation {
   const px1 = x1 * scale, py1 = y1 * scale, px2 = x2 * scale, py2 = y2 * scale;
   const ann: ArrowAnnotation = {
@@ -665,10 +735,11 @@ function makeArrow(
     y2: py2,
     variant,
   };
-  if (variant === "curved") {
-    ann.curvature = Math.hypot(px2 - px1, py2 - py1) * 0.22;
+  if (variant === "curved" || variant === "curvedReverse") {
+    ann.curvature = curvature ?? Math.hypot(px2 - px1, py2 - py1) * 0.22;
     if (barb) ann.barb = barb;
   }
+  if (headSize) ann.headSize = headSize;
   return ann;
 }
 
@@ -681,8 +752,15 @@ function makeBracket(
   facing: BracketAnnotation["facing"],
   scale: number
 ): BracketAnnotation {
-  const px = x1 * scale, py = y1 * scale;
-  const pw = (x2 - x1) * scale, ph = (y2 - y1) * scale;
+  // Bounding boxes in ChemDraw files are not normalized: either corner may
+  // come first. Normalize before deriving the glyph's box — a y1 > y2 box
+  // (which ChemDraw writes for brackets drawn bottom-up) used to collapse
+  // to the 10px minimum height.
+  const left = Math.min(x1, x2);
+  const right = Math.max(x1, x2);
+  const top = Math.min(y1, y2);
+  const px = left * scale, py = top * scale;
+  const pw = (right - left) * scale, ph = (Math.max(y1, y2) - top) * scale;
   // The glyph's own width is whatever the file says, kept inside the range
   // the app's bracket tool produces (a 0-width glyph would be unselectable).
   const width = clamp(pw, 6, 40);
@@ -710,7 +788,9 @@ function makeShape(
   variant: "rectangle" | "ellipse" | "line",
   scale: number
 ): ShapeAnnotation {
-  const px = x1 * scale, py = y1 * scale;
+  // Same corner-order normalization as makeBracket: a shape's width/height
+  // must not go negative just because ChemDraw wrote the far corner first.
+  const px = Math.min(x1, x2) * scale, py = Math.min(y1, y2) * scale;
   const pw = Math.abs(x2 - x1) * scale, ph = Math.abs(y2 - y1) * scale;
   const thin = Math.max(pw, ph) > 2 && Math.min(pw, ph) <= 2;
   const isLine = variant === "line" || thin;
@@ -719,8 +799,8 @@ function makeShape(
     kind: "shape",
     x: px,
     y: py,
-    width: isLine ? (x2 - x1) * scale : Math.max(pw, 4),
-    height: isLine ? (y2 - y1) * scale : Math.max(ph, 4),
+    width: isLine ? pw : Math.max(pw, 4),
+    height: isLine ? ph : Math.max(ph, 4),
     variant: isLine ? "line" : variant,
   };
 }
@@ -754,23 +834,66 @@ function importAnnotations(
     const r = parseInt(css.slice(1, 3), 16), g = parseInt(css.slice(3, 5), 16), b = parseInt(css.slice(5, 7), 16);
     return r + g + b < 30;
   };
+  /** CDX's color indexes are 0=black, 1=white, and the file's <color>
+   * entries start at index 2 (see the ColorTable property spec). Index 0
+   * means "default ink", not "first entry of the table" — treating it as
+   * the table's white made TLC plates and spots vanish. */
+  const colorAt = (idx: number): string | undefined => {
+    if (!Number.isFinite(idx) || idx === 0) return undefined;
+    if (idx === 1) return "#ffffff";
+    return colortable[idx - 2];
+  };
+
+  // --- Bracket attachments. A <bracketedgroup> names the graphics forming
+  // its open and close glyphs (GraphicID), which is the only reliable way
+  // to tell two otherwise identical narrow glyphs apart. Sorting the
+  // attachments left-to-right gives the facings: left opens, right closes.
+  const graphicById = new Map<string, Element>();
+  for (const g of Array.from(doc.querySelectorAll("graphic"))) {
+    const id = g.getAttribute("id");
+    if (id) graphicById.set(id, g);
+  }
+  const bracketFacing = new Map<string, BracketAnnotation["facing"]>();
+  for (const group of Array.from(doc.querySelectorAll("bracketedgroup"))) {
+    const attached = Array.from(group.querySelectorAll("bracketattachment"))
+      .map((a) => {
+        const id = a.getAttribute("GraphicID");
+        const g = id ? graphicById.get(id) : undefined;
+        const bbox = g ? parseBBox(g) : null;
+        return g && bbox ? { id, x: Math.min(bbox[0], bbox[2]) } : null;
+      })
+      .filter((v): v is { id: string; x: number } => v !== null && !!v.id)
+      .sort((a, b) => a.x - b.x);
+    if (attached.length === 2) {
+      bracketFacing.set(attached[0].id, "open");
+      bracketFacing.set(attached[1].id, "close");
+    }
+  }
 
   // --- Straight-line graphics: reaction / resonance / equilibrium arrows.
   const harpoons: HarpoonLine[] = [];
   for (const g of Array.from(doc.querySelectorAll("graphic"))) {
+    // ChemDraw "upgrades" an old graphic in place and leaves the original
+    // behind with SupersededBy pointing at its replacement. Reading both
+    // would draw the arrow twice (and the stale line graphic usually has no
+    // Head/Tail, so it would also arrive as a stray plain line).
+    if (g.getAttribute("SupersededBy")) continue;
     const type = (g.getAttribute("GraphicType") ?? "").trim().toLowerCase();
     const bbox = parseBBox(g);
     if (!bbox) continue;
     const [rx1, ry1, rx2, ry2] = bbox;
 
     if (type === "line") {
-      const head = cdxHeadClass(g.getAttribute("Head"));
-      const tail = cdxHeadClass(g.getAttribute("Tail"));
+      // Older ChemDraw files name the head class in ArrowType instead of
+      // Head ("FullHead", "HalfHead", ...). Only use it when Head is
+      // genuinely absent — it describes the same pointed end.
+      const headRaw = (g.getAttribute("Head") ?? g.getAttribute("ArrowType") ?? "").trim().toLowerCase();
+      const tailRaw = (g.getAttribute("Tail") ?? "").trim().toLowerCase();
+      const head = cdxHeadClass(headRaw);
+      const tail = cdxHeadClass(tailRaw);
       // The retrosynthetic arrow is CDX's own head class on a plain line
       // graphic — check the raw attribute before collapsing to the generic
       // head classes, so the disconnection arrow keeps its meaning.
-      const headRaw = (g.getAttribute("Head") ?? "").trim().toLowerCase();
-      const tailRaw = (g.getAttribute("Tail") ?? "").trim().toLowerCase();
       const retro = headRaw.includes("retro") || tailRaw.includes("retro");
       if (retro) {
         // Orient tail -> head like a forward arrow: if the HEAD attribute
@@ -807,18 +930,21 @@ function importAnnotations(
       }
     } else if (type === "arc") {
       // Curved (mechanism) arrows: CDX stores the arc as a bounding box,
-      // whose two first corners stand in for the arc's endpoints. Which
-      // perpendicular side the arc bulges toward isn't recoverable from
-      // the box, so the variant is always "curved" — see makeArrow.
+      // whose two first corners stand in for the arc's endpoints. The
+      // bounding box's centre tells which side the arc bulges toward (see
+      // arcBow), so the imported curve at least bows the same way.
       const head = cdxHeadClass(g.getAttribute("Head"));
       const tail = cdxHeadClass(g.getAttribute("Tail"));
       if (head === "none" && tail === "none") continue;
+      const bow = arcBow(rx1, ry1, rx2, ry2, bbox);
       const headEnd = head !== "none" ? head : tail;
+      const barb = headEnd === "half" ? "single" : "full";
+      const hx = cdxHeadSize(g.getAttribute("HeadSize"));
       room();
       if (head !== "none" || tail === "none") {
-        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "curved", scale, headEnd === "half" ? "single" : "full"));
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, bow.variant, scale, barb, bow.curvature, hx));
       } else {
-        annotations.push(makeArrow(rx2, ry2, rx1, ry1, "curved", scale, headEnd === "half" ? "single" : "full"));
+        annotations.push(makeArrow(rx2, ry2, rx1, ry1, bow.variant, scale, barb, bow.curvature, hx));
       }
     } else if (type === "rectangle" || type === "rect" || type === "oval" || type === "ellipse" || type === "circle") {
       // ChemDraw's graphics-primitive tools: import as this app's shape
@@ -827,23 +953,67 @@ function importAnnotations(
       room();
       annotations.push(makeShape(rx1, ry1, rx2, ry2, type === "oval" || type === "ellipse" || type === "circle" ? "ellipse" : "rectangle", scale));
     } else if (type === "bracket" || type === "brace") {
-      const variant: BracketAnnotation["variant"] = type === "bracket" ? "square" : "curly";
-      const w = (rx2 - rx1) * scale;
+      // BracketType distinguishes the glyph shapes on a Bracket graphic:
+      // "Curly" is ChemDraw's brace, "Round" its parenthesis.
+      const bracketType = (g.getAttribute("BracketType") ?? "").trim().toLowerCase();
+      const variant: BracketAnnotation["variant"] =
+        type === "brace" || bracketType === "curly"
+          ? "curly"
+          : bracketType === "round" || bracketType === "paren"
+            ? "paren"
+            : "square";
+      const left = Math.min(rx1, rx2), right = Math.max(rx1, rx2);
+      const top = Math.min(ry1, ry2), bottom = Math.max(ry1, ry2);
+      const w = (right - left) * scale;
       room();
       if (w > 60) {
         // A bracket graphic whose bounding box spans the enclosed region
         // is ChemDraw's single two-sided bracket object: import both
         // halves so the pair reads the same way it did there.
-        annotations.push(makeBracket(rx1, ry1, rx1 + 12 / scale, ry2, variant, "open", scale));
-        annotations.push(makeBracket(rx2 - 12 / scale, ry1, rx2, ry2, variant, "close", scale));
+        annotations.push(makeBracket(left, top, left + 12 / scale, bottom, variant, "open", scale));
+        annotations.push(makeBracket(right - 12 / scale, top, right, bottom, variant, "close", scale));
       } else {
-        // A narrow graphic is one glyph; which side of a pair it sat on
-        // isn't recorded, so default to an open-facing glyph — the common
-        // case for a lone bracket, and trivially flippable in-app.
-        annotations.push(makeBracket(rx1, ry1, rx2, ry2, variant, "open", scale));
+        // A narrow graphic is one glyph. Its facing is only recorded when
+        // it belongs to a <bracketedgroup>; otherwise default to open (the
+        // common case for a lone bracket, and trivially flippable in-app).
+        const id = g.getAttribute("id");
+        const facing = (id ? bracketFacing.get(id) : undefined) ?? "open";
+        annotations.push(makeBracket(left, top, right, bottom, variant, facing, scale));
       }
+    } else if (type === "orbital") {
+      // ChemDraw's orbital glyphs map onto this app's own orbital tool:
+      // "s" is the circle, "p" the dumbbell, and the single-lobe kinds
+      // (lobe/hybrid) the teardrop. The bounding box is the glyph's full
+      // extent, so its centre is the nucleus and half its long axis is the
+      // lobe length the app stores.
+      const rawType = (g.getAttribute("OrbitalType") ?? "").trim().toLowerCase();
+      const variant: OrbitalAnnotation["variant"] =
+        rawType === "s" ? "s" : rawType === "lobe" || rawType.includes("hybrid") || rawType.includes("sp") ? "lobe" : "p";
+      const left = Math.min(rx1, rx2), right = Math.max(rx1, rx2);
+      const top = Math.min(ry1, ry2), bottom = Math.max(ry1, ry2);
+      const w = (right - left) * scale, h = (bottom - top) * scale;
+      const cx = ((left + right) / 2) * scale, cy = ((top + bottom) / 2) * scale;
+      // The long axis is the orbital's axis (0° = pointing right; the app's
+      // y grows downward, so a vertical glyph points up at -90°).
+      const vertical = h >= w;
+      const angle = variant === "s" ? 0 : vertical ? -90 : 0;
+      // An "s" circle's radius is 0.55 × size in the renderer; p lobes reach
+      // `size` each way from the nucleus.
+      const size = variant === "s" ? Math.max(w, h) / 1.1 : variant === "p" ? Math.max(w, h) / 2 : Math.max(w, h);
+      if (size < 1) continue;
+      room();
+      annotations.push({
+        id: nextId(),
+        kind: "orbital",
+        x: cx,
+        y: cy,
+        size: clamp(size, 6, 400),
+        angle,
+        variant,
+        filled: (g.getAttribute("FillType") ?? "").trim().toLowerCase() === "solid" || undefined,
+      });
     }
-    // Anything else (Quad, TLC plates, ...) has no annotation equivalent —
+    // Anything else (Quad, symbols, ...) has no annotation equivalent —
     // skipped rather than invented (see the file doc comment).
   }
 
@@ -859,17 +1029,93 @@ function importAnnotations(
     annotations.push(makeArrow(h.x1, h.y1, h.x2, h.y2, "forward", scale));
   }
 
-  // --- <arrow> elements (ChemDraw's dedicated reaction-arrow object in
-  // newer versions; x1/y1/x2/y2 attributes instead of a bounding box).
+  // --- <arrow> elements: ChemDraw's dedicated reaction-arrow object in
+  // newer files. Real ChemDraw writes the geometry as Head3D/Tail3D (and
+  // Center3D/MajorAxisEnd3D for arcs), not the x1/y1/x2/y2 form this
+  // importer originally assumed — which is why every arrow from a current
+  // ChemDraw file used to vanish. Older/hand-written x1/y1/x2/y2 files are
+  // still accepted.
   for (const el of Array.from(doc.querySelectorAll("arrow"))) {
-    const nums = ["x1", "y1", "x2", "y2"].map((a) => parseFloat(el.getAttribute(a) ?? ""));
-    if (nums.some((v) => !Number.isFinite(v))) continue;
-    const [x1, y1, x2, y2] = nums;
-    const head = cdxHeadClass(el.getAttribute("Head"));
-    const tail = cdxHeadClass(el.getAttribute("Tail"));
+    const legacy = ["x1", "y1", "x2", "y2"].map((a) => parseFloat(el.getAttribute(a) ?? ""));
+    const legacyOk = legacy.every((v) => Number.isFinite(v));
+    const bbox = parseBBox(el);
+    const tailPt = parsePoint(el, "Tail3D") ?? (legacyOk ? { x: legacy[0], y: legacy[1] } : bbox ? { x: bbox[0], y: bbox[1] } : null);
+    const headPt = parsePoint(el, "Head3D") ?? (legacyOk ? { x: legacy[2], y: legacy[3] } : bbox ? { x: bbox[2], y: bbox[3] } : null);
+    if (!tailPt || !headPt) continue;
+
+    // ArrowheadHead/ArrowheadTail carry bare "Full"/"Half"/"None"; fall
+    // back to Head/Tail for hand-written files, and to a plain full head
+    // when the file says nothing at all (the old x1/y1/x2/y2 behavior).
+    const hasHeadAttrs = el.hasAttribute("ArrowheadHead") || el.hasAttribute("ArrowheadTail") || el.hasAttribute("Head") || el.hasAttribute("Tail");
+    const head = hasHeadAttrs ? cdxHeadClass(el.getAttribute("ArrowheadHead") ?? el.getAttribute("Head")) : "full";
+    const tail = hasHeadAttrs ? cdxHeadClass(el.getAttribute("ArrowheadTail") ?? el.getAttribute("Tail")) : "none";
+    if (head === "none" && tail === "none") continue;
+
+    // A non-zero AngularSize is how ChemDraw marks a curved arrow (it is
+    // absent on straight ones); the bounding box then supplies the bulge
+    // side, exactly like legacy Arc graphics.
+    const angular = parseFloat(el.getAttribute("AngularSize") ?? "");
+    const curved = Number.isFinite(angular) && Math.abs(angular) > 0.5;
+    const headSize = cdxHeadSize(el.getAttribute("HeadSize"));
     room();
-    if (head === "none" && tail !== "none") annotations.push(makeArrow(x2, y2, x1, y1, "forward", scale));
-    else annotations.push(makeArrow(x1, y1, x2, y2, "forward", scale));
+    if (curved) {
+      const points = head !== "none" ? { x1: tailPt.x, y1: tailPt.y, x2: headPt.x, y2: headPt.y } : { x1: headPt.x, y1: headPt.y, x2: tailPt.x, y2: tailPt.y };
+      const bow = arcBow(points.x1, points.y1, points.x2, points.y2, bbox);
+      const endClass = head !== "none" ? head : tail;
+      annotations.push(makeArrow(points.x1, points.y1, points.x2, points.y2, bow.variant, scale, endClass === "half" ? "single" : "full", bow.curvature, headSize));
+    } else if (head === "full" && tail === "full") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "resonance", scale, "full", undefined, headSize));
+    } else if (head === "half" && tail === "half") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "equilibrium", scale));
+    } else if (head !== "none") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "forward", scale, tail === "half" ? "single" : "full", undefined, headSize));
+    } else {
+      annotations.push(makeArrow(headPt.x, headPt.y, tailPt.x, tailPt.y, "forward", scale));
+    }
+  }
+
+  // --- TLC plates. A CDXML plate's frame is its bounding box; each lane
+  // holds the spots of one sample, and Rf is already the 0(baseline)-1
+  // (solvent front) fraction this app stores as TlcSpot.fy.
+  for (const plate of Array.from(doc.querySelectorAll("tlcplate"))) {
+    const bbox = parseBBox(plate);
+    const tl = parsePoint(plate, "TopLeft");
+    const br = parsePoint(plate, "BottomRight");
+    let rx1: number, ry1: number, rx2: number, ry2: number;
+    if (bbox) [rx1, ry1, rx2, ry2] = bbox;
+    else if (tl && br) [rx1, ry1, rx2, ry2] = [tl.x, tl.y, br.x, br.y];
+    else continue;
+    const x = Math.min(rx1, rx2) * scale, y = Math.min(ry1, ry2) * scale;
+    const width = Math.abs(rx2 - rx1) * scale, height = Math.abs(ry2 - ry1) * scale;
+    if (width < 10 || height < 10) continue;
+
+    const lanes = Array.from(plate.children).filter((c) => c.tagName.toLowerCase() === "tlclane");
+    const spots: TlcSpot[] = [];
+    const spotEls: { el: Element; lane: number }[] = [];
+    if (lanes.length > 0) {
+      lanes.forEach((lane, i) => {
+        for (const spot of Array.from(lane.querySelectorAll("tlcspot"))) spotEls.push({ el: spot, lane: i });
+      });
+    } else {
+      for (const spot of Array.from(plate.querySelectorAll("tlcspot"))) spotEls.push({ el: spot, lane: 0 });
+    }
+    const laneCount = Math.max(1, lanes.length);
+    for (const { el, lane } of spotEls) {
+      const rf = parseFloat(el.getAttribute("Rf") ?? "");
+      if (!Number.isFinite(rf)) continue;
+      const colorAttr = el.getAttribute("color");
+      const colorIdx = colorAttr != null ? parseInt(colorAttr, 10) || 0 : -1;
+      const color = colorIdx >= 0 ? colorAt(colorIdx) : undefined;
+      spots.push({
+        fx: (lane + 0.5) / laneCount,
+        fy: clamp(rf, 0, 1),
+        r: clamp(Math.min(width, height) * 0.035, 2.5, 7),
+        ...(color && !isBlack(color) ? { color } : {}),
+      });
+    }
+    room();
+    const ann: TlcPlateAnnotation = { id: nextId(), kind: "tlc", x, y, width, height, spots };
+    annotations.push(ann);
   }
 
   // --- Caption text. Everything except atom labels (a <t> nested inside a
@@ -915,12 +1161,12 @@ function importAnnotations(
       if (Number.isFinite(sizePt) && sizePt > 0 && Math.abs(sizePt - baseSizePt) > 0.25) {
         styles.push(`font-size:${(sizePt * UNITS_PER_POINT * scale).toFixed(1)}px`);
       }
-      // A missing color attribute means default ink — NOT colortable
-      // entry 0 (which is white in this app's own palette, black in
-      // ChemDraw's). Only an explicitly present index gets a color.
+      // A missing color attribute means default ink (CDX index 0) — the
+      // file's colortable starts at index 2, so a literal color="0" is
+      // default black, not the table's first entry.
       const colorAttr = s.getAttribute("color");
       const colorIdx = colorAttr != null ? parseInt(colorAttr, 10) || 0 : -1;
-      const color = colorIdx >= 0 ? colortable[colorIdx] : undefined;
+      const color = colorIdx >= 0 ? colorAt(colorIdx) : undefined;
       if (color && !isBlack(color)) styles.push(`color:${color}`);
       if (styles.length) inner = `<span style="${styles.join("; ")}">${inner}</span>`;
       html += inner;
@@ -965,16 +1211,18 @@ function importAnnotations(
  * bracket and caption around it, mapped onto this app's annotation layer.
  *
  * Deliberate approximations, so nobody has to reverse-engineer them from
- * the code: curved-arrow bulge *sides* are not recoverable from CDX's
- * bounding-box arc form (arrows import as "curved" — flip the variant if
- * the bulge mirrors the original); a lone harpoon line imports as a
- * forward arrow (the closest thing the app has); unknown exotic heads
+ * the code: curved-arrow curvature is derived from the arc's bounding box,
+ * so a near-circular ChemDraw sweep imports as the closest single bulge
+ * (drag the curvature handle to reshape it); a lone harpoon line imports as
+ * a forward arrow (the closest thing the app has); unknown exotic heads
  * import as plain full heads; text justification and fonts are normalized
  * to the app's own; shapes import as outlines (CDX fill attributes live in
  * the undocumented corner of the format). Retrosynthetic arrows,
- * Bold/Dash bonds, rectangles/ovals and plain lines all map onto real
- * annotation kinds now. Atom labels (<t> inside <n>) are correctly treated
- * as part of their atom, not as captions.
+ * Bold/Dash bonds, rectangles/ovals, plain lines, orbitals and TLC plates
+ * all map onto real annotation kinds now. Atom labels (<t> inside <n>) are
+ * correctly treated as part of their atom, not as captions. Orbital glyphs
+ * and TLC plates are import-only — CDXML export leaves them out (the app's
+ * own project format is the lossless round trip for those).
  */
 export function importCdxmlDocument(text: string): CdxmlDocument {
   const doc = new DOMParser().parseFromString(text, "application/xml");

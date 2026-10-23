@@ -7,7 +7,8 @@
 import { describe, expect, test } from "vitest";
 import { addAtom, addBond, emptyMolecule } from "../model/molecule";
 import { exportCdxml, exportCdxmlDocument, importCdxml, importCdxmlDocument } from "./cdxml";
-import type { ArrowAnnotation, BracketAnnotation, Molecule, ShapeAnnotation, TextAnnotation } from "../types/chemistry";
+import chemdrawScheme from "./fixtures/chemdraw-scheme.cdxml?raw";
+import type { ArrowAnnotation, BracketAnnotation, Molecule, OrbitalAnnotation, ShapeAnnotation, TextAnnotation, TlcPlateAnnotation } from "../types/chemistry";
 
 function dist(mol: Molecule, id1: string, id2: string): number {
   const a = mol.atoms[id1];
@@ -285,6 +286,55 @@ ${extra}
     expect(arrow.variant).toBe("forward");
     expect(arrow.x1).toBeLessThan(arrow.x2);
   });
+
+  test("a real ChemDraw <arrow> (Head3D/Tail3D, ArrowheadHead) imports as a forward arrow", () => {
+    // Shape of the element ChemDraw 22 writes for a plain reaction arrow.
+    const doc = importCdxmlDocument(pageWithBond(
+      `<arrow id="4" BoundingBox="0 10 84 30" FillType="None" ArrowheadHead="Full" ArrowheadType="Solid" HeadSize="2250" Head3D="84 20 0" Tail3D="0 20 0"/>`
+    ));
+    expect(doc.annotations).toHaveLength(1);
+    const arrow = doc.annotations[0] as ArrowAnnotation;
+    expect(arrow.kind).toBe("arrow");
+    expect(arrow.variant).toBe("forward");
+    expect(arrow.x1).toBeCloseTo(0, 1);
+    expect(arrow.x2).toBeCloseTo(2 * 42, 1);
+    expect(arrow.x1).toBeLessThan(arrow.x2);
+    expect(arrow.headSize).toBe("medium");
+  });
+
+  test("a curved ChemDraw <arrow> (AngularSize) imports as a curved arrow bowed to the same side", () => {
+    const doc = importCdxmlDocument(pageWithBond(
+      `<arrow id="4" BoundingBox="0 0 84 42" ArrowheadHead="Full" ArrowheadTail="Full" AngularSize="-270" Head3D="84 42 0" Tail3D="0 42 0" Center3D="42 0 0" HeadSize="800"/>`
+    ));
+    expect(doc.annotations).toHaveLength(1);
+    const arrow = doc.annotations[0] as ArrowAnnotation;
+    // The box sits above the chord, so the arc bows up: curvedReverse under
+    // the app's y-down perpendicular convention.
+    expect(arrow.variant).toBe("curvedReverse");
+    expect(arrow.curvature).toBeGreaterThan(0);
+    expect(arrow.barb).toBe("full");
+    expect(arrow.headSize).toBe("small");
+    expect(arrow.x1).toBeCloseTo(0, 1);
+    expect(arrow.x2).toBeCloseTo(2 * 42, 1);
+  });
+
+  test("a legacy line graphic's ArrowType names the reaction arrowhead", () => {
+    const doc = importCdxmlDocument(pageWithBond(`<graphic id="4" BoundingBox="0 20 84 20" GraphicType="Line" ArrowType="FullHead"/>`));
+    expect(doc.annotations).toHaveLength(1);
+    expect((doc.annotations[0] as ArrowAnnotation).variant).toBe("forward");
+  });
+
+  test("a graphic superseded by a newer <arrow> is not imported twice", () => {
+    const doc = importCdxmlDocument(pageWithBond(
+      `<graphic id="4" SupersededBy="5" BoundingBox="0 20 84 20" GraphicType="Line"/>` +
+      `<arrow id="5" Head3D="84 20 0" Tail3D="0 20 0" ArrowheadHead="Full"/>`
+    ));
+    expect(doc.annotations).toHaveLength(1);
+    const arrow = doc.annotations[0] as ArrowAnnotation;
+    expect(arrow.kind).toBe("arrow");
+    expect(arrow.variant).toBe("forward");
+    expect(doc.annotations.some((a) => a.kind === "shape")).toBe(false);
+  });
 });
 
 describe("importCdxmlDocument: text and brackets", () => {
@@ -359,6 +409,74 @@ describe("importCdxmlDocument: text and brackets", () => {
     expect(spanning.annotations).toHaveLength(2);
     expect(spanning.annotations.map((a) => (a as BracketAnnotation).variant)).toEqual(["curly", "curly"]);
     expect(spanning.annotations.map((a) => (a as BracketAnnotation).facing)).toEqual(["open", "close"]);
+  });
+
+  test('a Bracket graphic honours BracketType (Curly/Round)', () => {
+    const curly = importCdxmlDocument(page(`<graphic id="2" BoundingBox="10 20 20 110" GraphicType="Bracket" BracketType="Curly"/>`));
+    expect((curly.annotations[0] as BracketAnnotation).variant).toBe("curly");
+    const round = importCdxmlDocument(page(`<graphic id="2" BoundingBox="10 20 20 110" GraphicType="Bracket" BracketType="Round"/>`));
+    expect((round.annotations[0] as BracketAnnotation).variant).toBe("paren");
+  });
+
+  test('brackets written bottom-up (y1 > y2) keep their full height', () => {
+    const doc = importCdxmlDocument(page(`<graphic id="2" BoundingBox="10 110 20 20" GraphicType="Bracket"/>`));
+    const bracket = doc.annotations[0] as BracketAnnotation;
+    // 90 raw units at the no-bonds default calibration (42/30).
+    expect(bracket.height).toBeCloseTo(90 * (42 / 30), 0);
+    expect(bracket.y).toBeCloseTo(20 * (42 / 30), 0);
+  });
+
+  test('bracketedgroup attachments give narrow glyphs their open/close facings', () => {
+    const doc = importCdxmlDocument(page(
+      `<graphic id="7" BoundingBox="10 20 10 110" GraphicType="Bracket"/>` +
+      `<graphic id="8" BoundingBox="90 20 90 110" GraphicType="Bracket"/>` +
+      `<bracketedgroup id="9"><bracketattachment id="10" GraphicID="7"/><bracketattachment id="11" GraphicID="8"/></bracketedgroup>`
+    ));
+    expect(doc.annotations.map((a) => (a as BracketAnnotation).facing)).toEqual(["open", "close"]);
+  });
+});
+
+describe("importCdxmlDocument: orbitals and TLC plates", () => {
+  function page(extra: string): string {
+    return `<?xml version="1.0" encoding="UTF-8" ?>
+<CDXML>
+<page>
+<fragment id="1"><n id="1" p="0 0" Element="6"/><n id="2" p="42 0" Element="6"/><b id="3" B="1" E="2"/></fragment>
+${extra}
+</page>
+</CDXML>`;
+  }
+
+  test('an Orbital graphic imports as a p orbital glyph', () => {
+    const doc = importCdxmlDocument(page(`<graphic id="4" BoundingBox="0 0 0 30" GraphicType="Orbital" OrbitalType="p"/>`));
+    expect(doc.annotations).toHaveLength(1);
+    const orbital = doc.annotations[0] as OrbitalAnnotation;
+    expect(orbital.kind).toBe("orbital");
+    expect(orbital.variant).toBe("p");
+    expect(orbital.angle).toBe(-90);
+    // The test page's 42-unit bond calibrates 1:1, so the 30-unit glyph is
+    // 30px tall and each lobe is 15px.
+    expect(orbital.size).toBeCloseTo(15, 1);
+  });
+
+  test('a TLC plate imports its lanes, spots and Rf values', () => {
+    const doc = importCdxmlDocument(page(
+      `<tlcplate id="9" OriginFraction="0.1" SolventFrontFraction="0.1" BoundingBox="10 20 110 220" color="0">` +
+      `<tlclane id="1"><tlcspot id="2" Rf="0.4" color="0"/></tlclane>` +
+      `<tlclane id="3"><tlcspot id="4" Rf="0.8"/></tlclane>` +
+      `</tlcplate>`
+    ));
+    expect(doc.annotations).toHaveLength(1);
+    const plate = doc.annotations[0] as TlcPlateAnnotation;
+    expect(plate.kind).toBe("tlc");
+    expect(plate.spots).toHaveLength(2);
+    expect(plate.spots[0].fx).toBeCloseTo(0.25, 3);
+    expect(plate.spots[1].fx).toBeCloseTo(0.75, 3);
+    expect(plate.spots[0].fy).toBeCloseTo(0.4, 3);
+    expect(plate.spots[1].fy).toBeCloseTo(0.8, 3);
+    // color="0" is CDX's default black, not the colortable's first (white)
+    // entry — spots must not import invisible.
+    expect(plate.spots[0].color).toBeUndefined();
   });
 });
 
@@ -490,9 +608,83 @@ describe("exportCdxmlDocument / importCdxmlDocument round-trip", () => {
     expect(texts[0].html).toBe("<u>see refs</u>");
   });
 
+  test("a colored caption round-trips through CDX's reserved black/white color indexes", () => {
+    const text: TextAnnotation = { id: "t3", kind: "text", x: 30, y: 30, width: 140, height: 24, html: '<span style="color:#ff0000">hot</span>', fontSize: 14 };
+    const xml = exportCdxmlDocument(emptyMolecule(), [text]);
+    // 0 = black, 1 = white, table entries start at 2: red is the third
+    // entry (index 4).
+    expect(xml).toContain('color="4"');
+    const doc = importCdxmlDocument(xml);
+    const texts = doc.annotations.filter((a): a is TextAnnotation => a.kind === "text");
+    expect(texts).toHaveLength(1);
+    expect(texts[0].html).toMatch(/color:\s*#ff0000/i);
+  });
+
   test("plain exportCdxml (molecule only) writes no graphics or text", () => {
     const xml = exportCdxml(emptyMolecule());
     expect(xml).not.toContain("GraphicType");
     expect(xml).not.toContain("<t ");
+  });
+});
+
+// A real ChemDraw 22 drawing: a bracketed charged arene, a second fragment
+// with an orbital, a reaction arrow, a long curved arrow, a TLC plate with
+// eight spots, and square/curly bracket pairs. Every object in it used to
+// either vanish or arrive wrong, so this is the end-to-end regression test
+// for the cases the focused tests above isolate.
+describe("importCdxmlDocument: a real ChemDraw document", () => {
+  const doc = importCdxmlDocument(chemdrawScheme);
+
+  test("imports the molecule, including charge and bond styles", () => {
+    expect(Object.keys(doc.molecule.atoms)).toHaveLength(14);
+    expect(Object.keys(doc.molecule.bonds)).toHaveLength(14);
+    expect(Object.values(doc.molecule.atoms).filter((a) => a.charge === 1)).toHaveLength(1);
+    const stereos = Object.values(doc.molecule.bonds).map((b) => b.stereo);
+    expect(stereos).toContain("wavy");
+    expect(stereos).toContain("wedge");
+    expect(stereos).toContain("bold");
+  });
+
+  test("imports both the straight reaction arrow and the curved mechanism arrow", () => {
+    const arrows = doc.annotations.filter((a): a is ArrowAnnotation => a.kind === "arrow");
+    expect(arrows).toHaveLength(2);
+    const straight = arrows.find((a) => a.variant === "forward")!;
+    expect(straight).toBeDefined();
+    expect(straight.x1).toBeLessThan(straight.x2);
+    const curved = arrows.find((a) => a.variant === "curved" || a.variant === "curvedReverse")!;
+    expect(curved).toBeDefined();
+    expect(curved.curvature).toBeGreaterThan(0);
+    // The old stale line graphic this arrow superseded must not also import.
+    expect(doc.annotations.some((a) => a.kind === "shape")).toBe(false);
+  });
+
+  test("imports the orbital glyph", () => {
+    const orbitals = doc.annotations.filter((a): a is OrbitalAnnotation => a.kind === "orbital");
+    expect(orbitals).toHaveLength(1);
+    expect(orbitals[0].variant).toBe("p");
+  });
+
+  test("imports both bracket pairs with the right glyph shape and facing", () => {
+    const brackets = doc.annotations.filter((a): a is BracketAnnotation => a.kind === "bracket");
+    expect(brackets).toHaveLength(4);
+    expect(brackets.filter((b) => b.variant === "square")).toHaveLength(2);
+    expect(brackets.filter((b) => b.variant === "curly")).toHaveLength(2);
+    // Each pair has one open and one close glyph, and the full height
+    // survives even when the file wrote the box bottom-up.
+    for (const variant of ["square", "curly"] as const) {
+      const pair = brackets.filter((b) => b.variant === variant);
+      expect(pair.map((b) => b.facing).sort()).toEqual(["close", "open"]);
+      expect(pair.every((b) => b.height > 100)).toBe(true);
+    }
+  });
+
+  test("imports the TLC plate, its eight spots and their Rf values", () => {
+    const plates = doc.annotations.filter((a): a is TlcPlateAnnotation => a.kind === "tlc");
+    expect(plates).toHaveLength(1);
+    expect(plates[0].spots).toHaveLength(8);
+    expect(plates[0].spots[0].fx).toBeCloseTo(0.0625, 3);
+    expect(plates[0].spots[0].fy).toBeCloseTo(0.431193, 3);
+    // CDX color 0 is black/default — not white (which made the spots vanish).
+    expect(plates[0].spots.every((s) => s.color === undefined)).toBe(true);
   });
 });

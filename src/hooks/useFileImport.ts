@@ -28,6 +28,7 @@ import { forgetSaveDestination, baseName } from "../io/saveProject";
 export function useFileImport() {
   const importMoleculeAsNewTab = useMoleculeStore((s) => s.importMoleculeAsNewTab);
   const importProjectAsNewTabs = useMoleculeStore((s) => s.importProjectAsNewTabs);
+  const resetView = useMoleculeStore((s) => s.resetView);
   const setStatus = useMoleculeStore((s) => s.setStatus);
   const setProjectFileName = useMoleculeStore((s) => s.setProjectFileName);
   const t = useT();
@@ -73,16 +74,15 @@ export function useFileImport() {
       // (importCdxmlDocument); MOL and SMILES have no such layer, so their
       // entries stay molecule-only. Either way the result lands in a
       // brand-new tab.
-      const parsed = isCdxml
+      const usingCdxml = isCdxml || sniffed === "cdxml";
+      const parsed = usingCdxml
         ? importCdxmlDocument(content)
         : isSmiles || sniffed === "smiles"
           ? { molecule: importSmiles(content).molecule, annotations: [] as Annotation[] }
-          : sniffed === "cdxml"
-            ? importCdxmlDocument(content)
-            : // "mol" and null both go to importMol: "mol" is confident,
-              // null preserves the pre-sniffing behavior for unknown content
-              // (importMol throws its own "not a recognized file" error).
-              { molecule: importMol(content), annotations: [] as Annotation[] };
+          : // "mol" and null both go to importMol: "mol" is confident,
+            // null preserves the pre-sniffing behavior for unknown content
+            // (importMol throws its own "not a recognized file" error).
+            { molecule: importMol(content), annotations: [] as Annotation[] };
       const title = name.replace(/\.(mol|cdxml|smi|smiles)$/i, "");
       // Opening a structure file discards the remembered project
       // destination: the document on screen is now that file's content, and
@@ -94,6 +94,11 @@ export function useFileImport() {
       const annotations: Record<string, Annotation> = {};
       for (const ann of parsed.annotations) annotations[ann.id] = ann;
       importMoleculeAsNewTab(parsed.molecule, title, annotations);
+      // CDXML coordinates are absolute page coordinates (a ChemDraw page
+      // starts at the page's top-left, typically hundreds of units from
+      // the drawing), so without framing the whole scheme can open partly
+      // off-screen. Reset the view to fit what was just imported.
+      if (usingCdxml) resetView();
       const annotationCount = parsed.annotations.length;
       setStatus(
         annotationCount > 0

@@ -38,7 +38,7 @@ const DEFAULT_TLC_HEIGHT = 130;
 /** TLC spot defaults: radius in world px and the click-grab radius for
  * removing one (world px, matching the annotation hit tolerances). */
 const DEFAULT_TLC_SPOT_R = 4;
-const TLC_SPOT_GRAB_RADIUS = 12;
+export const TLC_SPOT_GRAB_RADIUS = 12;
 /** Minimum sizes the shape/bracket resize handles enforce (a zero-width
  * shape can't be re-selected or resized back). */
 const MIN_SHAPE_SIZE = 4;
@@ -610,6 +610,9 @@ interface MoleculeStore {
   /** Removes the spot nearest to `p` (within a small grab radius); returns
    * true when a spot was removed. */
   removeNearestTlcSpot: (id: string, p: Point) => boolean;
+  /** Moves an existing spot to canvas point `p` (fractional coords recomputed
+   * and clamped to the plate); used to drag a spotted sample around. */
+  moveTlcSpot: (id: string, spotIndex: number, p: Point) => void;
   /** The "wrap this in [ ]^charge" convenience for coordination complexes
    * / polyatomic ions: an open+close square bracket pair sized around
    * atomIds' current positions, plus an empty, immediately-editable text
@@ -1985,6 +1988,24 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         return { ...anns, [id]: { ...plate, spots: plate.spots.filter((_, i) => i !== bestIdx) } };
       });
       return true;
+    },
+
+    /** Moves an existing TLC spot to canvas point `p`, recomputing its
+     * fractional coordinates (clamped to the plate). Used to drag a spotted
+     * sample around after it's been placed. */
+    moveTlcSpot: (id, spotIndex, p) => {
+      const ann = get().annotations[id];
+      if (!ann || ann.kind !== "tlc") return;
+      const spot = ann.spots[spotIndex];
+      if (!spot) return;
+      const { fx, fy } = tlcPointToFractions(ann, p);
+      commitAnnotations((anns) => {
+        const plate = anns[id];
+        if (!plate || plate.kind !== "tlc" || !plate.spots[spotIndex]) return anns;
+        const next = [...plate.spots];
+        next[spotIndex] = { ...spot, fx, fy };
+        return { ...anns, [id]: { ...plate, spots: next } };
+      });
     },
 
     /**
