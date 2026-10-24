@@ -132,6 +132,42 @@ describe("exportCdxml / importCdxml round-trip", () => {
     expect(Object.keys(roundTripped.bonds)).toHaveLength(0);
     expect(Object.keys(roundTripped.atoms)).toHaveLength(2);
   });
+
+  test("boldDouble bond stereo round-trips", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 42, y: 0 }, "C");
+    mol = addBond(mol, "b0", "a0", "a1", 2, "boldDouble");
+
+    const roundTripped = importCdxml(exportCdxml(mol));
+    const bond = Object.values(roundTripped.bonds)[0];
+    expect(bond.stereo).toBe("boldDouble");
+    expect(bond.order).toBe(2);
+  });
+
+  test("dashedDouble bond stereo round-trips", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 42, y: 0 }, "C");
+    mol = addBond(mol, "b0", "a0", "a1", 2, "dashedDouble");
+
+    const roundTripped = importCdxml(exportCdxml(mol));
+    const bond = Object.values(roundTripped.bonds)[0];
+    expect(bond.stereo).toBe("dashedDouble");
+    expect(bond.order).toBe(2);
+  });
+
+  test("hollowWedge bond stereo round-trips", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 42, y: 0 }, "C");
+    mol = addBond(mol, "b0", "a0", "a1", 1, "hollowWedge");
+
+    const roundTripped = importCdxml(exportCdxml(mol));
+    const bond = Object.values(roundTripped.bonds)[0];
+    expect(bond.stereo).toBe("hollowWedge");
+    expect(bond.order).toBe(1);
+  });
 });
 
 describe("importCdxml: CDX-specific value mapping", () => {
@@ -507,8 +543,9 @@ describe("exportCdxmlDocument / importCdxmlDocument round-trip", () => {
     const texts = doc.annotations.filter((a): a is TextAnnotation => a.kind === "text");
     const brackets = doc.annotations.filter((a): a is BracketAnnotation => a.kind === "bracket");
 
-    // forward + resonance + equilibrium; the curved arrow was dropped.
-    expect(arrows.map((a) => a.variant).sort()).toEqual(["equilibrium", "forward", "resonance"]);
+    // forward + resonance + equilibrium; curved arrows are exported as
+    // <arrow> elements and re-import as curved.
+    expect(arrows.map((a) => a.variant).sort()).toEqual(["curved", "equilibrium", "forward", "resonance"]);
     const forward = arrows.find((a) => a.variant === "forward")!;
     expect(forward.x2).toBeCloseTo(120, 0); // px → units → px is exact at the default calibration
     expect(forward.y1).toBeCloseTo(0, 0);
@@ -598,6 +635,28 @@ describe("exportCdxmlDocument / importCdxmlDocument round-trip", () => {
     expect(backLine.height).toBeCloseTo(0, 0);
   });
 
+  test("new shape variants round-trip: roundedRect, triangle, hexagon, polygon", () => {
+    const roundedRect: ShapeAnnotation = { id: "s1", kind: "shape", x: 20, y: 30, width: 80, height: 50, variant: "roundedRect" };
+    const triangle: ShapeAnnotation = { id: "s2", kind: "shape", x: 120, y: 30, width: 60, height: 60, variant: "triangle" };
+    const hexagon: ShapeAnnotation = { id: "s3", kind: "shape", x: 200, y: 30, width: 60, height: 60, variant: "hexagon" };
+    const polygon: ShapeAnnotation = { id: "s4", kind: "shape", x: 280, y: 30, width: 60, height: 60, variant: "polygon", sides: 5 };
+    const xml = exportCdxmlDocument(emptyMolecule(), [roundedRect, triangle, hexagon, polygon]);
+    const doc = importCdxmlDocument(xml);
+    const shapes = doc.annotations.filter((a): a is ShapeAnnotation => a.kind === "shape");
+    expect(shapes.map((s) => s.variant).sort()).toEqual(["hexagon", "polygon", "roundedRect", "triangle"]);
+    expect((shapes.find((s) => s.variant === "polygon") as ShapeAnnotation).sides).toBe(5);
+  });
+
+  test("new shape variants round-trip: arc, curve, polyline", () => {
+    const arc: ShapeAnnotation = { id: "s1", kind: "shape", x: 20, y: 30, width: 80, height: 60, variant: "arc", startAngle: 0, sides: 90 };
+    const curve: ShapeAnnotation = { id: "s2", kind: "shape", x: 120, y: 30, width: 80, height: 60, variant: "curve", points: [{ x: 0, y: 0 }, { x: 40, y: 30 }, { x: 80, y: 0 }] };
+    const polyline: ShapeAnnotation = { id: "s3", kind: "shape", x: 220, y: 30, width: 80, height: 60, variant: "polyline", points: [{ x: 0, y: 0 }, { x: 20, y: 40 }, { x: 40, y: 20 }, { x: 80, y: 60 }] };
+    const xml = exportCdxmlDocument(emptyMolecule(), [arc, curve, polyline]);
+    const doc = importCdxmlDocument(xml);
+    const shapes = doc.annotations.filter((a): a is ShapeAnnotation => a.kind === "shape");
+    expect(shapes.map((s) => s.variant).sort()).toEqual(["arc", "curve", "polyline"]);
+  });
+
   test("underlined caption text round-trips through CDX's underline face bit", () => {
     const text: TextAnnotation = { id: "t2", kind: "text", x: 30, y: 30, width: 140, height: 24, html: "<u>see refs</u>", fontSize: 14 };
     const xml = exportCdxmlDocument(emptyMolecule(), [text]);
@@ -624,6 +683,26 @@ describe("exportCdxmlDocument / importCdxmlDocument round-trip", () => {
     const xml = exportCdxml(emptyMolecule());
     expect(xml).not.toContain("GraphicType");
     expect(xml).not.toContain("<t ");
+  });
+
+  test("new arrow variants round-trip: dashed, double, bold", () => {
+    const dashed: ArrowAnnotation = { id: "a1", kind: "arrow", x1: 0, y1: 0, x2: 90, y2: 0, variant: "dashed" };
+    const doubl: ArrowAnnotation = { id: "a2", kind: "arrow", x1: 0, y1: 30, x2: 90, y2: 30, variant: "double" };
+    const bold: ArrowAnnotation = { id: "a3", kind: "arrow", x1: 0, y1: 60, x2: 90, y2: 60, variant: "bold" };
+    const xml = exportCdxmlDocument(emptyMolecule(), [dashed, doubl, bold]);
+    const doc = importCdxmlDocument(xml);
+    const arrows = doc.annotations.filter((a): a is ArrowAnnotation => a.kind === "arrow");
+    expect(arrows.map((a) => a.variant).sort()).toEqual(["bold", "dashed", "double"]);
+  });
+
+  test("new arrow variants round-trip: openHead, circleHead, diamondHead", () => {
+    const openHead: ArrowAnnotation = { id: "a1", kind: "arrow", x1: 0, y1: 0, x2: 90, y2: 0, variant: "openHead" };
+    const circleHead: ArrowAnnotation = { id: "a2", kind: "arrow", x1: 0, y1: 30, x2: 90, y2: 30, variant: "circleHead" };
+    const diamondHead: ArrowAnnotation = { id: "a3", kind: "arrow", x1: 0, y1: 60, x2: 90, y2: 60, variant: "diamondHead" };
+    const xml = exportCdxmlDocument(emptyMolecule(), [openHead, circleHead, diamondHead]);
+    const doc = importCdxmlDocument(xml);
+    const arrows = doc.annotations.filter((a): a is ArrowAnnotation => a.kind === "arrow");
+    expect(arrows.map((a) => a.variant).sort()).toEqual(["circleHead", "diamondHead", "openHead"]);
   });
 });
 

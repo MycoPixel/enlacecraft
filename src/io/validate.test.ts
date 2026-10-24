@@ -197,7 +197,7 @@ describe("annotations", () => {
     // variant is an optional field.
     expect(Object.keys(out).sort()).toEqual(["o1", "p1", "s1", "s2"]);
     expect((out.s1 as { variant: string }).variant).toBe("ellipse");
-    expect((out.s2 as { variant: string }).variant).toBe("rectangle");
+    expect((out.s2 as { variant: string }).variant).toBe("hexagon");
     expect((out.o1 as { angle: number }).angle).toBe(45);
     const plate = out.p1 as { spots: { fx: number; fy: number; color?: string }[] };
     // The in-bounds spot keeps its color; the out-of-range spot is skipped

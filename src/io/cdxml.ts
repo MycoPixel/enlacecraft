@@ -429,7 +429,12 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
     if (ann.kind === "arrow") {
       const x1 = u(ann.x1), y1 = u(ann.y1), x2 = u(ann.x2), y2 = u(ann.y2);
       // Map head style to CDX head class
-      const headStyle = ann.headStyle ?? (ann.barb === "single" ? "half" : "full");
+      const headStyle = ann.headStyle ?? (
+        ann.variant === "openHead" ? "open" :
+        ann.variant === "circleHead" ? "circle" :
+        ann.variant === "diamondHead" ? "diamond" :
+        ann.barb === "single" ? "half" : "full"
+      );
       const headMap: Record<string, string> = {
         "full": "FullHalfHead",
         "half": "HalfHead",
@@ -445,7 +450,12 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
         "half": "HalfHead",
         "open": "OpenHead",
       };
-      const shaftStyle = ann.shaftStyle ?? (ann.dashed ? "dashed" : "solid");
+      const shaftStyle = ann.shaftStyle ?? (
+        ann.variant === "dashed" ? "dashed" :
+        ann.variant === "bold" ? "bold" :
+        ann.variant === "double" ? "double" :
+        ann.dashed ? "dashed" : "solid"
+      );
       const lineStyleMap: Record<string, string> = {
         "solid": "",
         "dashed": "Dashed",
@@ -467,7 +477,7 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
       } else if (ann.variant === "forward") {
         out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "resonance") {
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${headAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "retrosynthetic") {
         out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="RetroSynthetic" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "equilibrium") {
@@ -1031,6 +1041,33 @@ function importAnnotations(
       const tailRaw = (g.getAttribute("Tail") ?? "").trim().toLowerCase();
       const head = cdxHeadClass(headRaw);
       const tail = cdxHeadClass(tailRaw);
+      // Read explicit style attributes for the new arrow variants
+      const shaftStyleRaw = (g.getAttribute("LineStyle") ?? "").trim().toLowerCase();
+      const headStyleRaw = (g.getAttribute("ArrowheadType") ?? "").trim().toLowerCase();
+      const tailStyleRaw = (g.getAttribute("ArrowheadTailType") ?? "").trim().toLowerCase();
+      const shaftStyleMap: Record<string, ArrowAnnotation["shaftStyle"]> = {
+        "dashed": "dashed",
+        "bold": "bold",
+        "double": "double",
+        "solid": "solid",
+      };
+      const headStyleMap: Record<string, ArrowAnnotation["headStyle"]> = {
+        "solid": "full",
+        "open": "open",
+        "circle": "circle",
+        "diamond": "diamond",
+        "retrosynthetic": "retro",
+        "half": "half",
+      };
+      const tailStyleMap: Record<string, ArrowAnnotation["tailStyle"]> = {
+        "none": "none",
+        "full": "full",
+        "half": "half",
+        "open": "open",
+      };
+      const parsedShaftStyle = shaftStyleMap[shaftStyleRaw];
+      const parsedHeadStyle = headStyleMap[headStyleRaw];
+      const parsedTailStyle = tailStyleMap[tailStyleRaw];
       // The retrosynthetic arrow is CDX's own head class on a plain line
       // graphic — check the raw attribute before collapsing to the generic
       // head classes, so the disconnection arrow keeps its meaning.
@@ -1040,8 +1077,14 @@ function importAnnotations(
         // names the retro head, the box's first corner is the tail; if the
         // TAIL does, the direction is reversed.
         room();
-        if (headRaw.includes("retro")) annotations.push(makeArrow(rx1, ry1, rx2, ry2, "retrosynthetic", scale));
-        else annotations.push(makeArrow(rx2, ry2, rx1, ry1, "retrosynthetic", scale));
+        if (headRaw.includes("retro")) annotations.push(makeArrow(rx1, ry1, rx2, ry2, "retrosynthetic", scale, undefined, undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+        else annotations.push(makeArrow(rx2, ry2, rx1, ry1, "retrosynthetic", scale, undefined, undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+      } else if (headRaw.includes("open")) {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "openHead", scale, tail === "half" ? "single" : "full", undefined, undefined, "open", parsedTailStyle, parsedShaftStyle));
+      } else if (headRaw.includes("circle")) {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "circleHead", scale, tail === "half" ? "single" : "full", undefined, undefined, "circle", parsedTailStyle, parsedShaftStyle));
+      } else if (headRaw.includes("diamond")) {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "diamondHead", scale, tail === "half" ? "single" : "full", undefined, undefined, "diamond", parsedTailStyle, parsedShaftStyle));
       } else if (head === "none" && tail === "none") {
         // A plain headless line — ChemDraw's plain line tool, and now that
         // this app has a line shape, it imports as exactly that instead of
@@ -1050,12 +1093,24 @@ function importAnnotations(
         annotations.push(makeShape(rx1, ry1, rx2, ry2, "line", scale));
       } else if (head === "full" && tail === "full") {
         room();
-        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "resonance", scale));
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "resonance", scale, "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
       } else if (head === "half" && tail === "half") {
         // Harpoons on both ends of one graphic: ChemDraw's two-sided
         // half-head arrow, i.e. equilibrium drawn as a single object.
         room();
-        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "equilibrium", scale));
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "equilibrium", scale, undefined, undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+      } else if (parsedShaftStyle === "dashed") {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "dashed", scale, tail === "half" ? "single" : "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+      } else if (parsedShaftStyle === "bold") {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "bold", scale, tail === "half" ? "single" : "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+      } else if (parsedShaftStyle === "double") {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "double", scale, tail === "half" ? "single" : "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+      } else if (parsedHeadStyle === "open") {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "openHead", scale, tail === "half" ? "single" : "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+      } else if (parsedHeadStyle === "circle") {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "circleHead", scale, tail === "half" ? "single" : "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+      } else if (parsedHeadStyle === "diamond") {
+        annotations.push(makeArrow(rx1, ry1, rx2, ry2, "diamondHead", scale, tail === "half" ? "single" : "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
       } else if (head === "half" || tail === "half") {
         // Exactly one harpoon end — collect for equilibrium pairing before
         // committing to an interpretation (see pairHarpoons).
@@ -1065,10 +1120,10 @@ function importAnnotations(
         // tail -> head regardless of which bounding-box corner holds the
         // head.
         room();
-        if (head === "full") annotations.push(makeArrow(rx1, ry1, rx2, ry2, "forward", scale));
-        else annotations.push(makeArrow(rx2, ry2, rx1, ry1, "forward", scale));
+        if (head === "full") annotations.push(makeArrow(rx1, ry1, rx2, ry2, "forward", scale, "full", undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+        else annotations.push(makeArrow(rx2, ry2, rx1, ry1, "forward", scale, undefined, undefined, undefined, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
       }
-    } else if (type === "arc") {
+    } else if (type === "arc" && (g.hasAttribute("AngularSize") || g.hasAttribute("Head") || g.hasAttribute("Tail"))) {
       // Curved (mechanism) arrows: CDX stores the arc as a bounding box,
       // whose two first corners stand in for the arc's endpoints. The
       // bounding box's centre tells which side the arc bulges toward (see
@@ -1280,6 +1335,18 @@ function importAnnotations(
       annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "resonance", scale, "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else if (head === "half" && tail === "half") {
       annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "equilibrium", scale, undefined, undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+    } else if (parsedShaftStyle === "dashed") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "dashed", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+    } else if (parsedShaftStyle === "bold") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "bold", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+    } else if (parsedShaftStyle === "double") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "double", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+    } else if (parsedHeadStyle === "open") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "openHead", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+    } else if (parsedHeadStyle === "circle") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "circleHead", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+    } else if (parsedHeadStyle === "diamond") {
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "diamondHead", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else if (head !== "none") {
       annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "forward", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else {
@@ -1545,7 +1612,7 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
 
   for (const { a1, a2, order, stereo, hollow } of bondPairs) {
     const id = nextId();
-    mol.bonds[id] = { id, a1, a2, order: stereo === "none" ? order : 1, stereo, doubleSide: "auto", hollow };
+    mol.bonds[id] = { id, a1, a2, order: stereo === "none" || stereo === "boldDouble" || stereo === "dashedDouble" ? order : 1, stereo, doubleSide: "auto", hollow };
   }
 
   const annotations = importAnnotations(doc, scale);
