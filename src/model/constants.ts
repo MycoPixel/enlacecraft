@@ -447,6 +447,104 @@ export const RING_TEMPLATES: RingTemplate[] = [
     id: "naphthalene", label: "Naphthalene", sides: 6, aromatic: true,
     fused: true,
   },
+  // --- Additional 5-membered heteroaromatics ---
+  {
+    // Oxazole: O at 0, N at 2
+    id: "oxazole", label: "Oxazole", sides: 5, aromatic: true,
+    heteroatoms: [{ position: 0, element: "O" }, { position: 2, element: "N" }],
+    bondOrders: [1, 2, 1, 2, 1],
+  },
+  {
+    // Thiazole: S at 0, N at 2
+    id: "thiazole", label: "Thiazole", sides: 5, aromatic: true,
+    heteroatoms: [{ position: 0, element: "S" }, { position: 2, element: "N" }],
+    bondOrders: [1, 2, 1, 2, 1],
+  },
+  {
+    // Pyrazole: N at 0, N at 1
+    id: "pyrazole", label: "Pyrazole", sides: 5, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 1, element: "N" }],
+    bondOrders: [1, 2, 1, 2, 1],
+  },
+  {
+    // Isoxazole: O at 0, N at 1
+    id: "isoxazole", label: "Isoxazole", sides: 5, aromatic: true,
+    heteroatoms: [{ position: 0, element: "O" }, { position: 1, element: "N" }],
+    bondOrders: [1, 2, 1, 2, 1],
+  },
+  {
+    // Isothiazole: S at 0, N at 1
+    id: "isothiazole", label: "Isothiazole", sides: 5, aromatic: true,
+    heteroatoms: [{ position: 0, element: "S" }, { position: 1, element: "N" }],
+    bondOrders: [1, 2, 1, 2, 1],
+  },
+  {
+    // Triazoles
+    id: "123-triazole", label: "1,2,3-Triazole", sides: 5, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 1, element: "N" }, { position: 2, element: "N" }],
+    bondOrders: [1, 2, 1, 2, 1],
+  },
+  {
+    id: "124-triazole", label: "1,2,4-Triazole", sides: 5, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 1, element: "N" }, { position: 3, element: "N" }],
+    bondOrders: [1, 2, 1, 2, 1],
+  },
+  // --- Additional 6-membered heteroaromatics ---
+  {
+    id: "pyridazine", label: "Pyridazine", sides: 6, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 1, element: "N" }],
+  },
+  {
+    id: "pyrazine", label: "Pyrazine", sides: 6, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 3, element: "N" }],
+  },
+  {
+    id: "1,3,5-triazine", label: "1,3,5-Triazine", sides: 6, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 2, element: "N" }, { position: 4, element: "N" }],
+  },
+  {
+    id: "1,2,4-triazine", label: "1,2,4-Triazine", sides: 6, aromatic: true,
+    heteroatoms: [{ position: 0, element: "N" }, { position: 1, element: "N" }, { position: 3, element: "N" }],
+  },
+  // --- Fused heteroaromatics ---
+  {
+    id: "indole", label: "Indole", sides: 6, aromatic: true, fused: true,
+  },
+  {
+    id: "quinoline", label: "Quinoline", sides: 6, aromatic: true, fused: true,
+  },
+  {
+    id: "isoquinoline", label: "Isoquinoline", sides: 6, aromatic: true, fused: true,
+  },
+  {
+    id: "benzimidazole", label: "Benzimidazole", sides: 6, aromatic: true, fused: true,
+  },
+  {
+    id: "purine", label: "Purine", sides: 6, aromatic: true, fused: true,
+  },
+  // --- Cp ring ---
+  {
+    id: "cyclopentadienyl", label: "Cyclopentadienyl (Cp⁻)", sides: 5, aromatic: true,
+    heteroatoms: [],
+  },
+  // --- Chair/boat cyclohexane (StructureTemplates) ---
+  {
+    id: "cyclohexane-chair", label: "Cyclohexane Chair", sides: 6, aromatic: false,
+  },
+  {
+    id: "cyclohexane-boat", label: "Cyclohexane Boat", sides: 6, aromatic: false,
+  },
+  // --- Decalins ---
+  {
+    id: "decalin-cis", label: "cis-Decalin", sides: 6, aromatic: false, fused: true,
+  },
+  {
+    id: "decalin-trans", label: "trans-Decalin", sides: 6, aromatic: false, fused: true,
+  },
+  // --- Norbornane ---
+  {
+    id: "norbornane", label: "Norbornane", sides: 6, aromatic: false, fused: true,
+  },
 ];
 
 /** Default size for a lone bracket (placed via the store's addBracketAnnotation) and the starting point for a dragged pair (see bracketPairLayout). */

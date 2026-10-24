@@ -10,11 +10,14 @@ import type {
   HapticBond,
   Molecule,
   OrbitalAnnotation,
+  Point,
   ShapeAnnotation,
   TextAnnotation,
   TlcPlateAnnotation,
   TlcSpot,
   ViewTransform,
+  AtomQueryProps,
+  BondQueryProps,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
 import { PERIODIC_TABLE } from "../model/constants";
@@ -166,6 +169,35 @@ const lonePairOffsets: Parser<({ x: number; y: number } | null)[]> = (v) => {
   return out;
 };
 
+// Custom parsers for new fields
+const stereoGroupParser: Parser<{ type: "and" | "or"; groupId: number }> = (v) => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return BAD;
+  const g = v as { type: string; groupId: number };
+  if (typeof g.type !== "string") return BAD;
+  if (g.type !== "and" && g.type !== "or") return BAD;
+  if (typeof g.groupId !== "number") return BAD;
+  return { type: g.type, groupId: g.groupId };
+};
+
+const atomQueryPropsParser: Parser<AtomQueryProps> = (v) => {
+  if (typeof v !== "string") return BAD;
+  const p = v.toLowerCase();
+  if (p === "1" || p === "2" || p === "3" || p === "1 2" || p === "1 2 3") return v as AtomQueryProps;
+  if (p === "aromatic" || p === "any") return v as AtomQueryProps;
+  return BAD;
+};
+
+const bondQueryPropsParser: Parser<BondQueryProps> = (v) => {
+  if (typeof v !== "string") return BAD;
+  const p = v.toLowerCase();
+  if (p === "1" || p === "2" || p === "3" || p === "1 2" || p === "1 2 3") return { order: v } as BondQueryProps;
+  if (p === "aromatic" || p === "any") return { order: "aromatic" } as BondQueryProps;
+  if (p === "ring" || p === "chain" || p === "either") return { topology: p } as BondQueryProps;
+  return BAD;
+};
+
+const booleanParser: Parser<boolean> = (v) => (v === "true" || v === true ? true : v === "false" || v === false ? false : BAD);
+
 // ---------------------------------------------------------------------------
 // Field tables (one entry per interface key — enforced by the Spec<T> type)
 // ---------------------------------------------------------------------------
@@ -194,7 +226,11 @@ const ATOM_SPEC: Spec<Atom> = {
   mapNumberOffsetX: OFFSET,
   mapNumberOffsetY: OFFSET,
   ignoreValence: flag,
+  stereoGroup: stereoGroupParser,
+  queryProps: atomQueryPropsParser,
+  z: integer(-LIMITS.maxCoord, LIMITS.maxCoord),
 };
+
 const ATOM_REQUIRED = ["x", "y", "element"] as const;
 
 const BOND_SPEC: Spec<Bond> = {
@@ -202,10 +238,12 @@ const BOND_SPEC: Spec<Bond> = {
   a1: ID,
   a2: ID,
   order: bondOrder,
-  stereo: oneOf("none", "wedge", "dash", "wavy", "bold", "boldHash", "dashed"),
+  stereo: oneOf("none", "wedge", "dash", "wavy", "bold", "boldHash", "dashed", "boldDouble", "dashedDouble", "hollowWedge"),
   doubleSide: oneOf("auto", "center", "left", "right"),
   highlightColor: hexColor,
   dative: flag,
+  hollow: booleanParser,
+  queryProps: bondQueryPropsParser,
 };
 const BOND_REQUIRED = ["a1", "a2", "order"] as const;
 
@@ -222,11 +260,14 @@ const ARROW_SPEC: Spec<ArrowAnnotation> = {
   y1: COORD,
   x2: COORD,
   y2: COORD,
-  variant: oneOf("forward", "equilibrium", "resonance", "retrosynthetic", "curved", "curvedReverse"),
+  variant: oneOf("forward", "equilibrium", "resonance", "retrosynthetic", "curved", "curvedReverse", "dashed", "double", "bold", "openHead", "circleHead", "diamondHead", "tailed"),
   curvature: finite(-10_000, 10_000),
   barb: oneOf("full", "single"),
   headSize: oneOf("small", "medium", "large"),
   dashed: flag,
+  headStyle: oneOf("full", "half", "open", "circle", "diamond", "retro"),
+  tailStyle: oneOf("none", "full", "half", "open"),
+  shaftStyle: oneOf("solid", "dashed", "bold", "double"),
 };
 const ARROW_REQUIRED = ["x1", "y1", "x2", "y2"] as const;
 
@@ -254,6 +295,18 @@ const TEXT_SPEC: Spec<TextAnnotation> = {
 };
 const TEXT_REQUIRED = ["x", "y", "width", "height", "html"] as const;
 
+const parsePoints = (v: unknown): Point[] => {
+  if (typeof v !== "string") return [];
+  const str = v as string;
+  const parts = str.trim().split(/\s+/).map((p) => parseFloat(p));
+  if (parts.length % 2 !== 0) return [];
+  const out: Point[] = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    out.push({ x: parts[i], y: parts[i + 1] });
+  }
+  return out;
+};
+
 const SHAPE_SPEC: Spec<ShapeAnnotation> = {
   id: ID,
   kind: oneOf("shape"),
@@ -261,8 +314,15 @@ const SHAPE_SPEC: Spec<ShapeAnnotation> = {
   y: COORD,
   width: SIZE,
   height: SIZE,
-  variant: oneOf("rectangle", "ellipse", "line"),
+  variant: oneOf("rectangle", "ellipse", "line", "polygon", "arc", "curve", "polyline", "roundedRect", "triangle", "hexagon"),
   filled: flag,
+  fillPattern: oneOf("solid", "hatch", "crosshatch", "dots"),
+  lineStyle: oneOf("solid", "dashed", "dotted", "dashdot"),
+  lineCap: oneOf("round", "square", "butt"),
+  lineJoin: oneOf("miter", "round", "bevel"),
+  sides: integer(3, 12),
+  startAngle: finite(-360, 360),
+  points: parsePoints,
 };
 const SHAPE_REQUIRED = ["x", "y", "width", "height"] as const;
 
@@ -283,6 +343,9 @@ const TLC_SPOT_SPEC: Spec<TlcSpot> = {
   fy: finite(0, 1),
   r: finite(0.5, 200),
   color: hexColor,
+  label: text(128),
+  uv: oneOf("254", "365", "both"),
+  stain: oneOf("iodine", "ninhydrin", "kMnO4", "vanillin", "p-anisaldehyde", "dragendorff"),
 };
 const TLC_SPOT_REQUIRED = ["fx", "fy"] as const;
 
@@ -303,6 +366,34 @@ const tlcSpots: Parser<TlcSpot[]> = (v) => {
   return out;
 };
 
+const parseCommaSeparatedNumbers = (v: string): number[] => {
+  if (typeof v !== "string") return [];
+  return v.split(",").map((s) => parseFloat(s.trim())).filter((n) => !isNaN(n));
+};
+
+const parseCommaSeparatedStrings = (v: string): string[] => {
+  if (typeof v !== "string") return [];
+  return v.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+};
+
+const uvWavelengthsParser: Parser<("254" | "365")[]> = (v: unknown): ("254" | "365")[] | typeof BAD => {
+  if (typeof v !== "string") return BAD;
+  const wavelengths = parseCommaSeparatedNumbers(v as string);
+  const valid: number[] = wavelengths.filter((w) => w === 254 || w === 365);
+  if (valid.length === 0) return BAD;
+  return (valid as unknown as ("254" | "365")[]);
+};
+
+const solventFrontFractionsParser: Parser<number[]> = (v) => {
+  if (typeof v !== "string") return BAD;
+  return parseCommaSeparatedNumbers(v);
+};
+
+const laneLabelsParser: Parser<string[]> = (v) => {
+  if (typeof v !== "string") return BAD;
+  return parseCommaSeparatedStrings(v);
+};
+
 const TLC_SPEC: Spec<TlcPlateAnnotation> = {
   id: ID,
   kind: oneOf("tlc"),
@@ -311,6 +402,15 @@ const TLC_SPEC: Spec<TlcPlateAnnotation> = {
   width: SIZE,
   height: SIZE,
   spots: tlcSpots,
+  baselineFraction: finite(0, 1),
+  solventFrontFractions: solventFrontFractionsParser,
+  showUV: flag,
+  uvWavelengths: uvWavelengthsParser,
+  stainType: oneOf("iodine", "ninhydrin", "kMnO4", "vanillin", "p-anisaldehyde", "dragendorff"),
+  laneLabels: laneLabelsParser,
+  laneCount: integer(1, 12),
+  plateSize: oneOf("20x20", "10x10", "5x20", "custom"),
+  showRfValues: flag,
 };
 const TLC_REQUIRED = ["x", "y", "width", "height", "spots"] as const;
 

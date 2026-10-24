@@ -25,7 +25,7 @@ export type Element =
 
 export type BondOrder = 1 | 2 | 3;
 
-export type BondStereo = "none" | "wedge" | "dash" | "wavy" | "bold" | "boldHash" | "dashed";
+export type BondStereo = "none" | "wedge" | "dash" | "wavy" | "bold" | "boldHash" | "dashed" | "boldDouble" | "dashedDouble" | "hollowWedge";
 
 export interface Atom {
   id: string;
@@ -138,6 +138,42 @@ export interface Atom {
    * every one of those three features checks before running.
    */
   ignoreValence?: boolean;
+  /**
+   * Enhanced stereochemistry group (AND/OR) for centers with uncertain
+   * configuration. Used when multiple stereo centers are correlated
+   * (e.g. "both R or both S" = AND group; "one R one S" = OR group).
+   */
+  stereoGroup?: { type: "and" | "or"; groupId: number };
+  /**
+   * Query atom properties for structure searching (element list, charge,
+   * hydrogen count, etc.). Not used for normal drawing — only for query
+   * structures exported to formats that support them (MDL query, SMARTS).
+   */
+  queryProps?: AtomQueryProps;
+  /** 3D Z-coordinate (preserved from CDXML 3D coordinates, XYZ, etc.). */
+  z?: number;
+}
+
+/** Query atom properties for structure search — mirrors MDL/SMARTS capabilities. */
+export interface AtomQueryProps {
+  /** Element list: "C N O", "any", "halogen", "hetero", etc. */
+  element?: string;
+  /** Charge query: "0", "-1", "1", "any" */
+  charge?: string;
+  /** Hydrogen count: "0", "1", "2", "3", ">=1", "any" */
+  hCount?: string;
+  /** Isotope: "12", "13", "14", "any" */
+  isotope?: string;
+  /** Radical state: "none", "singlet", "doublet", "triplet", "any" */
+  radical?: string;
+  /** Substitution count (number of non-H substituents) */
+  substitutionCount?: string;
+  /** Ring membership: "ring", "chain", "either" */
+  ringMembership?: "ring" | "chain" | "either";
+  /** Unsaturated atom flag */
+  unsaturation?: boolean;
+  /** Reacting center status for reaction queries */
+  reactingCenter?: "center" | "not-center" | "no-change" | "broken";
 }
 
 /**
@@ -184,6 +220,28 @@ export interface Bond {
    * already has no VALENCE entry to violate regardless.
    */
   dative?: boolean;
+  /**
+   * Hollow wedge bond — a wedge drawn as an outline only (transparent fill),
+   * used for stereochemistry where the solid wedge would be ambiguous.
+   * Only meaningful when `stereo === "hollowWedge"`.
+   */
+  hollow?: boolean;
+  /**
+   * Query bond properties for structure searching (e.g. "single or double",
+   * "any", "aromatic"). Not used for normal drawing — only for query
+   * structures exported to formats that support them (MDL query, SMARTS).
+   */
+  queryProps?: BondQueryProps;
+}
+
+/** Query bond properties for structure search — mirrors MDL/SMARTS capabilities. */
+export interface BondQueryProps {
+  /** Bond order query: "1", "2", "3", "1 2", "1 2 3", "aromatic", "any" */
+  order?: string;
+  /** Topology: "ring", "chain", "either" */
+  topology?: "ring" | "chain" | "either";
+  /** Reacting center status for reaction queries */
+  reactingCenter?: "center" | "not-center" | "no-change" | "broken";
 }
 
 /** Live, uncommitted preview of a bond being dragged out from an atom. */
@@ -252,6 +310,37 @@ export interface Molecule {
    * runtime, but migrate on load" caveat as hapticBonds above applies
    * here too. */
   aromaticRingDisplays: Record<string, AromaticRingDisplay>;
+  /** S-groups (structural groups) for polymers, mixtures, components,
+   * multiple attachments, etc. — MDL MOL/SDF extension. Preserved for
+   * round-trip fidelity with formats that support them. */
+  sgroups?: Record<string, SGroup>;
+}
+
+/** S-group (structural group) types per MDL specification. */
+export type SGroupType = "SRU" | "MON" | "MER" | "COP" | "CRO" | "MOD" | "GRA" | "COM" | "SUP" | "MUL" | "DAT" | "ANY";
+
+/** S-group (structural group) for polymer representation, mixtures, etc. */
+export interface SGroup {
+  id: string;
+  type: SGroupType;
+  /** Atom IDs belonging to this S-group */
+  atomIds: string[];
+  /** Bond IDs belonging to this S-group (for bracket attachment) */
+  bondIds?: string[];
+  /** Bracket style for polymer S-groups */
+  bracketStyle?: "square" | "curly" | "round" | "none";
+  /** Bracket coordinates for polymer S-groups */
+  bracketCoords?: { x: number; y: number }[];
+  /** Subscript for polymer repeat count */
+  subscript?: string;
+  /** Superatom label (for abbreviated groups) */
+  label?: string;
+  /** Data S-group fields (for arbitrary data attachment) */
+  data?: Record<string, string>;
+  /** Parent S-group ID (for nested S-groups) */
+  parentId?: string;
+  /** Component S-group: component IDs in a mixture */
+  componentIds?: string[];
 }
 
 /**
@@ -503,8 +592,15 @@ export type CanvasBackground = "white" | "theme";
  *  - "curved" / "curvedReverse": a single curved arrow bulging to one side
  *    or the other (e.g. for mechanism/electron-pushing style flow). Bulge
  *    amount is user-adjustable via `curvature` (see ArrowAnnotation).
+ *  - "dashed": straight arrow with dashed shaft (projected/multi-step)
+ *  - "double": double-shaft arrow (⇒) for strong equilibrium
+ *  - "bold": thick-shaft arrow for emphasis
+ *  - "openHead": arrow with open (hollow) head (▷)
+ *  - "circleHead": arrow with circle terminus (◦→)
+ *  - "diamondHead": arrow with diamond terminus (◆→)
+ *  - "tailed": arrow with tail feather (→→)
  */
-export type ArrowVariant = "forward" | "equilibrium" | "resonance" | "retrosynthetic" | "curved" | "curvedReverse";
+export type ArrowVariant = "forward" | "equilibrium" | "resonance" | "retrosynthetic" | "curved" | "curvedReverse" | "dashed" | "double" | "bold" | "openHead" | "circleHead" | "diamondHead" | "tailed";
 
 /** Full-arrowhead (electron pair) size. Doesn't apply to the fishhook
  * (single-electron) style, which only ever comes in one size. */
@@ -551,6 +647,22 @@ export interface ArrowAnnotation {
    * entirely — a delocalization path).
    */
   dashed?: boolean;
+  /**
+   * Head style override — allows "open" (hollow), "circle", "diamond",
+   * "retro" (retrosynthetic), "half" (fishhook) independent of variant.
+   * When set, overrides the variant's default head appearance.
+   */
+  headStyle?: "full" | "open" | "circle" | "diamond" | "retro" | "half";
+  /**
+   * Tail style override — "none" (default), "full", "half", "open".
+   * When set, adds a tail feather to the arrow.
+   */
+  tailStyle?: "none" | "full" | "half" | "open";
+  /**
+   * Shaft style override — "solid" (default), "dashed", "bold", "double".
+   * When set, overrides the variant's default shaft appearance.
+   */
+  shaftStyle?: "solid" | "dashed" | "bold" | "double";
 }
 
 export type BracketVariant = "paren" | "square" | "curly";
@@ -596,8 +708,9 @@ export type Annotation = ArrowAnnotation | TextAnnotation | BracketAnnotation | 
  * is the object's bounding box; "line" connects the box's (x, y) corner to
  * its (x + width, y + height) corner, so a dragged-out diagonal survives.
  * `filled` solid-fills rectangles/ellipses (ChemDraw's "Filled" toggle) and
- * is ignored by lines. */
-export type ShapeVariant = "rectangle" | "ellipse" | "line";
+ * is ignored by lines. Additional styling: fillPattern, lineStyle, lineCap,
+ * lineJoin for full ChemDraw compatibility. */
+export type ShapeVariant = "rectangle" | "ellipse" | "line" | "polygon" | "arc" | "curve" | "polyline" | "roundedRect" | "triangle" | "hexagon";
 
 export interface ShapeAnnotation {
   id: string;
@@ -608,18 +721,33 @@ export interface ShapeAnnotation {
   height: number;
   variant: ShapeVariant;
   filled?: boolean;
+  /** Fill pattern for rectangles/ellipses: "solid" (default), "hatch", "crosshatch", "dots" */
+  fillPattern?: "solid" | "hatch" | "crosshatch" | "dots";
+  /** Line style: "solid" (default), "dashed", "dotted", "dashdot" */
+  lineStyle?: "solid" | "dashed" | "dotted" | "dashdot";
+  /** Line cap style: "round" (default), "square", "butt" */
+  lineCap?: "round" | "square" | "butt";
+  /** Line join style: "miter" (default), "round", "bevel" */
+  lineJoin?: "miter" | "round" | "bevel";
+  /** For polygon: number of sides (3-12). For arc: sweep angle in degrees. */
+  sides?: number;
+  /** For arc/curve: start angle in degrees (0 = 3 o'clock) */
+  startAngle?: number;
+  /** For polyline: array of points relative to x,y */
+  points?: Point[];
 }
 
 /**
  * Orbital glyphs for mechanism/EMF diagrams — the same drawing objects
  * ChemDraw's "Orbitals" palette offers: a single circle ("s"), the
  * two-lobed dumbbell ("p"), and one free teardrop lobe ("lobe", the
- * half-filled/hybrid single-lobe orbital). `x`/`y` is the nucleus (the
- * lobe's pointed end), `size` the lobe length in world px, `angle` the
+ * half-filled/hybrid single-lobe orbital), plus d-orbital (4-lobed
+ * cloverleaf), and hybrid orbitals (sp, sp2, sp3). `x`/`y` is the nucleus
+ * (the lobe's pointed end), `size` the lobe length in world px, `angle` the
  * orbital axis in degrees (0 = pointing right; meaningless for "s", which
  * is round). `filled` shades the lobes solid instead of drawing outlines.
  */
-export type OrbitalVariant = "s" | "p" | "lobe";
+export type OrbitalVariant = "s" | "p" | "lobe" | "d" | "sp" | "sp2" | "sp3" | "hybrid";
 
 export interface OrbitalAnnotation {
   id: string;
@@ -639,6 +767,8 @@ export interface OrbitalAnnotation {
  * the baseline to 1 at the solvent front) rather than absolute pixels so
  * resizing the plate carries its spots with it — the same convention as
  * the plate's own Rf values, which is what the fraction actually is.
+ * Enhanced with multiple solvent fronts, UV visualization, staining, and
+ * lane labels for full ChemDraw compatibility.
  */
 export interface TlcSpot {
   /** Horizontal position as a fraction of the plate width (0 = left edge). */
@@ -650,6 +780,12 @@ export interface TlcSpot {
   r?: number;
   /** Optional spot color (a hex string like the atom-highlight colors). */
   color?: string;
+  /** Spot label (e.g. compound name, Rf value) */
+  label?: string;
+  /** UV visualization: 254nm, 365nm, or both */
+  uv?: "254" | "365" | "both";
+  /** Staining reagent visualization */
+  stain?: "iodine" | "ninhydrin" | "kMnO4" | "vanillin" | "p-anisaldehyde" | "dragendorff";
 }
 
 export interface TlcPlateAnnotation {
@@ -660,6 +796,25 @@ export interface TlcPlateAnnotation {
   width: number;
   height: number;
   spots: TlcSpot[];
+  /** Baseline position as fraction of height (0 = bottom, default ~0.1) */
+  baselineFraction?: number;
+  /** Solvent front position(s) as fraction(s) of height (default ~0.9).
+   * Array allows multiple solvent fronts for 2D TLC. */
+  solventFrontFractions?: number[];
+  /** Show UV lamp indicators (254nm/365nm) */
+  showUV?: boolean;
+  /** UV wavelengths to show */
+  uvWavelengths?: ("254" | "365")[];
+  /** Staining reagent used (for visualization) */
+  stainType?: "iodine" | "ninhydrin" | "kMnO4" | "vanillin" | "p-anisaldehyde" | "dragendorff";
+  /** Lane labels (one per lane, left to right) */
+  laneLabels?: string[];
+  /** Number of lanes (default from spots or 1) */
+  laneCount?: number;
+  /** Standard plate size preset */
+  plateSize?: "20x20" | "10x10" | "5x20" | "custom";
+  /** Show Rf values on spots */
+  showRfValues?: boolean;
 }
 
 /** Live, uncommitted preview of an arrow being dragged out on the canvas. */

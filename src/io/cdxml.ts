@@ -9,6 +9,7 @@ import type {
   Molecule,
   OrbitalAnnotation,
   ShapeAnnotation,
+  ShapeVariant,
   TextAnnotation,
   TlcPlateAnnotation,
   TlcSpot,
@@ -373,12 +374,25 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
     // bold wedged hash has no distinct CDX Display of its own and degrades
     // to the ordinary wedged hash, the same way it degrades in molfile
     // export (molfile.ts) — visible geometry survives, weight doesn't.
-    if (b.stereo === "wedge") attrs += ` Display="WedgeBegin"`;
-    else if (b.stereo === "dash") attrs += ` Display="WedgedHashBegin"`;
-    else if (b.stereo === "boldHash") attrs += ` Display="WedgedHashBegin"`;
-    else if (b.stereo === "wavy") attrs += ` Display="Wavy"`;
-    else if (b.stereo === "bold") attrs += ` Display="Bold"`;
-    else if (b.stereo === "dashed") attrs += ` Display="Dash"`;
+    if (b.stereo === "wedge") {
+      attrs += b.hollow ? ` Display="HollowWedgeBegin"` : ` Display="WedgeBegin"`;
+    } else if (b.stereo === "dash") {
+      attrs += ` Display="WedgedHashBegin"`;
+    } else if (b.stereo === "boldHash") {
+      attrs += ` Display="WedgedHashBegin"`;
+    } else if (b.stereo === "wavy") {
+      attrs += ` Display="Wavy"`;
+    } else if (b.stereo === "bold") {
+      attrs += ` Display="Bold"`;
+    } else if (b.stereo === "dashed") {
+      attrs += ` Display="Dash"`;
+    } else if (b.stereo === "boldDouble") {
+      attrs += ` Display="BoldDouble"`;
+    } else if (b.stereo === "dashedDouble") {
+      attrs += ` Display="DashedDouble"`;
+    } else if (b.stereo === "hollowWedge") {
+      attrs += ` Display="HollowWedgeBegin"`;
+    }
     out += `<b ${attrs}/>\n`;
   }
 
@@ -413,45 +427,63 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
 
   for (const ann of annotations) {
     if (ann.kind === "arrow") {
-      if (ann.variant === "curved" || ann.variant === "curvedReverse") {
-        // Curved (mechanism) arrows are deliberately not exported: CDX's
-        // arc graphic geometry (which corner of the bounding box an arc
-        // starts from, sweep direction, ...) is part of the undocumented
-        // portion of the format, and writing a guessed-at arc risks a file
-        // ChemDraw can't open — strictly worse than omitting the arrow,
-        // per the same reasoning as the dative-bond note above. Straight
-        // arrows, equilibrium pairs and resonance arrows all round-trip.
-        continue;
-      }
       const x1 = u(ann.x1), y1 = u(ann.y1), x2 = u(ann.x2), y2 = u(ann.y2);
-      if (ann.variant === "forward") {
-        // The bounding box holds the two endpoints in draw order (tail
-        // first, head second) — NOT normalized left-to-right — which is
-        // how direction survives the file.
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="FullHalfHead" Tail="None"/>\n`;
+      // Map head style to CDX head class
+      const headStyle = ann.headStyle ?? (ann.barb === "single" ? "half" : "full");
+      const headMap: Record<string, string> = {
+        "full": "FullHalfHead",
+        "half": "HalfHead",
+        "open": "OpenHead",
+        "circle": "Circle",
+        "diamond": "Diamond",
+        "retro": "RetroSynthetic",
+      };
+      const tailStyle = ann.tailStyle ?? "none";
+      const tailMap: Record<string, string> = {
+        "none": "None",
+        "full": "FullHalfHead",
+        "half": "HalfHead",
+        "open": "OpenHead",
+      };
+      const shaftStyle = ann.shaftStyle ?? (ann.dashed ? "dashed" : "solid");
+      const lineStyleMap: Record<string, string> = {
+        "solid": "",
+        "dashed": "Dashed",
+        "bold": "Bold",
+        "double": "Double",
+      };
+      const lineStyleAttr = lineStyleMap[shaftStyle] ? ` LineStyle="${lineStyleMap[shaftStyle]}"` : "";
+      const headAttr = headMap[headStyle] ?? "FullHalfHead";
+      const tailAttr = tailMap[tailStyle] ?? "None";
+
+      if (ann.variant === "curved" || ann.variant === "curvedReverse") {
+        // Export curved arrows as <arrow> elements with AngularSize
+        const px1 = ann.x1 * scale, py1 = ann.y1 * scale, px2 = ann.x2 * scale, py2 = ann.y2 * scale;
+        const curvature = ann.curvature ?? Math.hypot(px2 - px1, py2 - py1) * 0.22;
+        const len = Math.hypot(px2 - px1, py2 - py1) || 1;
+        const angular = (curvature / len) * 270; // Approximate angular size
+        const angularSign = ann.variant === "curved" ? -1 : 1;
+        out += `<arrow id="${nextId()}" Head3D="${x1} ${y1} 0" Tail3D="${x2} ${y2} 0" AngularSize="${angularSign * Number(angular.toFixed(1))}" ArrowheadHead="${headStyle === "half" ? "Half" : "Full"}" ArrowheadTail="${tailStyle === "half" ? "Half" : tailStyle === "full" ? "Full" : "None"}" ArrowheadType="${headStyle === "open" ? "Open" : headStyle === "circle" ? "Circle" : headStyle === "diamond" ? "Diamond" : "Solid"}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+      } else if (ann.variant === "forward") {
+        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "resonance") {
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="FullHalfHead" Tail="FullHalfHead"/>\n`;
+        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "retrosynthetic") {
-        // RetroSynthetic is one of CDX's own head classes (it's in the same
-        // family this importer already collapses — see cdxHeadClass), so
-        // naming it is naming a real thing, not guessing at geometry.
-        // ChemDraw renders it as its retrosynthetic arrow; an old reader
-        // that doesn't know the class falls back to a generic head —
-        // degraded, but never a file that won't open.
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="RetroSynthetic" Tail="None"/>\n`;
-      } else {
-        // Equilibrium: CDX has no single-object form this writer can
-        // verify, so write what ChemDraw unambiguously renders — two
-        // offset harpoons pointing at each other — separated perpendicular
-        // to the arrow's direction by a small fixed offset (3 drawing
-        // units, ~1/10 of a default bond, matching the visual gap
-        // ChemDraw's own equilibrium arrows show).
+        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="RetroSynthetic" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+      } else if (ann.variant === "equilibrium") {
+        // Equilibrium: two offset harpoons
         const px1 = ann.x1 * scale, py1 = ann.y1 * scale, px2 = ann.x2 * scale, py2 = ann.y2 * scale;
         const len = Math.hypot(px2 - px1, py2 - py1) || 1;
         const nx = -(py2 - py1) / len, ny = (px2 - px1) / len;
         const o = 3;
-        out += `<graphic id="${nextId()}" BoundingBox="${f4(px1 + nx * o)} ${f4(py1 + ny * o)} ${f4(px2 + nx * o)} ${f4(py2 + ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"/>\n`;
-        out += `<graphic id="${nextId()}" BoundingBox="${f4(px2 - nx * o)} ${f4(py2 - ny * o)} ${f4(px1 - nx * o)} ${f4(py1 - ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"/>\n`;
+        out += `<graphic id="${nextId()}" BoundingBox="${f4(px1 + nx * o)} ${f4(py1 + ny * o)} ${f4(px2 + nx * o)} ${f4(py2 + ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"${lineStyleAttr}/>\n`;
+        out += `<graphic id="${nextId()}" BoundingBox="${f4(px2 - nx * o)} ${f4(py2 - ny * o)} ${f4(px1 - nx * o)} ${f4(py1 - ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"${lineStyleAttr}/>\n`;
+      } else if (ann.variant === "dashed" || ann.variant === "bold" || ann.variant === "double") {
+        // New variants that map to line style
+        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+      } else if (ann.variant === "openHead" || ann.variant === "circleHead" || ann.variant === "diamondHead" || ann.variant === "tailed") {
+        // Variants that are primarily about head/tail style
+        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       }
     } else if (ann.kind === "bracket") {
       if (bracketWritten.has(ann.id)) continue;
@@ -479,8 +511,93 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
       // is this-app-only (CDX's fill attributes are part of the
       // undocumented corner of the format); an outline re-opens in
       // ChemDraw, which is the loss that matters least here.
-      const graphicType = ann.variant === "rectangle" ? "Rectangle" : ann.variant === "ellipse" ? "Oval" : "Line";
-      out += `<graphic id="${nextId()}" BoundingBox="${u(ann.x)} ${u(ann.y)} ${u(ann.x + ann.width)} ${u(ann.y + ann.height)}" GraphicType="${graphicType}"/>\n`;
+      const graphicTypeMap: Record<ShapeAnnotation["variant"], string> = {
+        rectangle: "Rectangle",
+        ellipse: "Oval",
+        line: "Line",
+        polygon: "Polygon",
+        arc: "Arc",
+        curve: "Curve",
+        polyline: "Polyline",
+        roundedRect: "RoundRect",
+        triangle: "Triangle",
+        hexagon: "Hexagon",
+      };
+      const graphicType = graphicTypeMap[ann.variant] ?? "Rectangle";
+      let attrs = `id="${nextId()}" BoundingBox="${u(ann.x)} ${u(ann.y)} ${u(ann.x + ann.width)} ${u(ann.y + ann.height)}" GraphicType="${graphicType}"`;
+      if (ann.filled) attrs += ` FillType="Solid"`;
+      if (ann.fillPattern && ann.fillPattern !== "solid") {
+        const patternMap: Record<string, string> = { hatch: "Hatch", crosshatch: "CrossHatch", dots: "Dots" };
+        attrs += ` FillPattern="${patternMap[ann.fillPattern] ?? "Solid"}"`;
+      }
+      if (ann.lineStyle && ann.lineStyle !== "solid") {
+        const styleMap: Record<string, string> = { dashed: "Dashed", dotted: "Dotted", dashdot: "DashDot" };
+        attrs += ` LineStyle="${styleMap[ann.lineStyle] ?? "Solid"}"`;
+      }
+      if (ann.lineCap && ann.lineCap !== "round") {
+        const capMap: Record<string, string> = { round: "Round", square: "Square", butt: "Butt" };
+        attrs += ` LineCap="${capMap[ann.lineCap] ?? "Round"}"`;
+      }
+      if (ann.lineJoin && ann.lineJoin !== "miter") {
+        const joinMap: Record<string, string> = { miter: "Miter", round: "Round", bevel: "Bevel" };
+        attrs += ` LineJoin="${joinMap[ann.lineJoin] ?? "Miter"}"`;
+      }
+      if (ann.sides) attrs += ` NumSides="${ann.sides}"`;
+      if (ann.startAngle != null) attrs += ` StartAngle="${ann.startAngle.toFixed(1)}"`;
+      if (ann.points && ann.points.length > 0) {
+        const pts = ann.points.map(p => `${f4(p.x)} ${f4(p.y)}`).join(" ");
+        attrs += ` Points="${pts}"`;
+      }
+      out += `<graphic ${attrs}/>\n`;
+    } else if (ann.kind === "orbital") {
+      // Orbital glyphs export as CDX Orbital graphics
+      const orbitalTypeMap: Record<OrbitalAnnotation["variant"], string> = {
+        s: "s",
+        p: "p",
+        d: "d",
+        sp: "sp",
+        sp2: "sp2",
+        sp3: "sp3",
+        lobe: "lobe",
+        hybrid: "hybrid",
+      };
+      const orbitalType = orbitalTypeMap[ann.variant] ?? "p";
+      const size = ann.size * 2; // diameter
+      const halfSize = ann.size;
+      const angleRad = (ann.angle * Math.PI) / 180;
+      const dx = Math.cos(angleRad) * halfSize;
+      const dy = Math.sin(angleRad) * halfSize;
+      const x1 = u(ann.x - dx), y1 = u(ann.y - dy);
+      const x2 = u(ann.x + dx), y2 = u(ann.y + dy);
+      let attrs = `id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Orbital" OrbitalType="${orbitalType}"`;
+      if (ann.filled) attrs += ` FillType="Solid"`;
+      out += `<graphic ${attrs}/>\n`;
+    } else if (ann.kind === "tlc") {
+      // TLC plate export
+      const spotsXml = ann.spots.map(spot => {
+        let spotAttrs = `Rf="${spot.fy.toFixed(6)}"`;
+        if (spot.color) {
+          const colorIdx = colorPaletteIndex(spot.color);
+          spotAttrs += ` color="${colorIdx}"`;
+        }
+        if (spot.label) spotAttrs += ` Label="${escapeXml(spot.label)}"`;
+        if (spot.uv) spotAttrs += ` UV="${spot.uv}"`;
+        if (spot.stain) spotAttrs += ` Stain="${spot.stain}"`;
+        return `<tlcspot ${spotAttrs}/>`;
+      }).join("");
+      const lanesXml = ann.laneCount && ann.laneCount > 1
+        ? Array.from({ length: ann.laneCount }, (_, i) => `<tlclane>${spotsXml}</tlclane>`).join("")
+        : `<tlclane>${spotsXml}</tlclane>`;
+      let plateAttrs = `id="${nextId()}" TopLeft="${u(ann.x)} ${u(ann.y)}" TopRight="${u(ann.x + ann.width)} ${u(ann.y)}" BottomRight="${u(ann.x + ann.width)} ${u(ann.y + ann.height)}" BottomLeft="${u(ann.x)} ${u(ann.y + ann.height)}" ShowOrigin="yes" ShowSolventFront="yes" ShowBorders="yes"`;
+      if (ann.baselineFraction != null) plateAttrs += ` OriginFraction="${ann.baselineFraction.toFixed(3)}"`;
+      if (ann.solventFrontFractions && ann.solventFrontFractions[0] != null) plateAttrs += ` SolventFrontFraction="${ann.solventFrontFractions[0].toFixed(3)}"`;
+      if (ann.showUV) plateAttrs += ` ShowUV="yes"`;
+      if (ann.uvWavelengths && ann.uvWavelengths.length > 0) plateAttrs += ` UVWavelengths="${ann.uvWavelengths.join(",")}"`;
+      if (ann.stainType) plateAttrs += ` StainType="${ann.stainType}"`;
+      if (ann.laneLabels && ann.laneLabels.length > 0) plateAttrs += ` LaneLabels="${ann.laneLabels.join("|")}"`;
+      if (ann.plateSize && ann.plateSize !== "custom") plateAttrs += ` PlateSize="${ann.plateSize}"`;
+      if (ann.showRfValues) plateAttrs += ` ShowRfValues="yes"`;
+      out += `<tlcplate ${plateAttrs}>${lanesXml}</tlcplate>\n`;
     } else if (ann.kind === "text") {
       const runs = htmlToTextRuns(ann.html, ann.fontSize, scale);
       if (!runs.some((r) => r.text.trim())) continue;
@@ -540,31 +657,48 @@ function cdxOrderToOrder(raw: string | null): BondOrder {
   return 1;
 }
 
-function cdxDisplayToStereo(raw: string | null): { stereo: BondStereo; swapped: boolean } {
-  switch (raw) {
-    case "WedgeBegin":
-    case "Wedge": // ambiguous legacy value — assume Begin, same as this app's own default
-      return { stereo: "wedge", swapped: false };
-    case "WedgeEnd":
-      return { stereo: "wedge", swapped: true };
-    case "WedgedHashBegin":
-    case "Hash":
-      return { stereo: "dash", swapped: false };
-    case "WedgedHashEnd":
-      return { stereo: "dash", swapped: true };
-    case "Wavy":
-      return { stereo: "wavy", swapped: false };
-    // CDX's own emphasis styles: Bold is the heavy solid bond, Dash the
-    // plain non-stereochemical broken line — exactly the two styles this
-    // app's annotation layer now has. (CDX's "Dash" is the dashed LINE;
-    // the hashed wedge is "WedgedHash…" above, so the two never collide.)
-    case "Bold":
-      return { stereo: "bold", swapped: false };
-    case "Dash":
-      return { stereo: "dashed", swapped: false };
-    default:
-      return { stereo: "none", swapped: false };
+function cdxDisplayToStereo(raw: string | null): { stereo: BondStereo; swapped: boolean; hollow?: boolean } {
+  const v = (raw ?? "").trim();
+  // Handle hollow wedge variants first (they combine display + hollow attribute)
+  if (v === "WedgeBegin" || v === "Wedge") {
+    return { stereo: "wedge", swapped: false };
   }
+  if (v === "WedgeEnd") {
+    return { stereo: "wedge", swapped: true };
+  }
+  if (v === "WedgedHashBegin" || v === "Hash") {
+    return { stereo: "dash", swapped: false };
+  }
+  if (v === "WedgedHashEnd") {
+    return { stereo: "dash", swapped: true };
+  }
+  if (v === "Wavy") {
+    return { stereo: "wavy", swapped: false };
+  }
+  // CDX's own emphasis styles: Bold is the heavy solid bond, Dash the
+  // plain non-stereochemical broken line — exactly the two styles this
+  // app's annotation layer now has. (CDX's "Dash" is the dashed LINE;
+  // the hashed wedge is "WedgedHash…" above, so the two never collide.)
+  if (v === "Bold") {
+    return { stereo: "bold", swapped: false };
+  }
+  if (v === "Dash") {
+    return { stereo: "dashed", swapped: false };
+  }
+  // New bond types for ChemDraw compatibility
+  if (v === "BoldDouble") {
+    return { stereo: "boldDouble", swapped: false };
+  }
+  if (v === "DashedDouble") {
+    return { stereo: "dashedDouble", swapped: false };
+  }
+  if (v === "HollowWedgeBegin" || v === "HollowWedge") {
+    return { stereo: "hollowWedge", swapped: false, hollow: true };
+  }
+  if (v === "HollowWedgeEnd") {
+    return { stereo: "hollowWedge", swapped: true, hollow: true };
+  }
+  return { stereo: "none", swapped: false };
 }
 
 /** A molecule plus everything drawn around it — what a CDXML page actually
@@ -723,7 +857,10 @@ function makeArrow(
   scale: number,
   barb?: ArrowAnnotation["barb"],
   curvature?: number,
-  headSize?: ArrowAnnotation["headSize"]
+  headSize?: ArrowAnnotation["headSize"],
+  headStyle?: ArrowAnnotation["headStyle"],
+  tailStyle?: ArrowAnnotation["tailStyle"],
+  shaftStyle?: ArrowAnnotation["shaftStyle"]
 ): ArrowAnnotation {
   const px1 = x1 * scale, py1 = y1 * scale, px2 = x2 * scale, py2 = y2 * scale;
   const ann: ArrowAnnotation = {
@@ -740,6 +877,9 @@ function makeArrow(
     if (barb) ann.barb = barb;
   }
   if (headSize) ann.headSize = headSize;
+  if (headStyle) ann.headStyle = headStyle;
+  if (tailStyle) ann.tailStyle = tailStyle;
+  if (shaftStyle) ann.shaftStyle = shaftStyle;
   return ann;
 }
 
@@ -785,7 +925,7 @@ function makeShape(
   y1: number,
   x2: number,
   y2: number,
-  variant: "rectangle" | "ellipse" | "line",
+  variant: ShapeVariant,
   scale: number
 ): ShapeAnnotation {
   // Same corner-order normalization as makeBracket: a shape's width/height
@@ -946,12 +1086,51 @@ function importAnnotations(
       } else {
         annotations.push(makeArrow(rx2, ry2, rx1, ry1, bow.variant, scale, barb, bow.curvature, hx));
       }
-    } else if (type === "rectangle" || type === "rect" || type === "oval" || type === "ellipse" || type === "circle") {
+    } else if (type === "rectangle" || type === "rect" || type === "oval" || type === "ellipse" || type === "circle" || type === "polygon" || type === "arc" || type === "curve" || type === "polyline" || type === "roundedrect" || type === "roundrect" || type === "triangle" || type === "hexagon") {
       // ChemDraw's graphics-primitive tools: import as this app's shape
       // annotations (see makeShape — a degenerate sliver becomes a line,
       // since ChemDraw draws thin rules as Rectangles).
+      const shapeVariant: ShapeAnnotation["variant"] =
+        type === "oval" || type === "ellipse" || type === "circle" ? "ellipse" :
+        type === "polygon" ? "polygon" :
+        type === "arc" ? "arc" :
+        type === "curve" ? "curve" :
+        type === "polyline" ? "polyline" :
+        type === "roundedrect" || type === "roundrect" ? "roundedRect" :
+        type === "triangle" ? "triangle" :
+        type === "hexagon" ? "hexagon" :
+        "rectangle";
       room();
-      annotations.push(makeShape(rx1, ry1, rx2, ry2, type === "oval" || type === "ellipse" || type === "circle" ? "ellipse" : "rectangle", scale));
+      const shapeAnn = makeShape(rx1, ry1, rx2, ry2, shapeVariant, scale);
+      // Parse additional attributes
+      const fillType = (g.getAttribute("FillType") ?? "").toLowerCase();
+      const fillPattern = (g.getAttribute("FillPattern") ?? "").toLowerCase();
+      const lineStyle = (g.getAttribute("LineStyle") ?? "").toLowerCase();
+      const lineCap = (g.getAttribute("LineCap") ?? "").toLowerCase();
+      const lineJoin = (g.getAttribute("LineJoin") ?? "").toLowerCase();
+      if (fillType === "solid" || fillType === "patterned") shapeAnn.filled = true;
+      if (fillPattern === "hatch" || fillPattern === "crosshatch" || fillPattern === "dots") shapeAnn.fillPattern = fillPattern as ShapeAnnotation["fillPattern"];
+      if (lineStyle === "dashed" || lineStyle === "dotted" || lineStyle === "dashdot") shapeAnn.lineStyle = lineStyle as ShapeAnnotation["lineStyle"];
+      if (lineCap === "round" || lineCap === "square" || lineCap === "butt") shapeAnn.lineCap = lineCap as ShapeAnnotation["lineCap"];
+      if (lineJoin === "miter" || lineJoin === "round" || lineJoin === "bevel") shapeAnn.lineJoin = lineJoin as ShapeAnnotation["lineJoin"];
+      // Polygon sides
+      const sides = parseInt(g.getAttribute("NumSides") ?? "0", 10);
+      if (Number.isFinite(sides) && sides >= 3) shapeAnn.sides = sides;
+      // Arc start angle
+      const startAngle = parseFloat(g.getAttribute("StartAngle") ?? "NaN");
+      if (Number.isFinite(startAngle)) shapeAnn.startAngle = startAngle;
+      // Polyline points
+      const pointsAttr = g.getAttribute("Points");
+      if (pointsAttr) {
+        const pts = pointsAttr.trim().split(/\s+/).map(Number);
+        if (pts.length >= 4 && pts.length % 2 === 0) {
+          shapeAnn.points = [];
+          for (let i = 0; i < pts.length; i += 2) {
+            shapeAnn.points.push({ x: pts[i], y: pts[i + 1] });
+          }
+        }
+      }
+      annotations.push(shapeAnn);
     } else if (type === "bracket" || type === "brace") {
       // BracketType distinguishes the glyph shapes on a Bracket graphic:
       // "Curly" is ChemDraw's brace, "Round" its parenthesis.
@@ -982,13 +1161,17 @@ function importAnnotations(
       }
     } else if (type === "orbital") {
       // ChemDraw's orbital glyphs map onto this app's own orbital tool:
-      // "s" is the circle, "p" the dumbbell, and the single-lobe kinds
-      // (lobe/hybrid) the teardrop. The bounding box is the glyph's full
-      // extent, so its centre is the nucleus and half its long axis is the
-      // lobe length the app stores.
+      // "s" is the circle, "p" the dumbbell, "d" the cloverleaf, "sp"/"sp2"/"sp3"
+      // hybrids, and the single-lobe kinds (lobe/hybrid) the teardrop.
       const rawType = (g.getAttribute("OrbitalType") ?? "").trim().toLowerCase();
       const variant: OrbitalAnnotation["variant"] =
-        rawType === "s" ? "s" : rawType === "lobe" || rawType.includes("hybrid") || rawType.includes("sp") ? "lobe" : "p";
+        rawType === "s" ? "s" :
+        rawType === "p" ? "p" :
+        rawType === "d" ? "d" :
+        rawType === "sp" ? "sp" :
+        rawType === "sp2" ? "sp2" :
+        rawType === "sp3" ? "sp3" :
+        rawType === "lobe" || rawType.includes("hybrid") ? "lobe" : "p";
       const left = Math.min(rx1, rx2), right = Math.max(rx1, rx2);
       const top = Math.min(ry1, ry2), bottom = Math.max(ry1, ry2);
       const w = (right - left) * scale, h = (bottom - top) * scale;
@@ -999,7 +1182,7 @@ function importAnnotations(
       const angle = variant === "s" ? 0 : vertical ? -90 : 0;
       // An "s" circle's radius is 0.55 × size in the renderer; p lobes reach
       // `size` each way from the nucleus.
-      const size = variant === "s" ? Math.max(w, h) / 1.1 : variant === "p" ? Math.max(w, h) / 2 : Math.max(w, h);
+      const size = variant === "s" ? Math.max(w, h) / 1.1 : variant === "p" || variant === "d" ? Math.max(w, h) / 2 : Math.max(w, h);
       if (size < 1) continue;
       room();
       annotations.push({
@@ -1051,6 +1234,36 @@ function importAnnotations(
     const tail = hasHeadAttrs ? cdxHeadClass(el.getAttribute("ArrowheadTail") ?? el.getAttribute("Tail")) : "none";
     if (head === "none" && tail === "none") continue;
 
+    // Parse shaft style attributes
+    const shaftStyle = (el.getAttribute("LineStyle") ?? "").toLowerCase();
+    const shaftStyleMap: Record<string, ArrowAnnotation["shaftStyle"]> = {
+      "dashed": "dashed",
+      "bold": "bold",
+      "double": "double",
+      "solid": "solid",
+    };
+    const parsedShaftStyle = shaftStyleMap[shaftStyle];
+
+    // Parse head/tail style attributes
+    const headType = (el.getAttribute("ArrowheadType") ?? "").toLowerCase();
+    const tailType = (el.getAttribute("ArrowheadTailType") ?? "").toLowerCase();
+    const headStyleMap: Record<string, ArrowAnnotation["headStyle"]> = {
+      "solid": "full",
+      "open": "open",
+      "circle": "circle",
+      "diamond": "diamond",
+      "retrosynthetic": "retro",
+      "half": "half",
+    };
+    const tailStyleMap: Record<string, ArrowAnnotation["tailStyle"]> = {
+      "none": "none",
+      "full": "full",
+      "half": "half",
+      "open": "open",
+    };
+    const parsedHeadStyle = headStyleMap[headType];
+    const parsedTailStyle = tailStyleMap[tailType];
+
     // A non-zero AngularSize is how ChemDraw marks a curved arrow (it is
     // absent on straight ones); the bounding box then supplies the bulge
     // side, exactly like legacy Arc graphics.
@@ -1062,21 +1275,22 @@ function importAnnotations(
       const points = head !== "none" ? { x1: tailPt.x, y1: tailPt.y, x2: headPt.x, y2: headPt.y } : { x1: headPt.x, y1: headPt.y, x2: tailPt.x, y2: tailPt.y };
       const bow = arcBow(points.x1, points.y1, points.x2, points.y2, bbox);
       const endClass = head !== "none" ? head : tail;
-      annotations.push(makeArrow(points.x1, points.y1, points.x2, points.y2, bow.variant, scale, endClass === "half" ? "single" : "full", bow.curvature, headSize));
+      annotations.push(makeArrow(points.x1, points.y1, points.x2, points.y2, bow.variant, scale, endClass === "half" ? "single" : "full", bow.curvature, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else if (head === "full" && tail === "full") {
-      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "resonance", scale, "full", undefined, headSize));
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "resonance", scale, "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else if (head === "half" && tail === "half") {
-      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "equilibrium", scale));
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "equilibrium", scale, undefined, undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else if (head !== "none") {
-      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "forward", scale, tail === "half" ? "single" : "full", undefined, headSize));
+      annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "forward", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else {
-      annotations.push(makeArrow(headPt.x, headPt.y, tailPt.x, tailPt.y, "forward", scale));
+      annotations.push(makeArrow(headPt.x, headPt.y, tailPt.x, tailPt.y, "forward", scale, undefined, undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     }
   }
 
   // --- TLC plates. A CDXML plate's frame is its bounding box; each lane
   // holds the spots of one sample, and Rf is already the 0(baseline)-1
   // (solvent front) fraction this app stores as TlcSpot.fy.
+  // Enhanced with multiple solvent fronts, UV visualization, staining, lane labels.
   for (const plate of Array.from(doc.querySelectorAll("tlcplate"))) {
     const bbox = parseBBox(plate);
     const tl = parsePoint(plate, "TopLeft");
@@ -1106,15 +1320,45 @@ function importAnnotations(
       const colorAttr = el.getAttribute("color");
       const colorIdx = colorAttr != null ? parseInt(colorAttr, 10) || 0 : -1;
       const color = colorIdx >= 0 ? colorAt(colorIdx) : undefined;
+      const label = el.getAttribute("Label") ?? undefined;
+      const uv = (el.getAttribute("UV") ?? "").toLowerCase();
+      const stain = (el.getAttribute("Stain") ?? "").toLowerCase();
       spots.push({
         fx: (lane + 0.5) / laneCount,
         fy: clamp(rf, 0, 1),
         r: clamp(Math.min(width, height) * 0.035, 2.5, 7),
         ...(color && !isBlack(color) ? { color } : {}),
+        ...(label ? { label } : {}),
+        ...(uv === "254" || uv === "365" || uv === "both" ? { uv: uv as TlcSpot["uv"] } : {}),
+        ...(stain ? { stain: stain as TlcSpot["stain"] } : {}),
       });
     }
     room();
-    const ann: TlcPlateAnnotation = { id: nextId(), kind: "tlc", x, y, width, height, spots };
+
+    // Parse enhanced plate attributes
+    const baselineFraction = parseFloat(plate.getAttribute("OriginFraction") ?? "0.1");
+    const solventFrontFraction = parseFloat(plate.getAttribute("SolventFrontFraction") ?? "0.9");
+    const showUV = (plate.getAttribute("ShowUV") ?? "no").toLowerCase() === "yes";
+    const uvWavelengths = (plate.getAttribute("UVWavelengths") ?? "").split(",").map(s => s.trim()).filter(s => s === "254" || s === "365") as ("254" | "365")[];
+    const stainType = (plate.getAttribute("StainType") ?? "").toLowerCase();
+    const laneLabels = (plate.getAttribute("LaneLabels") ?? "").split("|").map(s => s.trim()).filter(Boolean);
+    const plateSize = (plate.getAttribute("PlateSize") ?? "custom").toLowerCase();
+    const showRfValues = (plate.getAttribute("ShowRfValues") ?? "no").toLowerCase() === "yes";
+
+    const ann: TlcPlateAnnotation = {
+      id: nextId(),
+      kind: "tlc",
+      x, y, width, height, spots,
+      baselineFraction: Number.isFinite(baselineFraction) ? baselineFraction : undefined,
+      solventFrontFractions: Number.isFinite(solventFrontFraction) ? [solventFrontFraction] : undefined,
+      showUV: showUV || undefined,
+      uvWavelengths: uvWavelengths.length > 0 ? uvWavelengths : undefined,
+      stainType: stainType ? stainType as TlcPlateAnnotation["stainType"] : undefined,
+      laneLabels: laneLabels.length > 0 ? laneLabels : undefined,
+      laneCount: laneCount > 1 ? laneCount : undefined,
+      plateSize: plateSize as TlcPlateAnnotation["plateSize"],
+      showRfValues: showRfValues || undefined,
+    };
     annotations.push(ann);
   }
 
@@ -1243,7 +1487,7 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     const cdxId = n.getAttribute("id");
     if (!cdxId) continue;
     const p = (n.getAttribute("p") || "0 0").trim().split(/\s+/).map(Number);
-    const [x, y] = p.length >= 2 ? p : [0, 0];
+    const [x, y, z] = p.length >= 3 ? p : p.length >= 2 ? p : [0, 0];
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("CDXML atom has invalid coordinates");
     const atomicNumber = n.getAttribute("Element") ? parseInt(n.getAttribute("Element")!, 10) : 6;
     const element = ATOMIC_NUMBER_TO_ELEMENT[atomicNumber] ?? "C";
@@ -1253,10 +1497,10 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     idByCdxId.set(cdxId, id);
     rawX.set(id, x);
     rawY.set(id, y);
-    mol.atoms[id] = { id, x: 0, y: 0, element, charge };
+    mol.atoms[id] = { id, x: 0, y: 0, element, charge, ...(Number.isFinite(z) ? { z } : {}) };
   }
 
-  const bondPairs: { a1: string; a2: string; order: BondOrder; stereo: BondStereo }[] = [];
+  const bondPairs: { a1: string; a2: string; order: BondOrder; stereo: BondStereo; hollow?: boolean }[] = [];
   for (const b of Array.from(doc.querySelectorAll("b"))) {
     const bCdx = b.getAttribute("B");
     const eCdx = b.getAttribute("E");
@@ -1265,10 +1509,10 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     const endId = idByCdxId.get(eCdx);
     if (!beginId || !endId) continue;
     const order = cdxOrderToOrder(b.getAttribute("Order"));
-    const { stereo, swapped } = cdxDisplayToStereo(b.getAttribute("Display"));
+    const { stereo, swapped, hollow } = cdxDisplayToStereo(b.getAttribute("Display"));
     // Our model always has a1 as the wedge/hash's narrow end; if CDX marked
     // the *other* node as narrow ("...End"), swap so a1 stays narrow.
-    bondPairs.push(swapped ? { a1: endId, a2: beginId, order, stereo } : { a1: beginId, a2: endId, order, stereo });
+    bondPairs.push(swapped ? { a1: endId, a2: beginId, order, stereo, hollow } : { a1: beginId, a2: endId, order, stereo, hollow });
   }
 
   // Same self-calibration approach as the MOL/SDF importer: CDXML documents
@@ -1299,9 +1543,9 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     mol.atoms[id].y = (rawY.get(id) ?? 0) * scale;
   }
 
-  for (const { a1, a2, order, stereo } of bondPairs) {
+  for (const { a1, a2, order, stereo, hollow } of bondPairs) {
     const id = nextId();
-    mol.bonds[id] = { id, a1, a2, order: stereo === "none" ? order : 1, stereo, doubleSide: "auto" };
+    mol.bonds[id] = { id, a1, a2, order: stereo === "none" ? order : 1, stereo, doubleSide: "auto", hollow };
   }
 
   const annotations = importAnnotations(doc, scale);
