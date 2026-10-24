@@ -1,4 +1,9 @@
 import type { Annotation, Molecule } from "../types/chemistry";
+import { AMINO_ACID_TEMPLATES } from "./aminoAcidTemplates";
+import { CARBOHYDRATE_TEMPLATES } from "./carbohydrateTemplates";
+import { NUCLEOTIDE_TEMPLATES } from "./nucleotideTemplates";
+import { STEROID_TEMPLATES } from "./steroidTemplates";
+import { TERPENE_TEMPLATES } from "./terpeneTemplates";
 
 /**
  * A pre-made structure insertable via the "Structures" button next to the
@@ -310,4 +315,9 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
     annotations: [],
   },
 
+  ...AMINO_ACID_TEMPLATES,
+  ...CARBOHYDRATE_TEMPLATES,
+  ...NUCLEOTIDE_TEMPLATES,
+  ...STEROID_TEMPLATES,
+  ...TERPENE_TEMPLATES,
 ];

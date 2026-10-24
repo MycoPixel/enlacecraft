@@ -11,7 +11,16 @@ interface StructureTemplatePickerProps {
 /** Category display order — anything not listed here (shouldn't normally
  * happen) falls back to appearing after all of these, in whatever order
  * Object.keys gives it, rather than being silently dropped. */
-const CATEGORY_ORDER = ["sugars", "nucleobases", "ligands"];
+const CATEGORY_ORDER = [
+  "aminoAcids",
+  "carbohydrates",
+  "nucleotides",
+  "nucleobases",
+  "sugars",
+  "steroids",
+  "terpenes",
+  "ligands",
+];
 
 export function StructureTemplatePicker({ onChoose }: StructureTemplatePickerProps) {
   const t = useT();
