@@ -151,6 +151,8 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
   const len = Math.hypot(dx, dy) || 1;
   const nx = -dy / len;
   const ny = dx / len;
+  const ux = dx / len;
+  const uy = dy / len;
   const gap = 4; // half-spacing between the two lines of an equilibrium arrow
   const curveSign = variant === "curvedReverse" ? -1 : 1;
   const bow = (annotation.curvature ?? len * 0.22) * curveSign;
@@ -230,6 +232,53 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
             stroke={color} strokeWidth={1.4} markerEnd={`url(#${markerId})`} pointerEvents="none" {...dashAttrs}
           />
         </>
+      )}
+
+      {variant === "dashed" && (
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.6} markerEnd={`url(#${markerId})`} pointerEvents="none" strokeDasharray="6 4" />
+      )}
+
+      {variant === "double" && (
+        <g stroke={color} strokeWidth={1.6} markerEnd={`url(#${markerId})`} pointerEvents="none">
+          <line x1={x1 - nx * 2} y1={y1 - ny * 2} x2={x2 - nx * 2} y2={y2 - ny * 2} />
+          <line x1={x1 + nx * 2} y1={y1 + ny * 2} x2={x2 + nx * 2} y2={y2 + ny * 2} />
+        </g>
+      )}
+
+      {variant === "bold" && (
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={4.0} markerEnd={`url(#${markerId})`} pointerEvents="none" />
+      )}
+
+      {variant === "openHead" && (
+        <g stroke={color} strokeWidth={1.6} fill="none" strokeLinecap="round" strokeLinejoin="round" pointerEvents="none">
+          <line x1={x1} y1={y1} x2={x2} y2={y2} />
+          {/* Open head: two bars from tip, no fill. */}
+          <line x1={x2} y1={y2} x2={x2 - ux * 12 + nx * 6} y2={y2 - uy * 12 + ny * 6} />
+          <line x1={x2} y1={y2} x2={x2 - ux * 12 - nx * 6} y2={y2 - uy * 12 - ny * 6} />
+        </g>
+      )}
+
+      {variant === "circleHead" && (
+        <g stroke={color} strokeWidth={1.6} fill="none" pointerEvents="none">
+          <line x1={x1} y1={y1} x2={x2 - ux * 10} y2={y2 - uy * 10} />
+          <circle cx={x2} cy={y2} r={4} stroke={color} strokeWidth={1.6} fill="none" />
+        </g>
+      )}
+
+      {variant === "diamondHead" && (
+        <g stroke={color} strokeWidth={1.6} fill={color} pointerEvents="none">
+          <line x1={x1} y1={y1} x2={x2 - ux * 10} y2={y2 - uy * 10} />
+          <polygon points={`${x2},${y2} ${x2 - ux * 6 + nx * 4},${y2 - uy * 6 - ny * 4} ${x2 - ux * 10},${y2 - uy * 10} ${x2 - ux * 6 - nx * 4},${y2 - uy * 6 + ny * 4}`} />
+        </g>
+      )}
+
+      {variant === "tailed" && (
+        <g stroke={color} strokeWidth={1.6} fill="none" strokeLinecap="round" pointerEvents="none">
+          <line x1={x1} y1={y1} x2={x2} y2={y2} markerEnd={`url(#${markerId})`} />
+          {/* Tail feather: short line parallel behind the start. */}
+          <line x1={x1 + ux * 6} y1={y1 + uy * 6} x2={x1 - ux * 10} y2={y1 - uy * 10} />
+          <line x1={x1 + ux * 6 + nx * 2} y1={y1 + uy * 6 + ny * 2} x2={x1 - ux * 10 - nx * 2} y2={y1 - uy * 10 - ny * 2} />
+        </g>
       )}
 
       {selected && (

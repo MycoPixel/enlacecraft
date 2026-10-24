@@ -163,6 +163,110 @@ export function ShapeAnnotationView({ annotation, selected, viewScale }: ShapeAn
         <line x1={x} y1={y} x2={x + width} y2={y + height} stroke={color} strokeWidth={1.6} strokeLinecap="round" pointerEvents="none" />
       )}
 
+      {variant === "roundedRect" && (
+        <rect
+          x={x} y={y} width={width} height={height}
+          rx={Math.min(width, height) * 0.2} ry={Math.min(width, height) * 0.2}
+          fill={filled ? color : "none"} stroke={color} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none"
+        />
+      )}
+
+      {variant === "triangle" && (
+        <polygon
+          points={`${x + width / 2},${y} ${x + width},${y + height} ${x},${y + height}`}
+          fill={filled ? color : "none"} stroke={color} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none"
+        />
+      )}
+
+      {variant === "hexagon" && (
+        <polygon
+          points={
+            [
+              { x: x + width / 2, y: y },
+              { x: x + width, y: y + height * 0.25 },
+              { x: x + width, y: y + height * 0.75 },
+              { x: x + width / 2, y: y + height },
+              { x: x, y: y + height * 0.75 },
+              { x: x, y: y + height * 0.25 },
+            ]
+              .map((p) => `${p.x},${p.y}`)
+              .join(" ")
+          }
+          fill={filled ? color : "none"} stroke={color} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none"
+        />
+      )}
+
+      {variant === "polygon" && annotation.sides && annotation.sides >= 3 && (
+        <>
+          {(() => {
+            const n = annotation.sides!;
+            return (
+              <polygon
+                points={
+                  Array.from({ length: n }).map((_, i) => {
+                    const angle = ((i * 360) / n - 90) * (Math.PI / 180);
+                    const r = Math.min(width, height) / 2;
+                    return `${x + width / 2 + Math.cos(angle) * r},${y + height / 2 + Math.sin(angle) * r}`;
+                  }).join(" ")
+                }
+                fill={filled ? color : "none"} stroke={color} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none"
+              />
+            );
+          })()}
+        </>
+      )}
+
+      {variant === "arc" && (
+        <path
+          d={
+            (() => {
+              const startAngle = ((annotation.startAngle ?? 0) * Math.PI) / 180;
+              const sweepAngle = ((annotation.sides ?? 90) * Math.PI) / 180;
+              const r = Math.min(width, height) / 2;
+              const cx = x + width / 2;
+              const cy = y + height / 2;
+              const x1 = cx + Math.cos(startAngle) * r;
+              const y1 = cy + Math.sin(startAngle) * r;
+              const x2 = cx + Math.cos(startAngle + sweepAngle) * r;
+              const y2 = cy + Math.sin(startAngle + sweepAngle) * r;
+              const largeArc = sweepAngle > Math.PI ? 1 : 0;
+              return `M ${x1},${y1} A ${r},${r} 0 ${largeArc} 0 ${x2},${y2}`;
+            })()
+          }
+          fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" pointerEvents="none"
+        />
+      )}
+
+      {variant === "curve" && annotation.points && annotation.points.length >= 2 && (
+        <path
+          d={
+            annotation.points
+              .map((p, i) => {
+                const px = x + p.x;
+                const py = y + p.y;
+                return i === 0 ? `M ${px},${py}` : `L ${px},${py}`;
+              })
+              .join(" ")
+          }
+          fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none"
+        />
+      )}
+
+      {variant === "polyline" && annotation.points && annotation.points.length >= 2 && (
+        <path
+          d={
+            annotation.points
+              .map((p, i) => {
+                const px = x + p.x;
+                const py = y + p.y;
+                return i === 0 ? `M ${px},${py}` : `L ${px},${py}`;
+              })
+              .join(" ")
+          }
+          fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none"
+        />
+      )}
+
       {selected && variant !== "line" && (
         <rect
           x={x + width - 4} y={y + height - 4} width={10} height={10}

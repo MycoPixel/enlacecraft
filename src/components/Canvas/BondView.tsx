@@ -156,6 +156,42 @@ function BondStrokes({ bond, a1, a2, resolvedSide, hideForAromaticCircle, r1 = 0
     );
   }
 
+  // Bold double bond: two heavy parallel lines — ChemDraw's "Bold Double"
+  // bond for emphasis on reaction-center double bonds.
+  if (bond.stereo === "boldDouble") {
+    const off = 3.0;
+    return (
+      <g>
+        <line x1={p1.x + ux * off} y1={p1.y + uy * off} x2={p2.x + ux * off} y2={p2.y + uy * off} stroke={color} strokeWidth="4.6" strokeLinecap="round" />
+        <line x1={p1.x - ux * off} y1={p1.y - uy * off} x2={p2.x - ux * off} y2={p2.y - uy * off} stroke={color} strokeWidth="4.6" strokeLinecap="round" />
+      </g>
+    );
+  }
+
+  // Dashed double bond: two dashed parallel lines — partial double bond,
+  // resonance hybrid, transition state.
+  if (bond.stereo === "dashedDouble") {
+    const off = 2.0;
+    return (
+      <g>
+        <line x1={p1.x + ux * off} y1={p1.y + uy * off} x2={p2.x + ux * off} y2={p2.y + uy * off} stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeDasharray="5 4" />
+        <line x1={p1.x - ux * off} y1={p1.y - uy * off} x2={p2.x - ux * off} y2={p2.y - uy * off} stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeDasharray="5 4" />
+      </g>
+    );
+  }
+
+  // Hollow wedge: wedge outline only (no fill) — "this bond comes out
+  // toward you" shown as an unfilled triangular outline.
+  if (bond.stereo === "hollowWedge") {
+    const w = 6.2;
+    return (
+      <polygon
+        points={`${p1.x},${p1.y} ${p2.x + ux * w},${p2.y + uy * w} ${p2.x - ux * w},${p2.y - uy * w}`}
+        fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round"
+      />
+    );
+  }
+
   if (bond.stereo === "wavy") {
     // A sine wave along the bond axis — the standard notation for
     // unspecified/mixed stereochemistry at this bond (as opposed to wedge/
