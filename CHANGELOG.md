@@ -36,6 +36,63 @@ was actually drawn on the canvas:
   and covered by an end-to-end regression test (14 atoms, 14 bonds, 1 charged
   atom, wavy/wedge/bold bonds, 2 arrows, 1 orbital, 4 brackets, 1 TLC plate).
 
+### Structure templates — 40 more built-in drawings
+
+The structure picker gained four new categories alongside sugars and nucleobases:
+
+- **Amino acids** — all 20 standard L-amino acids (ala, gly, arg, asn, asp,
+  gln, glu, his, ile, leu, lys, met, phe, pro, ser, thr, trp, tyr, val) with
+  α-carbon, amino/carboxyl backbone and correct side-chain atom/bond layouts.
+- **Nucleotides** — AMP (was already there) plus GMP, CMP, UMP, TMP (dTMP),
+  GTP, CTP and UTP, each with ribose/deoxyribose sugar, nucleobase and
+  mono-/tri-phosphate.
+- **Steroids** — gonane and cholesterol plus testosterone, estradiol,
+  progesterone, cortisol and cholic acid, each with the four-ring nucleus and
+  its characteristic functional groups.
+- **Terpenes** — limonene, caryophyllene, retinol plus menthol, camphor,
+  artemisinin and squalene.
+- **Carbohydrates** — D-glucose Fischer/Haworth and maltose plus D-galactose,
+  D-mannose, D-fructose and D-ribose Fischer projections.
+
+Each template is a full `StructureTemplate` (atom/bond layout, centered at
+origin) insertable through the Structures picker, now grouped by category.
+
+### Bond stereo rendering
+
+Three new bond stereochemistry types render in `BondView`:
+
+- **`boldDouble`** — two heavy parallel lines for emphasized double bonds.
+- **`dashedDouble`** — two dashed parallel lines for partial/resonance bonds.
+- **`hollowWedge`** — an unfilled triangular outline for "bond comes out"
+  stereochemistry.
+
+All three round-trip through CDXML via `Display="BoldDouble"`,
+`Display="DashedDouble"` and `Display="HollowWedgeBegin"`.
+
+### Arrow variant rendering
+
+Seven new arrow variants render in `ArrowAnnotationView`: `dashed`, `double`,
+`bold`, `openHead`, `circleHead`, `diamondHead`, `tailed`. Straight variants
+carry `LineStyle`/`ArrowheadType` attributes on export and re-import to the
+matching variant; curved variants keep using `<arrow>` elements with
+`AngularSize`.
+
+### Shape variant rendering
+
+Nine new shape variants render in `ShapeAnnotationView`: `roundedRect`,
+`triangle`, `hexagon`, `polygon` (configurable sides), `arc` (start angle +
+sweep), `curve` and `polyline` (point lists). Export writes `GraphicType`
+(`Arc`, `Curve`, `Polyline`, `Polygon`, `RoundRect`, `Triangle`, `Hexagon`)
+with `NumSides`, `StartAngle` and `Points` attributes; import maps them back
+to the matching variant.
+
+### Round-trip tests
+
+CDXML tests now cover `boldDouble`/`dashedDouble`/`hollowWedge` bond stereo,
+all straight arrow variants, all new shape variants, and a `validate.test.ts`
+correction so `hexagon` is accepted as a valid shape variant instead of being
+repaired to `rectangle`.
+
 ### Brackets and TLC plates
 - **Curly brackets no longer import/draw backwards**: `open` now anchors at the
   right edge and curls left, `close` anchors at the left and curls right, so a
