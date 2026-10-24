@@ -508,42 +508,13 @@ export const RING_TEMPLATES: RingTemplate[] = [
   },
   // --- Fused heteroaromatics ---
   {
-    id: "indole", label: "Indole", sides: 6, aromatic: true, fused: true,
-  },
-  {
-    id: "quinoline", label: "Quinoline", sides: 6, aromatic: true, fused: true,
-  },
-  {
-    id: "isoquinoline", label: "Isoquinoline", sides: 6, aromatic: true, fused: true,
-  },
-  {
-    id: "benzimidazole", label: "Benzimidazole", sides: 6, aromatic: true, fused: true,
-  },
-  {
-    id: "purine", label: "Purine", sides: 6, aromatic: true, fused: true,
+    id: "naphthalene", label: "Naphthalene", sides: 6, aromatic: true,
+    fused: true,
   },
   // --- Cp ring ---
   {
     id: "cyclopentadienyl", label: "Cyclopentadienyl (Cp⁻)", sides: 5, aromatic: true,
     heteroatoms: [],
-  },
-  // --- Chair/boat cyclohexane (StructureTemplates) ---
-  {
-    id: "cyclohexane-chair", label: "Cyclohexane Chair", sides: 6, aromatic: false,
-  },
-  {
-    id: "cyclohexane-boat", label: "Cyclohexane Boat", sides: 6, aromatic: false,
-  },
-  // --- Decalins ---
-  {
-    id: "decalin-cis", label: "cis-Decalin", sides: 6, aromatic: false, fused: true,
-  },
-  {
-    id: "decalin-trans", label: "trans-Decalin", sides: 6, aromatic: false, fused: true,
-  },
-  // --- Norbornane ---
-  {
-    id: "norbornane", label: "Norbornane", sides: 6, aromatic: false, fused: true,
   },
 ];
 
