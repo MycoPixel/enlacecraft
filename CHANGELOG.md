@@ -5,7 +5,7 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
-## Unreleased
+## 1.17.0
 
 CDXML import is fixed and widened — opening a ChemDraw drawing now lands what
 was actually drawn on the canvas:
