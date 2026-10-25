@@ -198,6 +198,31 @@ describe("spectrumToSvg", () => {
       expect(out).not.toContain("<path d=");
     });
 
+    test("resolves a multiplet's individual lines instead of aliasing them into one spike", () => {
+      // The whole point of the wider figure: a 7 Hz coupling at the assumed
+      // 400 MHz is 0.0175 ppm apart. This used to be sampled at 480 points
+      // across an 8 ppm window - a step of 0.0167 ppm, i.e. essentially one
+      // sample per splitting. Depending on where the multiplet happened to
+      // land, the grid skipped the two lines and the path showed a single
+      // bump at their midpoint, so no amount of zooming could recover the
+      // multiplicity: the structure was never in the SVG.
+      const j = 7; // Hz
+      const doublet = grp("CH2", 3.7, [3.7 - j / 800, 3.7 + j / 800]);
+      const out = spectrumToSvg([doublet], "h1", "", [0, 8], "curve");
+      const d = /<path d="([^"]+)"/.exec(out)?.[1] ?? "";
+      const ys = [...d.matchAll(/[ML] [\d.]+ ([\d.]+)/g)].map((m) => Number(m[1]));
+
+      // Several samples per plot pixel, so the grid cannot step over a line.
+      expect(ys.length).toBeGreaterThan(4 * 760);
+
+      // SVG y grows downward, so a peak top is a local minimum. A clean
+      // doublet must have exactly two, both near the top of the plot.
+      const peakTops = ys.filter(
+        (y, i) => i > 0 && i < ys.length - 1 && y < ys[i - 1] && y <= ys[i + 1] && y < 200,
+      );
+      expect(peakTops).toHaveLength(2);
+    });
+
     test("uses the nucleus's own linewidth, so peak widths look right per tab", () => {
       // 1H peaks are broad, 13C peaks are sharp; sharing one width would make
       // one of the two nuclei look wrong in an exported figure.
@@ -223,8 +248,8 @@ describe("spectrumToSvg", () => {
 
   test("size is fixed, so output does not vary with the browser or zoom", () => {
     const out = spectrumToSvg(aspirinish, "h1", "", [0, 8]);
-    expect(out).toContain('width="760"');
-    expect(out).toContain('height="420"');
+    expect(out).toContain('width="1600"');
+    expect(out).toContain('height="460"');
   });
 });
 

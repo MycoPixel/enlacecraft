@@ -134,6 +134,20 @@ repaired to `rectangle`.
   the **1,3,5-/1,2,4-triazine** tooltips show their names instead of the raw
   translation key `ring.1,3,5-triazine`.
 
+### NMR spectrum SVG export
+
+- **Multiplet fine structure is visible in exported figures.** The SVG was
+  760 px wide and sampled the curve at 480 points. At the assumed 400 MHz a
+  7 Hz doublet is 0.0175 ppm apart, which was both about one pixel and almost
+  exactly the sample step - so the path could step straight over a multiplet's
+  lines and draw one spike at their midpoint, and zooming the exported image
+  afterwards could not recover structure that was never in it. The figure is
+  now 1600×460, a wide banner that doubles the horizontal resolution of the
+  full ppm range, and the curve is sampled four times per plot pixel (6112
+  points), so the exported path contains the individual lines. Type sizes were
+  adjusted for the larger canvas. A regression test exports a 7 Hz doublet and
+  asserts the path has two separate peak tops.
+
 ## 1.16.0
 
 Two frontiers move at once: chemistry *data* can now come in as text (SMILES,

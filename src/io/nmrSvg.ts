@@ -44,9 +44,19 @@ import {
  *  looking at - see spectrumToSvg. */
 export type SpectrumPlotMode = "curve" | "sticks";
 
-/** Figure size in px. Fixed so output is identical on every machine. */
-const SVG_WIDTH = 760;
-const SVG_HEIGHT = 420;
+/** Figure size in px. Fixed so output is identical on every machine.
+ *
+ *  WIDE, NOT TALL. The figure's whole job is to show a full 1H range (often
+ *  ~8 ppm) in enough horizontal detail that a multiplet's individual lines are
+ *  still distinguishable. A 7 Hz coupling at the assumed 400 MHz is 0.0175 ppm,
+ *  which at the old 760 px width was about 1.5 px between the lines of a
+ *  doublet - narrower than the stroke itself, so every multiplet read as one
+ *  spike. Doubling the width gives those lines room (and the same physical
+ *  size when the figure is printed/inserted at a usable width). The height
+ *  only needs to fit the peaks and labels, so it stays modest; extra height
+ *  would not add any horizontal resolution. */
+const SVG_WIDTH = 1600;
+const SVG_HEIGHT = 460;
 /** Left inset, enough for a 3-digit ppm label like "100". */
 const PAD_LEFT = 56;
 const PAD_RIGHT = 16;
@@ -60,10 +70,22 @@ const AXIS_Y = SVG_HEIGHT - PAD_BOTTOM;
 const PLOT_W = SVG_WIDTH - PAD_LEFT - PAD_RIGHT;
 const PLOT_H = AXIS_Y - PAD_TOP;
 
-/** Samples across the curve. Matches the on-screen plot's 480 so an exported
- *  figure resolves a multiplet's individual lines at the same fidelity the
- *  user saw rather than looking visibly coarser than the screen it came from. */
-const CURVE_SAMPLES = 480;
+/** Samples across the curve.
+ *
+ *  This is a resolution limit, not a smoothness knob: the curve is a sum of
+ *  narrow Lorentzians (1.5 Hz FWHM for 1H, well under a pixel wide at this
+ *  width), so a sample grid coarser than the line spacing can STEP OVER a
+ *  multiplet's lines entirely. At the old 480 points across ~8.5 ppm the step
+ *  was 0.0177 ppm - almost exactly the 0.0175 ppm splitting of a 7 Hz doublet
+ *  at 400 MHz - which is why a doublet could export as a single spike no matter
+ *  how far you zoomed in afterwards: the lines were never in the path to begin
+ *  with.
+ *
+ *  Four samples per plot pixel is comfortably finer than any feature the
+ *  rasteriser can show, and keeps the peak tops accurate (a line centre can
+ *  fall between samples, and a Lorentzian sampled slightly off-centre is
+ *  visibly short). */
+const CURVE_SAMPLES = PLOT_W * 4;
 
 /** Text styling. A generic sans stack, so no font file has to be embedded. */
 const FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -180,7 +202,7 @@ export function spectrumToSvg(
     parts.push(
       `<line x1="${x.toFixed(2)}" y1="${AXIS_Y}" x2="${x.toFixed(2)}" y2="${AXIS_Y + 5}" ` +
         `stroke="#1b2027" stroke-width="1.5"/>`,
-      `<text x="${x.toFixed(2)}" y="${AXIS_Y + 19}" fill="#5b6472" font-size="11" ` +
+      `<text x="${x.toFixed(2)}" y="${AXIS_Y + 19}" fill="#5b6472" font-size="13" ` +
         `font-family="${FONT}" text-anchor="middle">${fmt(t, tickDecimals)}</text>`,
     );
   }
@@ -194,7 +216,7 @@ export function spectrumToSvg(
     parts.push(
       `<line x1="${x.toFixed(2)}" y1="${PAD_TOP}" x2="${x.toFixed(2)}" y2="${AXIS_Y}" ` +
         `stroke="#2f5d8a" stroke-width="1" stroke-dasharray="3 3"/>`,
-      `<text x="${(x - 4).toFixed(2)}" y="${PAD_TOP + 12}" fill="#2f5d8a" font-size="10" ` +
+      `<text x="${(x - 4).toFixed(2)}" y="${PAD_TOP + 12}" fill="#2f5d8a" font-size="11" ` +
         `font-family="${FONT}" text-anchor="end">TMS</text>`,
     );
   }
@@ -227,23 +249,23 @@ export function spectrumToSvg(
       )
       .join(" ");
     parts.push(
-      `<path d="${d}" fill="none" stroke="#1b2027" stroke-width="1.4" ` +
+      `<path d="${d}" fill="none" stroke="#1b2027" stroke-width="1.3" ` +
         `stroke-linejoin="round" stroke-linecap="round"/>`,
     );
   }
 
   // --- titles ------------------------------------------------------------
   parts.push(
-    `<text x="${PAD_LEFT + PLOT_W / 2}" y="${AXIS_Y + 38}" fill="#1b2027" font-size="12" ` +
+    `<text x="${PAD_LEFT + PLOT_W / 2}" y="${AXIS_Y + 38}" fill="#1b2027" font-size="14" ` +
       `font-family="${FONT}" text-anchor="middle">\u03b4 (ppm)</text>`,
     `<text x="${(PAD_LEFT - 34).toFixed(2)}" y="${(PAD_TOP + PLOT_H / 2).toFixed(2)}" ` +
-      `fill="#1b2027" font-size="12" font-family="${FONT}" text-anchor="middle" ` +
+      `fill="#1b2027" font-size="14" font-family="${FONT}" text-anchor="middle" ` +
       `transform="rotate(-90 ${(PAD_LEFT - 34).toFixed(2)} ${(PAD_TOP + PLOT_H / 2).toFixed(2)})">` +
       `${nucleus === "h1" ? "\u00b9H" : "\u00b9\u00b3C"}</text>`,
   );
   if (title) {
     parts.push(
-      `<text x="${PAD_LEFT}" y="26" fill="#1b2027" font-size="14" font-weight="600" ` +
+      `<text x="${PAD_LEFT}" y="28" fill="#1b2027" font-size="18" font-weight="600" ` +
         `font-family="${FONT}">${esc(title)}</text>`,
     );
   }
@@ -255,7 +277,7 @@ export function spectrumToSvg(
       ? "Simulated splitting; positions from a prediction model. Not a measured spectrum."
       : "Simulated spectrum; 13C shown proton-decoupled. Not a measured spectrum.";
   parts.push(
-    `<text x="${PAD_LEFT}" y="${SVG_HEIGHT - 8}" fill="#5b6472" font-size="10" ` +
+    `<text x="${PAD_LEFT}" y="${SVG_HEIGHT - 8}" fill="#5b6472" font-size="12" ` +
       `font-family="${FONT}">${esc(caveat)}</text>`,
   );
 
