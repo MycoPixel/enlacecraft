@@ -63,7 +63,12 @@ function build(
  */
 function ring6(fromKey: string, fromPos: { x: number; y: number }, keyPrefix: string, aromatic: boolean) {
   const R = BOND_LEN;
-  const cx = fromPos.x + R * 1.5; // hexagon center, one edge-length further along +x from the ipso vertex
+  // Hexagon center two edge-lengths along +x from `fromKey`, which puts
+  // the ipso vertex exactly one bond length (R) away from it — the same
+  // distance every other bond in these templates uses. (An earlier
+  // `fromPos.x + R * 1.5` left the external bond at only half a bond
+  // length, so rings attached to an existing atom looked pinched.)
+  const cx = fromPos.x + R * 2;
   const cy = fromPos.y;
   const key = (i: number) => `${keyPrefix}${i}`;
   const atoms: FunctionalGroupTemplate["atoms"] = [];
@@ -104,11 +109,9 @@ const BRANCH_DOWN = -60;
  * single aromatic/heteroatom convention that would fit every 5-ring this
  * file needs the way ring6's benzene-or-cyclohexane toggle does.
  *
- * Unlike ring6's ipso bond (see that function's own vertex-placement
- * comment — its external bond ends up shorter than BOND_LEN), this
- * places the ipso vertex a full BOND_LEN out from fromKey, matching every
- * other bond build() draws; the ring center sits one more ring-circumradius
- * further along +x from there.
+ * This places the ipso vertex a full BOND_LEN out from fromKey, matching
+ * every other bond build() draws; the ring center then sits one more
+ * ring-circumradius further along +x from there.
  */
 function ring5(
   fromKey: string,

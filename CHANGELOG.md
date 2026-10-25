@@ -36,13 +36,26 @@ was actually drawn on the canvas:
   and covered by an end-to-end regression test (14 atoms, 14 bonds, 1 charged
   atom, wavy/wedge/bold bonds, 2 arrows, 1 orbital, 4 brackets, 1 TLC plate).
 
-### Structure templates — 40 more built-in drawings
+### Structure templates — corrected, rebuilt, and expanded
 
-The structure picker gained four new categories alongside sugars and nucleobases:
+The built-in structure picker's drawings were re-audited and rebuilt: every
+template now has the correct molecular formula, one connected fragment, sane
+bond lengths and stereo wedges where the compound is chiral. The old
+hand-drawn data had missing/extra atoms, wrong bond orders, disconnected
+fragments, over-valent atoms and stretched bonds; those are generated from
+reference structures now (SMILES via OpenChemLib, PubChem 2D records for the
+steroids/artemisinin) with explicit builders for the Fischer/Haworth
+projections. A regression test pins each template's formula, connectivity and
+insertion path.
 
-- **Amino acids** — all 20 standard L-amino acids (ala, gly, arg, asn, asp,
-  gln, glu, his, ile, leu, lys, met, phe, pro, ser, thr, trp, tyr, val) with
-  α-carbon, amino/carboxyl backbone and correct side-chain atom/bond layouts.
+The structure picker's categories:
+
+- **Amino acids** — all 20 standard L-amino acids (ala, arg, asn, asp, cys,
+  gln, glu, gly, his, ile, leu, lys, met, phe, pro, ser, thr, trp, tyr, val)
+  with α-carbon, amino/carboxyl backbone and correct side-chain atom/bond
+  layouts.
+- **Nucleobases** — adenine, guanine, cytosine, thymine and uracil as
+  standalone rings, in addition to the nucleotides below.
 - **Nucleotides** — AMP (was already there) plus GMP, CMP, UMP, TMP (dTMP),
   GTP, CTP and UTP, each with ribose/deoxyribose sugar, nucleobase and
   mono-/tri-phosphate.
@@ -55,7 +68,7 @@ The structure picker gained four new categories alongside sugars and nucleobases
   D-mannose, D-fructose and D-ribose Fischer projections.
 
 Each template is a full `StructureTemplate` (atom/bond layout, centered at
-origin) insertable through the Structures picker, now grouped by category.
+origin) insertable through the Structures picker, grouped by category.
 
 ### Bond stereo rendering
 
@@ -104,6 +117,22 @@ repaired to `rectangle`.
   clamped to the plate); click still adds a spot, and Shift+click still removes
   the nearest one. Previously spots could only be added or removed, never
   repositioned.
+- **Double-click a TLC plate to start spotting**: placing a plate returns the
+  tool to select (so the new plate can be moved/resized straight away), which
+  used to leave no way to add spots without re-picking the TLC tool from the
+  sidebar. Double-clicking the plate now switches straight back to the TLC
+  tool, keeping the plate selected so the resize handle is still available.
+
+### Ring picker and functional groups
+
+- **Functional-group rings attach at a full bond length**: phenyl, benzyl,
+  cyclohexyl, benzoyl, Cbz, tosyl and the tyrosine side chain were landing
+  with a half-length (21 px) bond to the atom they were attached to. The
+  shared ring builder now places the ring's first vertex a full bond length
+  away, and a geometry regression test covers every group.
+- **Naphthalene appears once** in the ring picker (it was listed twice), and
+  the **1,3,5-/1,2,4-triazine** tooltips show their names instead of the raw
+  translation key `ring.1,3,5-triazine`.
 
 ## 1.16.0
 

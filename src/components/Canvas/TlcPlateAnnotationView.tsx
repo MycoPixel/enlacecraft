@@ -37,7 +37,10 @@ const nearestTlcSpotHit = (plate: TlcPlateAnnotation, pt: Point): number | null 
  * (spots stay put fractionally, so they ride along). With the TLC tool
  * active, clicking inside the plate spots it where you clicked, and
  * Shift+click removes the nearest spot — so spotting works without touching
- * the sidebar between every sample.
+ * the sidebar between every sample. Double-clicking the plate while the
+ * select/lasso tool is active switches to the TLC tool, so after placing a
+ * plate (which returns the tool to select) you don't have to go back to the
+ * sidebar to start spotting.
  */
 export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcPlateAnnotationViewProps) {
   const setSelectedAnnotationIds = useMoleculeStore((s) => s.setSelectedAnnotationIds);
@@ -124,6 +127,19 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
     };
   }, [annotation, deleteAnnotation, setSelectedAnnotationIds]);
 
+  const onBodyDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const store = useMoleculeStore.getState();
+    // Placing a plate returns the tool to select so the new plate can be
+    // moved/resized straight away; double-clicking it puts the TLC tool
+    // back so the next clicks spot samples. Only from the selection tools,
+    // so a double-click during some other drawing operation can't yank the
+    // user into spot mode unexpectedly.
+    if (store.tool !== "select" && store.tool !== "lasso") return;
+    store.setTool("tlc");
+    store.setSelectedAnnotationIds(new Set([annotation.id]));
+  }, [annotation.id]);
+
   const onResizePointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -197,6 +213,7 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
         x={x - 4} y={y - 4} width={Math.max(width + 8, 12)} height={Math.max(height + 8, 12)}
         fill="transparent"
         onPointerDown={onBodyPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+        onDoubleClick={onBodyDoubleClick}
         style={{ cursor: "move" }}
       />
       {/* Frame + pencil baseline + solvent front. */}

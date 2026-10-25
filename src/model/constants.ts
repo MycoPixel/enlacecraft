@@ -506,11 +506,6 @@ export const RING_TEMPLATES: RingTemplate[] = [
     id: "1,2,4-triazine", label: "1,2,4-Triazine", sides: 6, aromatic: true,
     heteroatoms: [{ position: 0, element: "N" }, { position: 1, element: "N" }, { position: 3, element: "N" }],
   },
-  // --- Fused heteroaromatics ---
-  {
-    id: "naphthalene", label: "Naphthalene", sides: 6, aromatic: true,
-    fused: true,
-  },
   // --- Cp ring (in StructureTemplates with full charge support) ---
   // Cp⁻ is defined in structureTemplates.ts with a -1 charge on the ring;
   // RingTemplate has no charge field, so it's not listed here.
