@@ -202,8 +202,7 @@ export const maltose: StructureTemplate = {
       "b7": { id: "b7", a1: "g1o5", a2: "g1c5", order: 1, stereo: "none", doubleSide: "auto" },
       // OH groups first glucose
       "b8": { id: "b8", a1: "g1c2", a2: "g1o1", order: 1, stereo: "none", doubleSide: "auto" },
-      "b9": { id: "b9", a1: "g1o1", a2: "h", order: 1, stereo: "none", doubleSide: "auto" },
-      // ... (more OH groups)
+      // OH groups first glucose (continued below)
       // Second glucose backbone (simplified)
       "b10": { id: "b10", a1: "g2c1", a2: "g2c2", order: 1, stereo: "none", doubleSide: "auto" },
       "b11": { id: "b11", a1: "g2c2", a2: "g2c3", order: 1, stereo: "none", doubleSide: "auto" },

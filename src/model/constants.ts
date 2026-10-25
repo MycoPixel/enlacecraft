@@ -511,11 +511,16 @@ export const RING_TEMPLATES: RingTemplate[] = [
     id: "naphthalene", label: "Naphthalene", sides: 6, aromatic: true,
     fused: true,
   },
-  // --- Cp ring ---
-  {
-    id: "cyclopentadienyl", label: "Cyclopentadienyl (Cp⁻)", sides: 5, aromatic: true,
-    heteroatoms: [],
-  },
+  // --- Cp ring (in StructureTemplates with full charge support) ---
+  // Cp⁻ is defined in structureTemplates.ts with a -1 charge on the ring;
+  // RingTemplate has no charge field, so it's not listed here.
+
+  // --- Fused heteroaromatics (in StructureTemplates) ---
+  // Indole, quinoline, isoquinoline, benzimidazole, purine require
+  // fused-ring placement which placeRing doesn't support generically
+  // (only naphthalene has dedicated placement). They're defined as
+  // full StructureTemplates instead.
+
 ];
 
 /** Default size for a lone bracket (placed via the store's addBracketAnnotation) and the starting point for a dragged pair (see bracketPairLayout). */

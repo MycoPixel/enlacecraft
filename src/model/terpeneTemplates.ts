@@ -236,7 +236,7 @@ export const retinol: StructureTemplate = {
       "b26": { id: "b26", a1: "c6", a2: "h6", order: 1, stereo: "none", doubleSide: "auto" },
       "b27": { id: "b27", a1: "c9", a2: "h7", order: 1, stereo: "none", doubleSide: "auto" },
       "b28": { id: "b28", a1: "c10", a2: "h8", order: 1, stereo: "none", doubleSide: "auto" },
-      "b29": { id: "b28", a1: "c11", a2: "h9", order: 1, stereo: "none", doubleSide: "auto" },
+      "b29": { id: "b29", a1: "c11", a2: "h9", order: 1, stereo: "none", doubleSide: "auto" },
       "b30": { id: "b30", a1: "c12", a2: "h10", order: 1, stereo: "none", doubleSide: "auto" },
       "b31": { id: "b31", a1: "c14", a2: "h11", order: 1, stereo: "none", doubleSide: "auto" },
       "b32": { id: "b32", a1: "c15", a2: "h12", order: 1, stereo: "none", doubleSide: "auto" },

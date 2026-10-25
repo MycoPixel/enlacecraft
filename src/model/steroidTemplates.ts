@@ -166,7 +166,6 @@ export const cholesterol: StructureTemplate = {
       "b5": { id: "b5", a1: "c7", a2: "c8", order: 1, stereo: "none", doubleSide: "auto" },
       "b6": { id: "b6", a1: "c8", a2: "c9", order: 1, stereo: "none", doubleSide: "auto" },
       "b7": { id: "b7", a1: "c9", a2: "c10", order: 1, stereo: "none", doubleSide: "auto" },
-      "b8": { id: "b8", a1: "c10", a2: "c1", order: 1, stereo: "none", doubleSide: "auto" }, // ring closure
       // Ring B
       "b9": { id: "b9", a1: "c5", a2: "c9", order: 1, stereo: "none", doubleSide: "auto" },
       "b10": { id: "b10", a1: "c9", a2: "c10", order: 1, stereo: "none", doubleSide: "auto" },
