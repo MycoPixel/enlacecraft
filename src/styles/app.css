@@ -2356,10 +2356,15 @@
 .molecule-3d-panel__header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--panel-border);
   flex-shrink: 0;
+  /* The title + action buttons always need a row of their own: at the
+     panel's default 360px width the method labels alone are nearly as wide
+     as the whole panel, so keeping all three groups on one unwrapped line
+     pushed the style/export/close buttons off the right edge. */
+  flex-wrap: wrap;
 }
 
 .molecule-3d-panel__title {
@@ -2369,12 +2374,29 @@
   margin-right: auto;
 }
 
+.molecule-3d-panel__header > .molecule-3d-panel__title {
+  order: 1;
+}
+
 .molecule-3d-panel__method {
   display: flex;
   gap: 4px;
   background: var(--bg);
   border-radius: 6px;
   padding: 2px;
+  /* Shrinkable and internally wrappable, so a wider translation (Spanish's
+     "Campo de fuerza (MMFF94)" is longer than its English counterpart)
+     wraps its buttons instead of overflowing. */
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* Only the header reorders its groups (to keep the action buttons on-screen);
+   the same .molecule-3d-panel__method class is reused for the style menu's
+   rows, where an inherited order would move the buttons below the opacity
+   slider. */
+.molecule-3d-panel__header > .molecule-3d-panel__method {
+  order: 3;
 }
 
 .molecule-3d-panel__method-btn {
@@ -2402,6 +2424,10 @@
 .molecule-3d-panel__actions {
   display: flex;
   gap: 2px;
+}
+
+.molecule-3d-panel__header > .molecule-3d-panel__actions {
+  order: 2;
 }
 
 .molecule-3d-export-menu {
@@ -2451,6 +2477,18 @@
 .molecule-3d-panel__style-section .molecule-3d-panel__method {
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.molecule-3d-panel__surface-opacity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.molecule-3d-panel__surface-opacity input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
 }
 
 .molecule-3d-panel__measure-row {
@@ -3300,6 +3338,88 @@
 .molecule-info__inchi-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.molecule-info__label--flush {
+  margin-bottom: 0;
+}
+
+.molecule-info__stereo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.molecule-info__stereo-toggle {
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.molecule-info__stereo-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.molecule-info__stereo-toggle.is-on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.molecule-info__stereo-subhead {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin: 6px 0 3px;
+}
+
+.molecule-info__stereo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.molecule-info__stereo-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.molecule-info__stereo-row:hover {
+  background: var(--accent-soft);
+}
+
+.molecule-info__stereo-row.is-issue {
+  color: var(--warning, #E8A100);
+}
+
+.molecule-info__stereo-value {
+  font-size: 12px;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.molecule-info__stereo-note {
+  color: var(--ink-soft);
+  font-family: var(--font, inherit);
 }
 
 .export-bg-picker {

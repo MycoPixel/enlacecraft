@@ -18,12 +18,16 @@ import { atomIdForSerial, buildSerialToAtomId } from "./atomLink";
 import { importStructure3D } from "../../io/importStructure3d";
 import {
   buildStructureStyle,
+  buildSurfaceSpec,
   STRUCTURE3D_STYLES,
   STRUCTURE3D_COLOR_SCHEMES,
+  STRUCTURE3D_SURFACES,
   styleLabelKey,
   colorLabelKey,
+  surfaceLabelKey,
   type Structure3DStyle,
   type Structure3DColorScheme,
+  type Structure3DSurface,
 } from "./structureStyle";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
@@ -130,6 +134,29 @@ function applyCurrentStyle(
   viewer.setStyle({}, buildStructureStyle(style, colorScheme));
 }
 
+/** Replaces whatever molecular surface is displayed with the currently
+ * selected one, or clears it for "none".
+ *
+ * Always removeAllSurfaces() first: addSurface is asynchronous and additive,
+ * so changing surface type or opacity would otherwise leave the previous
+ * surface(s) layered underneath the new one. Kept beside applyCurrentStyle
+ * for the same reason — every model load and every preference change goes
+ * through one definition. */
+function applyCurrentSurface(
+  viewer: ReturnType<typeof $3Dmol.createViewer>,
+  surface: Structure3DSurface,
+  colorScheme: Structure3DColorScheme,
+  opacity: number
+): number | null {
+  viewer.removeAllSurfaces();
+  const spec = buildSurfaceSpec(surface, colorScheme, opacity);
+  if (!spec) return null;
+  // addSurface returns a promise tagged with the id it registered, which is
+  // what setSurfaceMaterialStyle needs for a cheap opacity-only update later.
+  const result = viewer.addSurface($3Dmol.SurfaceType[spec.type], spec.style) as { surfid?: number } | undefined;
+  return typeof result?.surfid === "number" ? result.surfid : null;
+}
+
 /**
  * Docked panel showing a computed 3D structure alongside the 2D canvas —
  * toggled via show3DView in the store (see the TopBar button that flips
@@ -154,6 +181,10 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   const setLinkedAtomId = useMoleculeStore((s) => s.setLinkedAtomId);
   const setSelected = useMoleculeStore((s) => s.setSelected);
   const setColorScheme = useMoleculeStore((s) => s.setStructure3DColorScheme);
+  const surface = useMoleculeStore((s) => s.structure3DSurface);
+  const setSurface = useMoleculeStore((s) => s.setStructure3DSurface);
+  const surfaceOpacity = useMoleculeStore((s) => s.structure3DSurfaceOpacity);
+  const setSurfaceOpacity = useMoleculeStore((s) => s.setStructure3DSurfaceOpacity);
   // Mirrors of the two style preferences, so the several imperative call
   // sites below (rotate-bond's model swap, the debounced regenerate — neither
   // of which re-runs on a style change) can apply whatever the *current*
@@ -164,6 +195,19 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
   const colorSchemeRef = useRef(colorScheme);
   styleRef.current = style;
   colorSchemeRef.current = colorScheme;
+  const surfaceRef = useRef(surface);
+  const surfaceOpacityRef = useRef(surfaceOpacity);
+  surfaceRef.current = surface;
+  surfaceOpacityRef.current = surfaceOpacity;
+  // Pending debounced surface rebuild — see refreshSurfaceSoon. Rotating a
+  // bond redraws the model on every animation tick, and re-meshing the
+  // surface that often would queue up dozens of async addSurface() calls.
+  const surfaceTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The surface currently on screen, and the type/coloring it was built
+  // for. Opacity-only changes can update its material in place instead of
+  // re-meshing the whole surface on every slider step.
+  const surfaceIdRef = useRef<number | null>(null);
+  const appliedSurfaceRef = useRef<{ surface: Structure3DSurface; colorScheme: Structure3DColorScheme } | null>(null);
 
   // Which conformer to generate: 0 is the most likely torsion set, and each
   // press of "new conformer" advances to the next genuinely distinct one.
@@ -324,11 +368,38 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     return () => {
       observer.disconnect();
       viewerRef.current = null;
+      clearTimeout(surfaceTimerRef.current);
       // 3Dmol has no explicit dispose(); dropping the container (this
       // component unmounting) is what releases the WebGL context.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Rebuilds the surface immediately, cancelling any pending debounced
+   * rebuild so it can't apply stale preferences afterwards. */
+  function refreshSurface(viewer: ReturnType<typeof $3Dmol.createViewer>) {
+    clearTimeout(surfaceTimerRef.current);
+    surfaceIdRef.current = applyCurrentSurface(viewer, surfaceRef.current, colorSchemeRef.current, surfaceOpacityRef.current);
+    appliedSurfaceRef.current = { surface: surfaceRef.current, colorScheme: colorSchemeRef.current };
+    viewer.render();
+  }
+
+  /** Debounced variant for the rotate-bond redraw path: the user is dragging
+   * or an animation is ticking, so rebuilding the surface on every frame
+   * would only produce work that is superseded before it finishes. The
+   * surface reappears once the angle stops changing. */
+  function refreshSurfaceSoon(viewer: ReturnType<typeof $3Dmol.createViewer>) {
+    if (surfaceRef.current === "none") {
+      refreshSurface(viewer);
+      return;
+    }
+    clearTimeout(surfaceTimerRef.current);
+    surfaceTimerRef.current = setTimeout(() => {
+      surfaceIdRef.current = applyCurrentSurface(viewer, surfaceRef.current, colorSchemeRef.current, surfaceOpacityRef.current);
+      appliedSurfaceRef.current = { surface: surfaceRef.current, colorScheme: colorSchemeRef.current };
+      viewer.render();
+    }, 150);
+  }
 
   // Background follows the app theme so the panel doesn't clash with a
   // dark UI around a bright-white 3D canvas.
@@ -350,9 +421,27 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     const viewer = viewerRef.current;
     if (!viewer || state.phase !== "ready") return;
     if (toolMode === "rotate" && rotateState.phase === "active") return;
+    clearTimeout(surfaceTimerRef.current);
     applyCurrentStyle(viewer, style, colorScheme);
+
+    const applied = appliedSurfaceRef.current;
+    const opacityOnly =
+      surface !== "none" &&
+      applied?.surface === surface &&
+      applied.colorScheme === colorScheme &&
+      surfaceIdRef.current !== null;
+    if (opacityOnly) {
+      // Slider drag: update the existing material rather than re-meshing the
+      // surface for every step. setSurfaceMaterialStyle keeps the geometry
+      // and only swaps the material, so this is effectively free.
+      const spec = buildSurfaceSpec(surface, colorScheme, surfaceOpacity);
+      if (spec && surfaceIdRef.current !== null) viewer.setSurfaceMaterialStyle(surfaceIdRef.current, spec.style);
+    } else {
+      surfaceIdRef.current = applyCurrentSurface(viewer, surface, colorScheme, surfaceOpacity);
+      appliedSurfaceRef.current = { surface, colorScheme };
+    }
     viewer.render();
-  }, [style, colorScheme, state.phase, toolMode, rotateState.phase]);
+  }, [style, colorScheme, surface, surfaceOpacity, state.phase, toolMode, rotateState.phase]);
 
   const hasAtoms = Object.keys(molecule.atoms).length > 0;
 
@@ -368,6 +457,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       viewer.removeAllLabels();
       viewer.addModel(molfile, "mol");
       applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
+      refreshSurface(viewer);
       viewer.zoomTo();
       viewer.render();
       lastMolfileRef.current = molfile;
@@ -420,6 +510,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     viewer.removeAllModels();
     viewer.addModel(serializeV2000(atoms, bonds), "mol");
     applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
+    refreshSurface(viewer);
     viewer.render();
   }
 
@@ -624,8 +715,15 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     );
     const molfile = serializeV2000(rotated, rotateState.bonds);
     viewer.removeAllModels();
+    // A surface still meshed against the pre-rotation geometry would hang in
+    // space while the atoms spin, so drop it and let refreshSurfaceSoon
+    // rebuild once the angle settles.
+    viewer.removeAllSurfaces();
+    surfaceIdRef.current = null;
+    appliedSurfaceRef.current = null;
     viewer.addModel(molfile, "mol");
     applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
+    refreshSurfaceSoon(viewer);
     // No zoomTo() here, deliberately - this redraws the same structure
     // at a new angle, not a new structure; keeping the camera exactly
     // where it was is what makes the rotation actually readable as
@@ -765,6 +863,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
       lastMolfileRef.current = null;
       serialToAtomIdRef.current = [];
       viewerRef.current?.removeAllModels();
+      viewerRef.current?.removeAllSurfaces();
       viewerRef.current?.removeAllShapes();
       viewerRef.current?.removeAllLabels();
       viewerRef.current?.render();
@@ -791,6 +890,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
             viewer.removeAllLabels();
             viewer.addModel(result.molfile, "mol");
             applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
+            refreshSurface(viewer);
             viewer.zoomTo();
             viewer.render();
           }
@@ -816,6 +916,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
           lastMolfileRef.current = null;
           serialToAtomIdRef.current = [];
           viewerRef.current?.removeAllModels();
+          viewerRef.current?.removeAllSurfaces();
           viewerRef.current?.removeAllShapes();
           viewerRef.current?.removeAllLabels();
           viewerRef.current?.render();
@@ -896,6 +997,7 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
         viewer.removeAllLabels();
         viewer.addModel(refined.molfile, "mol");
         applyCurrentStyle(viewer, styleRef.current, colorSchemeRef.current);
+        refreshSurface(viewer);
         viewer.zoomTo();
         viewer.render();
       }
@@ -1012,6 +1114,32 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
                       />
                     ))}
                   </div>
+                </div>
+                <div className="molecule-3d-panel__style-section">
+                  <span className="molecule-3d-panel__style-label">{t("view3d.surface")}</span>
+                  <div className="molecule-3d-panel__method">
+                    {STRUCTURE3D_SURFACES.map((s) => (
+                      <MethodButton
+                        key={s}
+                        active={surface === s}
+                        onClick={() => setSurface(s)}
+                        label={t(surfaceLabelKey(s))}
+                      />
+                    ))}
+                  </div>
+                  {surface !== "none" && (
+                    <label className="molecule-3d-panel__surface-opacity">
+                      <span className="molecule-3d-panel__style-label">{t("view3d.surfaceOpacity")}</span>
+                      <input
+                        type="range"
+                        min={10}
+                        max={100}
+                        step={5}
+                        value={Math.round(surfaceOpacity * 100)}
+                        onChange={(e) => setSurfaceOpacity(Number(e.target.value) / 100)}
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
             )}

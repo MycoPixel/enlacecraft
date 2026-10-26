@@ -1,4 +1,5 @@
 import type { AtomStyleSpec } from "3dmol/build/types/GLModel";
+import type { SurfaceStyleSpec } from "3dmol/build/types/GLViewer";
 
 /**
  * How the 3D structure is drawn — the "representation" in molecular
@@ -45,6 +46,75 @@ export function colorLabelKey(scheme: Structure3DColorScheme): string {
   return `view3d.color_${scheme.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase()}`;
 }
 
+/**
+ * A molecular surface drawn around the structure. "none" is the ordinary
+ * stick/sphere view; the three surfaces answer different questions:
+ *
+ *  - VDW: the van der Waals envelope — the atom's literal collision surface.
+ *  - SAS: solvent-accessible surface — where a water-sized probe's *center*
+ *    can reach, so it reads as the VDW surface inflated by the probe.
+ *  - SES: solvent-excluded surface (Connolly) — the physical surface a probe
+ *    touches, with concave pockets smoothed over.
+ */
+export type Structure3DSurface = "none" | "vdw" | "sas" | "ses";
+
+export const STRUCTURE3D_SURFACES: Structure3DSurface[] = ["none", "vdw", "sas", "ses"];
+
+/** Translation key for a surface option, e.g. "vdw" -> "view3d.surface_vdw". */
+export function surfaceLabelKey(surface: Structure3DSurface): string {
+  return `view3d.surface_${surface}`;
+}
+
+/** Default opacity for a surface overlay. Chosen so the sticks/spheres stay
+ * readable through it while the surface still reads as a solid envelope. */
+export const DEFAULT_STRUCTURE3D_SURFACE_OPACITY = 0.75;
+export const MIN_STRUCTURE3D_SURFACE_OPACITY = 0.1;
+export const MAX_STRUCTURE3D_SURFACE_OPACITY = 1;
+
+/** Clamps an opacity to the range the slider offers, so a hand-edited
+ * localStorage value (or a NaN from a bad parse) can't hide the surface
+ * entirely or blow past fully opaque. */
+export function clampSurfaceOpacity(opacity: number): number {
+  if (!Number.isFinite(opacity)) return DEFAULT_STRUCTURE3D_SURFACE_OPACITY;
+  return Math.min(MAX_STRUCTURE3D_SURFACE_OPACITY, Math.max(MIN_STRUCTURE3D_SURFACE_OPACITY, opacity));
+}
+
+/**
+ * The one place a coloring preference becomes 3Dmol color fields, shared by
+ * the atom style and the surface so the two can never disagree about what
+ * "monochrome" or "green carbon" means.
+ *
+ * "monochrome" is an explicit grey rather than a 3Dmol colorscheme name,
+ * because the built-in schemes are all element- or carbon- *keyed* — there's
+ * no "one color for everything" preset, and picking "whiteCarbon" would still
+ * leave oxygen red and nitrogen blue.
+ */
+export function resolveColorSpec(colorScheme: Structure3DColorScheme): { colorscheme?: string; color?: string } {
+  if (colorScheme === "monochrome") return { color: "#8a8f98" };
+  return { colorscheme: colorScheme === "element" ? "Jmol" : colorScheme };
+}
+
+export interface Structure3DSurfaceSpec {
+  /** 3Dmol surface type name; see $3Dmol.SurfaceType. */
+  type: "VDW" | "SAS" | "SES";
+  style: SurfaceStyleSpec;
+}
+
+/** Builds the addSurface() type + style for a surface preference, or null
+ * when no surface is selected. Pure and testable like buildStructureStyle. */
+export function buildSurfaceSpec(
+  surface: Structure3DSurface,
+  colorScheme: Structure3DColorScheme,
+  opacity: number
+): Structure3DSurfaceSpec | null {
+  if (surface === "none") return null;
+  const type = surface === "vdw" ? "VDW" : surface === "sas" ? "SAS" : "SES";
+  return {
+    type,
+    style: { opacity: clampSurfaceOpacity(opacity), ...resolveColorSpec(colorScheme) },
+  };
+}
+
 interface Structure3DStyleOption {
   id: Structure3DStyle;
   /** Radius for each representation the style uses. Absent key = that
@@ -86,13 +156,14 @@ export function buildStructureStyle(
     spec.sphere = { scale: option.radii.sphere };
   }
 
-  if (colorScheme === "monochrome") {
-    if (spec.stick) spec.stick.color = "#8a8f98";
-    if (spec.sphere) spec.sphere.color = "#8a8f98";
-  } else {
-    const scheme = colorScheme === "element" ? "Jmol" : colorScheme;
-    if (spec.stick) spec.stick.colorscheme = scheme;
-    if (spec.sphere) spec.sphere.colorscheme = scheme;
+  const color = resolveColorSpec(colorScheme);
+  if (spec.stick) {
+    if (color.color) spec.stick.color = color.color;
+    if (color.colorscheme) spec.stick.colorscheme = color.colorscheme;
+  }
+  if (spec.sphere) {
+    if (color.color) spec.sphere.color = color.color;
+    if (color.colorscheme) spec.sphere.colorscheme = color.colorscheme;
   }
 
   return spec;

@@ -1,5 +1,18 @@
 import { describe, expect, test } from "vitest";
-import { buildStructureStyle, styleLabelKey, colorLabelKey, STRUCTURE3D_STYLES, STRUCTURE3D_COLOR_SCHEMES } from "./structureStyle";
+import {
+  buildStructureStyle,
+  buildSurfaceSpec,
+  clampSurfaceOpacity,
+  styleLabelKey,
+  colorLabelKey,
+  surfaceLabelKey,
+  STRUCTURE3D_STYLES,
+  STRUCTURE3D_COLOR_SCHEMES,
+  STRUCTURE3D_SURFACES,
+  DEFAULT_STRUCTURE3D_SURFACE_OPACITY,
+  MIN_STRUCTURE3D_SURFACE_OPACITY,
+  MAX_STRUCTURE3D_SURFACE_OPACITY,
+} from "./structureStyle";
 import { translate } from "../../i18n/translate";
 
 describe("buildStructureStyle", () => {
@@ -79,5 +92,57 @@ describe("style/color label keys", () => {
     expect(colorLabelKey("element")).toBe("view3d.color_element");
     expect(colorLabelKey("greenCarbon")).toBe("view3d.color_green-carbon");
     expect(colorLabelKey("whiteCarbon")).toBe("view3d.color_white-carbon");
+  });
+});
+describe("buildSurfaceSpec", () => {
+  test('"none" draws no surface at all', () => {
+    expect(buildSurfaceSpec("none", "element", 0.75)).toBeNull();
+  });
+
+  test("each surface id maps onto its 3Dmol SurfaceType name", () => {
+    expect(buildSurfaceSpec("vdw", "element", 0.75)?.type).toBe("VDW");
+    expect(buildSurfaceSpec("sas", "element", 0.75)?.type).toBe("SAS");
+    expect(buildSurfaceSpec("ses", "element", 0.75)?.type).toBe("SES");
+  });
+
+  test("element coloring uses the same Jmol scheme as the atom style", () => {
+    const spec = buildSurfaceSpec("vdw", "element", 0.75);
+    expect(spec?.style.colorscheme).toBe("Jmol");
+    expect(spec?.style.color).toBeUndefined();
+    expect(buildStructureStyle("stick", "element").stick?.colorscheme).toBe("Jmol");
+  });
+
+  test("monochrome uses a fixed color, matching the atom style's grey", () => {
+    const surface = buildSurfaceSpec("vdw", "monochrome", 0.75);
+    const atoms = buildStructureStyle("stick", "monochrome");
+    expect(surface?.style.color).toBe(atoms.stick?.color);
+    expect(surface?.style.colorscheme).toBeUndefined();
+  });
+
+  test("opacity is clamped to the slider's range", () => {
+    expect(buildSurfaceSpec("vdw", "element", -5)?.style.opacity).toBe(MIN_STRUCTURE3D_SURFACE_OPACITY);
+    expect(buildSurfaceSpec("vdw", "element", 5)?.style.opacity).toBe(MAX_STRUCTURE3D_SURFACE_OPACITY);
+    expect(buildSurfaceSpec("vdw", "element", 0.5)?.style.opacity).toBe(0.5);
+  });
+
+  test("a non-finite opacity falls back to the default rather than hiding the surface", () => {
+    expect(buildSurfaceSpec("vdw", "element", Number.NaN)?.style.opacity).toBe(DEFAULT_STRUCTURE3D_SURFACE_OPACITY);
+    expect(clampSurfaceOpacity(Infinity)).toBe(DEFAULT_STRUCTURE3D_SURFACE_OPACITY);
+  });
+});
+
+describe("surface label keys", () => {
+  test("resolve to real translations in every supported language", () => {
+    for (const lang of ["en", "es"] as const) {
+      for (const s of STRUCTURE3D_SURFACES) {
+        expect(translate(lang, surfaceLabelKey(s))).not.toBe(surfaceLabelKey(s));
+      }
+      expect(translate(lang, "view3d.surfaceOpacity")).not.toBe("view3d.surfaceOpacity");
+    }
+  });
+
+  test("generate the exact key shape the translation table uses", () => {
+    expect(surfaceLabelKey("vdw")).toBe("view3d.surface_vdw");
+    expect(surfaceLabelKey("none")).toBe("view3d.surface_none");
   });
 });

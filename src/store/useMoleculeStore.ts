@@ -18,8 +18,14 @@ import type { Embed3DMethod } from "../io/embed3d";
 import {
   STRUCTURE3D_STYLES,
   STRUCTURE3D_COLOR_SCHEMES,
+  STRUCTURE3D_SURFACES,
+  DEFAULT_STRUCTURE3D_SURFACE_OPACITY,
+  MIN_STRUCTURE3D_SURFACE_OPACITY,
+  MAX_STRUCTURE3D_SURFACE_OPACITY,
+  clampSurfaceOpacity,
   type Structure3DStyle,
   type Structure3DColorScheme,
+  type Structure3DSurface,
 } from "../components/Molecule3D/structureStyle";
 import { THEME_IDS, nextTheme } from "../styles/themes";
 
@@ -57,6 +63,9 @@ const ONBOARDING_STORAGE_KEY = "enlacecraft-onboarding-seen";
 const AUTO_IUPAC_STORAGE_KEY = "enlacecraft-auto-iupac";
 const STRUCTURE3D_STYLE_STORAGE_KEY = "enlacecraft-structure3d-style";
 const STRUCTURE3D_COLOR_STORAGE_KEY = "enlacecraft-structure3d-color";
+const STRUCTURE3D_SURFACE_STORAGE_KEY = "enlacecraft-structure3d-surface";
+const STRUCTURE3D_SURFACE_OPACITY_STORAGE_KEY = "enlacecraft-structure3d-surface-opacity";
+const COMPUTED_STEREO_STORAGE_KEY = "enlacecraft-computed-stereo";
 const SNAP_ANGLE_STORAGE_KEY = "enlacecraft-snap-angle";
 const THEME_STORAGE_KEY = "enlacecraft-theme";
 const CANVAS_BG_STORAGE_KEY = "enlacecraft-canvas-bg";
@@ -99,6 +108,32 @@ function detectStoredPreference<T extends string>(key: string, allowed: readonly
     if (saved && (allowed as readonly string[]).includes(saved)) return saved as T;
   } catch {
     // localStorage unavailable (e.g. privacy mode) — fall through to default.
+  }
+  return fallback;
+}
+
+/** Same fail-soft reader for a numeric preference (the 3D surface opacity),
+ * clamping anything out of range instead of trusting it. */
+function detectStoredNumberPreference(key: string, min: number, max: number, fallback: number): number {
+  try {
+    const saved = Number(localStorage.getItem(key));
+    if (Number.isFinite(saved) && localStorage.getItem(key) !== null) {
+      return Math.min(max, Math.max(min, saved));
+    }
+  } catch {
+    // localStorage unavailable — fall through to default.
+  }
+  return fallback;
+}
+
+/** Boolean preferences are persisted as the strings "true"/"false". */
+function detectStoredBooleanPreference(key: string, fallback: boolean): boolean {
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved === "true") return true;
+    if (saved === "false") return false;
+  } catch {
+    // localStorage unavailable — fall through to default.
   }
   return fallback;
 }
@@ -481,6 +516,20 @@ interface MoleculeStore {
   structure3DStyle: Structure3DStyle;
   /** Element coloring used by the 3D viewer; see structureStyle.ts. */
   structure3DColorScheme: Structure3DColorScheme;
+  /** Which molecular surface (VDW / solvent-accessible / solvent-excluded)
+   * the 3D viewer overlays, or "none" for the plain stick/sphere view. A
+   * pure view preference like the style above, so it persists. */
+  structure3DSurface: Structure3DSurface;
+  setStructure3DSurface: (surface: Structure3DSurface) => void;
+  /** Opacity of that surface, 0..1. Persisted and clamped on read/write. */
+  structure3DSurfaceOpacity: number;
+  setStructure3DSurfaceOpacity: (opacity: number) => void;
+  /** When on, the canvas overlays computed (R)/(S) and E/Z descriptors on
+   *  the drawing (see engine/stereo.ts). Purely a view aid: it never changes
+   *  the molecule, so it isn't undoable and isn't written to project files.
+   *  Persisted, like the 3D style preferences. */
+  showComputedStereo: boolean;
+  toggleComputedStereo: () => void;
   /** Current on-screen pixel size of the canvas <svg>, kept in sync by MoleculeCanvas via ResizeObserver. */
   canvasSize: { width: number; height: number };
 
@@ -1022,6 +1071,14 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     embed3DMethod: "quick",
     structure3DStyle: detectStoredPreference(STRUCTURE3D_STYLE_STORAGE_KEY, STRUCTURE3D_STYLES.map((s) => s.id), "ball-and-stick"),
     structure3DColorScheme: detectStoredPreference(STRUCTURE3D_COLOR_STORAGE_KEY, STRUCTURE3D_COLOR_SCHEMES, "element"),
+    structure3DSurface: detectStoredPreference(STRUCTURE3D_SURFACE_STORAGE_KEY, STRUCTURE3D_SURFACES, "none"),
+    structure3DSurfaceOpacity: detectStoredNumberPreference(
+      STRUCTURE3D_SURFACE_OPACITY_STORAGE_KEY,
+      MIN_STRUCTURE3D_SURFACE_OPACITY,
+      MAX_STRUCTURE3D_SURFACE_OPACITY,
+      DEFAULT_STRUCTURE3D_SURFACE_OPACITY
+    ),
+    showComputedStereo: detectStoredBooleanPreference(COMPUTED_STEREO_STORAGE_KEY, false),
     canvasSize: { width: 800, height: 600 },
 
     setTool: (t) => set((s) => ({ tool: t, pendingMapAtom: s.tool === "map-number" && t !== "map-number" ? null : s.pendingMapAtom })),
@@ -1200,6 +1257,33 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         // localStorage unavailable — preference just won't survive a reload.
       }
     },
+    setStructure3DSurface: (surface) => {
+      set({ structure3DSurface: surface });
+      try {
+        localStorage.setItem(STRUCTURE3D_SURFACE_STORAGE_KEY, surface);
+      } catch {
+        // localStorage unavailable — preference just won't survive a reload.
+      }
+    },
+    setStructure3DSurfaceOpacity: (opacity) => {
+      const clamped = clampSurfaceOpacity(opacity);
+      set({ structure3DSurfaceOpacity: clamped });
+      try {
+        localStorage.setItem(STRUCTURE3D_SURFACE_OPACITY_STORAGE_KEY, String(clamped));
+      } catch {
+        // localStorage unavailable — preference just won't survive a reload.
+      }
+    },
+    toggleComputedStereo: () =>
+      set((s) => {
+        const showComputedStereo = !s.showComputedStereo;
+        try {
+          localStorage.setItem(COMPUTED_STEREO_STORAGE_KEY, String(showComputedStereo));
+        } catch {
+          // localStorage unavailable — preference just won't survive a reload.
+        }
+        return { showComputedStereo };
+      }),
     setCanvasSize: (size) => set({ canvasSize: size }),
     // Annotations are part of "everything" — a reaction scheme is mostly
     // arrows and condition text, so selecting only the atoms and leaving
