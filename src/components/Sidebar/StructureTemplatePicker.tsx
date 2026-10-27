@@ -16,7 +16,6 @@ const CATEGORY_ORDER = [
   "carbohydrates",
   "nucleotides",
   "nucleobases",
-  "sugars",
   "steroids",
   "terpenes",
   "ligands",

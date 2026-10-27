@@ -14,12 +14,12 @@
 | Amino acids | `src/model/aminoAcidTemplates.ts` | All 20 standard amino acids (`gly` … `val`) | — |
 | Nucleotides | `src/model/nucleotideTemplates.ts` | AMP, GMP, CMP, UMP, TMP, GTP, CTP, UTP | — |
 | Nucleobases | `src/model/nucleobaseTemplates.ts` | Adenine, guanine, cytosine, thymine, uracil | — |
-| Carbohydrates | `src/model/carbohydrateTemplates.ts` | D-Glucose (Fischer), L-Glucose (Fischer), D-Glucose (Haworth pyranose), maltose, D-galactose, D-mannose, D-fructose, D-ribose (all Fischer except the two noted) | Deoxyribose; lactose, sucrose, cellobiose; polysaccharide repeating units |
+| Carbohydrates | `src/model/carbohydrateTemplates.ts` | D-Glucose (Fischer), L-Glucose (Fischer), D-Glucose (Haworth pyranose), maltose, D-galactose, D-mannose, D-fructose, D-ribose (all Fischer except the two noted), 2-deoxy-D-ribose, lactose, sucrose, cellobiose | Polysaccharide repeating units |
 | Steroids | `src/model/steroidTemplates.ts` | Gonane, cholesterol, testosterone, estradiol, progesterone, cortisol, cholic acid | Additional bile acids (deoxycholic, lithocholic, …) |
 | Terpenes | `src/model/terpeneTemplates.ts` | Limonene, caryophyllene, retinol, menthol, camphor, artemisinin, squalene | — |
 | Ligands | `src/model/structureTemplates.ts` | Cyclopentadienyl (Cp⁻) | — |
 
-Total built-in structure templates: **56** (1 ligand + 20 amino acids + 8 carbohydrates + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes).
+Total built-in structure templates: **60** (1 ligand + 20 amino acids + 12 carbohydrates + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes).
 
 ---
 
@@ -57,11 +57,16 @@ Total built-in structure templates: **56** (1 ligand + 20 amino acids + 8 carboh
 - [x] D-Glucose (Haworth pyranose)
 - [x] Maltose (α-1,4 disaccharide)
 - [x] D-Galactose, D-Mannose, D-Fructose, D-Ribose (Fischer)
-- [ ] Deoxyribose (Fischer/Haworth)
-- [ ] Lactose (β-1,4 galactose–glucose)
-- [ ] Sucrose (α-1,2 glucose–fructose)
-- [ ] Cellobiose (β-1,4 glucose–glucose)
+- [x] 2-Deoxy-D-ribose
+- [x] Lactose (β-1,4 galactose–glucose)
+- [x] Sucrose (α-1,2 glucose–fructose)
+- [x] Cellobiose (β-1,4 glucose–glucose)
 - [ ] Polysaccharide repeating units (cellulose, amylose, chitin, …)
+
+> The four added templates are generated from PubChem isomeric SMILES through
+> `importSmiles` (OpenChemLib 2D layout + wedge/dash parity), not hand-laid
+> Fischer/Haworth projections. Their formulas are pinned in
+> `structureTemplates.test.ts`.
 
 ### 1.6 Steroid Templates — Mostly Done
 - [x] `src/model/steroidTemplates.ts`
@@ -79,8 +84,8 @@ Total built-in structure templates: **56** (1 ligand + 20 amino acids + 8 carboh
 - [ ] Unified Template Palette Panel with tabs (Rings, Amino Acids, Nucleotides, Carbohydrates, Steroids, Terpenes, Ligands, My Templates)
 - [ ] Categorized grid with search/filter
 - [ ] Merge the user-template picker into that panel as a "My Templates" tab
-- [ ] **Bug:** translations only define `structureCategory.sugars`, `.nucleobases`, `.ligands`. The categories `aminoAcids`, `carbohydrates`, `nucleotides`, `steroids`, `terpenes` render as raw keys (e.g. `structureCategory.aminoAcids`) because `translate()` falls back to the key.
-- [ ] **Inconsistency:** D-/L-glucose Fischer use category `sugars` while the other six carbohydrates use `carbohydrates`, so the picker shows two separate sugar groups. Normalize the category.
+- [x] Category headings translated for every category (EN/ES); a regression test now asserts this
+- [x] Normalized all carbohydrates to the `carbohydrates` category (D-/L-glucose no longer split into a separate `sugars` group)
 
 ---
 
@@ -148,7 +153,6 @@ Total built-in structure templates: **56** (1 ligand + 20 amino acids + 8 carboh
 - [ ] Nickname/superatom round-trip (abbreviations currently export as plain carbon; MOL export preserves the label)
 - [ ] Font/color-table fidelity verification
 - [ ] Real ChemDraw-file round-trip suite (currently only one fixture plus synthetic documents)
-- [ ] Fix pre-existing oxlint errors in `src/io/cdxml.ts`: unused `size` (line 575) and unused parameter `i` (line 599). `npm run check` fails only because of these.
 
 ---
 
@@ -159,7 +163,6 @@ Total built-in structure templates: **56** (1 ligand + 20 amino acids + 8 carboh
 - [ ] Template palette panel redesign (see 1.8)
 - [ ] Arrow tool refinement (full ChemDraw-style arrow editing)
 - [ ] Bond tool refinement (ChemDraw-compatible bond palette/behavior)
-- [ ] Complete missing category translations (see 1.8)
 
 ---
 
@@ -184,7 +187,7 @@ Total built-in structure templates: **56** (1 ligand + 20 amino acids + 8 carboh
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 8 carbohydrates, 7 steroids, 7 terpenes, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces.
-- **Main remaining work:** fused heteroaromatic + conformation ring templates; the four missing carbohydrates; the unified/searchable template palette; missing category translations; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces; translated template categories.
+- **Main remaining work:** fused heteroaromatic + conformation ring templates; polysaccharide repeating units; the unified/searchable template palette; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
 - **Type checking:** `npx tsc -b` passes cleanly.
-- **Lint:** only the two pre-existing `src/io/cdxml.ts` errors.
+- **Lint:** `oxlint` is clean on the touched files (the two old `cdxml.ts` errors are fixed).

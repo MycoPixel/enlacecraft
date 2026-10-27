@@ -3,6 +3,7 @@ import { STRUCTURE_TEMPLATES } from "./structureTemplates";
 import { emptyMolecule, insertMolecule } from "./molecule";
 import { computeFormula, findConnectedFragments, isOverValent } from "./valence";
 import { BOND_LEN } from "./constants";
+import { translations } from "../i18n/translations";
 import type { Molecule } from "../types/chemistry";
 
 /**
@@ -50,6 +51,10 @@ const EXPECTED_FORMULAS: Record<string, string> = {
   "mannose-fischer": "C6H12O6",
   "fructose-fischer": "C6H12O6",
   "ribose-fischer": "C5H10O5",
+  deoxyribose: "C5H10O4",
+  lactose: "C12H22O11",
+  sucrose: "C12H22O11",
+  cellobiose: "C12H22O11",
   amp: "C10H14N5O7P",
   gmp: "C10H14N5O8P",
   cmp: "C9H14N3O8P",
@@ -157,6 +162,18 @@ describe("built-in structure templates", () => {
       }
       const actual = computeFormula(t.molecule);
       if (actual !== expected) problems.push(`${t.id}: expected ${expected}, got ${actual}`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("every category has a translated heading in every language", () => {
+    const categories = [...new Set(STRUCTURE_TEMPLATES.map((t) => t.category))];
+    const problems: string[] = [];
+    for (const category of categories) {
+      const key = `structureCategory.${category}`;
+      for (const lang of ["en", "es"] as const) {
+        if (translations[lang][key] == null) problems.push(`${key} is missing from ${lang}`);
+      }
     }
     expect(problems).toEqual([]);
   });
