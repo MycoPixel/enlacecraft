@@ -1,6 +1,7 @@
 import type { Annotation, Molecule } from "../types/chemistry";
 import { AMINO_ACID_TEMPLATES } from "./aminoAcidTemplates";
 import { CARBOHYDRATE_TEMPLATES } from "./carbohydrateTemplates";
+import { FUSED_HETEROCYCLE_TEMPLATES } from "./heterocycleTemplates";
 import { NUCLEOBASE_TEMPLATES } from "./nucleobaseTemplates";
 import { NUCLEOTIDE_TEMPLATES } from "./nucleotideTemplates";
 import { STEROID_TEMPLATES } from "./steroidTemplates";
@@ -70,6 +71,7 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
 
   ...AMINO_ACID_TEMPLATES,
   ...CARBOHYDRATE_TEMPLATES,
+  ...FUSED_HETEROCYCLE_TEMPLATES,
   ...NUCLEOTIDE_TEMPLATES,
   ...NUCLEOBASE_TEMPLATES,
   ...STEROID_TEMPLATES,

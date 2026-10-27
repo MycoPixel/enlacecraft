@@ -18,6 +18,7 @@ const CATEGORY_ORDER = [
   "nucleobases",
   "steroids",
   "terpenes",
+  "fusedHeterocycles",
   "ligands",
 ];
 

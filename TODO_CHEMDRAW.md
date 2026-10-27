@@ -10,7 +10,8 @@
 
 | Family | File | Implemented | Missing |
 |---|---|---|---|
-| Ring templates | `src/model/constants.ts` | 31 rings: benzene, cyclohexane, cyclopentane, cyclobutane, cyclopropane, cycloheptane, cyclooctane, pyridine, pyrimidine, pyridazine, pyrazine, 1,3,5-/1,2,4-triazine, furan, thiophene, pyrrole, imidazole, oxazole, thiazole, pyrazole, isoxazole, isothiazole, 1,2,3-/1,2,4-triazole, piperidine, pyrrolidine, THF, THP, morpholine, piperazine, naphthalene | Indole, quinoline, isoquinoline, benzimidazole, purine; chair/boat cyclohexane; decalins; norbornane |
+| Ring templates | `src/model/constants.ts` | 31 rings: benzene, cyclohexane, cyclopentane, cyclobutane, cyclopropane, cycloheptane, cyclooctane, pyridine, pyrimidine, pyridazine, pyrazine, 1,3,5-/1,2,4-triazine, furan, thiophene, pyrrole, imidazole, oxazole, thiazole, pyrazole, isoxazole, isothiazole, 1,2,3-/1,2,4-triazole, piperidine, pyrrolidine, THF, THP, morpholine, piperazine, naphthalene | Chair/boat cyclohexane; decalins; norbornane |
+| Fused heteroaromatics | `src/model/heterocycleTemplates.ts` | Indole, quinoline, isoquinoline, benzimidazole, purine | — |
 | Amino acids | `src/model/aminoAcidTemplates.ts` | All 20 standard amino acids (`gly` … `val`) | — |
 | Nucleotides | `src/model/nucleotideTemplates.ts` | AMP, GMP, CMP, UMP, TMP, GTP, CTP, UTP | — |
 | Nucleobases | `src/model/nucleobaseTemplates.ts` | Adenine, guanine, cytosine, thymine, uracil | — |
@@ -19,7 +20,7 @@
 | Terpenes | `src/model/terpeneTemplates.ts` | Limonene, caryophyllene, retinol, menthol, camphor, artemisinin, squalene | — |
 | Ligands | `src/model/structureTemplates.ts` | Cyclopentadienyl (Cp⁻) | — |
 
-Total built-in structure templates: **60** (1 ligand + 20 amino acids + 12 carbohydrates + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes).
+Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbohydrates + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes + 5 fused heteroaromatics).
 
 ---
 
@@ -32,7 +33,7 @@ Total built-in structure templates: **60** (1 ligand + 20 amino acids + 12 carbo
 - [x] Naphthalene (fused, dedicated placement in `engine/ringPlacement.ts`)
 - [x] Aromatic sextet circle toggle for 6-rings
 - [x] Cp⁻ ring (lives in `structureTemplates.ts`, because `RingTemplate` has no charge field)
-- [ ] Fused heteroaromatics: indole, quinoline, isoquinoline, benzimidazole, purine. `constants.ts` comments say these "are defined as full StructureTemplates instead", but no such templates exist — this is the main ring gap.
+- [x] Fused heteroaromatics: indole, quinoline, isoquinoline, benzimidazole, purine (`heterocycleTemplates.ts`, added to the Structures picker)
 - [ ] Chair/boat cyclohexane templates (only mentioned in a doc comment)
 - [ ] Decalins (cis/trans)
 - [ ] Norbornane
@@ -187,7 +188,7 @@ Total built-in structure templates: **60** (1 ligand + 20 amino acids + 12 carbo
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces; translated template categories.
-- **Main remaining work:** fused heteroaromatic + conformation ring templates; polysaccharide repeating units; the unified/searchable template palette; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces; translated template categories.
+- **Main remaining work:** conformation ring templates (chair/boat, decalins, norbornane); polysaccharide repeating units; the unified/searchable template palette; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
 - **Type checking:** `npx tsc -b` passes cleanly.
 - **Lint:** `oxlint` is clean on the touched files (the two old `cdxml.ts` errors are fixed).
