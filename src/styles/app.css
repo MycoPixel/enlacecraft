@@ -822,6 +822,33 @@
   to { stroke-dashoffset: -4; }
 }
 
+.structure-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 190px;
+}
+
+.structure-picker__search {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.structure-picker__search:focus {
+  border-color: var(--accent);
+}
+
+.structure-picker__empty {
+  margin: 4px 2px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
 .structure-list {
   display: flex;
   flex-direction: column;

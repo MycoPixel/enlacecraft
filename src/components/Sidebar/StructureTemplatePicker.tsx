@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { useT } from "../../i18n/useT";
 
@@ -24,8 +25,14 @@ const CATEGORY_ORDER = [
 
 export function StructureTemplatePicker({ onChoose }: StructureTemplatePickerProps) {
   const t = useT();
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const matches = needle.length === 0
+    ? STRUCTURE_TEMPLATES
+    : STRUCTURE_TEMPLATES.filter((tmpl) => tmpl.label.toLowerCase().includes(needle));
+
   const byCategory = new Map<string, typeof STRUCTURE_TEMPLATES>();
-  for (const tmpl of STRUCTURE_TEMPLATES) {
+  for (const tmpl of matches) {
     const list = byCategory.get(tmpl.category) ?? [];
     list.push(tmpl);
     byCategory.set(tmpl.category, list);
@@ -36,17 +43,30 @@ export function StructureTemplatePicker({ onChoose }: StructureTemplatePickerPro
     return (ia === -1 ? CATEGORY_ORDER.length : ia) - (ib === -1 ? CATEGORY_ORDER.length : ib);
   });
   return (
-    <div className="structure-list">
-      {categories.map((category) => (
-        <div key={category} className="structure-list__group">
-          <div className="structure-list__group-label">{t(`structureCategory.${category}`)}</div>
-          {byCategory.get(category)!.map((tmpl) => (
-            <button key={tmpl.id} className="structure-list__item" onClick={() => onChoose(tmpl.id)}>
-              {tmpl.label}
-            </button>
-          ))}
-        </div>
-      ))}
+    <div className="structure-picker">
+      <input
+        type="search"
+        className="structure-picker__search"
+        placeholder={t("structurePicker.search")}
+        aria-label={t("structurePicker.search")}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <div className="structure-list">
+        {categories.map((category) => (
+          <div key={category} className="structure-list__group">
+            <div className="structure-list__group-label">{t(`structureCategory.${category}`)}</div>
+            {byCategory.get(category)!.map((tmpl) => (
+              <button key={tmpl.id} className="structure-list__item" onClick={() => onChoose(tmpl.id)}>
+                {tmpl.label}
+              </button>
+            ))}
+          </div>
+        ))}
+        {matches.length === 0 && (
+          <p className="structure-picker__empty">{t("structurePicker.noResults")}</p>
+        )}
+      </div>
     </div>
   );
 }

@@ -83,7 +83,8 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 - [x] Categorized grouped list (`StructureTemplatePicker.tsx`)
 - [x] Separate user-template picker with save/delete/import/export (`UserTemplatePicker.tsx`, `.enlacebookmarks`)
 - [ ] Unified Template Palette Panel with tabs (Rings, Amino Acids, Nucleotides, Carbohydrates, Steroids, Terpenes, Ligands, My Templates)
-- [ ] Categorized grid with search/filter
+- [x] Search/filter in the categorized list (hides empty categories, no-results state, tested)
+- [ ] Convert the categorized list to a grid layout
 - [ ] Merge the user-template picker into that panel as a "My Templates" tab
 - [x] Category headings translated for every category (EN/ES); a regression test now asserts this
 - [x] Normalized all carbohydrates to the `carbohydrates` category (D-/L-glucose no longer split into a separate `sugars` group)
