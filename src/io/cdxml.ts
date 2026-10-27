@@ -572,7 +572,6 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
         hybrid: "hybrid",
       };
       const orbitalType = orbitalTypeMap[ann.variant] ?? "p";
-      const size = ann.size * 2; // diameter
       const halfSize = ann.size;
       const angleRad = (ann.angle * Math.PI) / 180;
       const dx = Math.cos(angleRad) * halfSize;
@@ -596,7 +595,7 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
         return `<tlcspot ${spotAttrs}/>`;
       }).join("");
       const lanesXml = ann.laneCount && ann.laneCount > 1
-        ? Array.from({ length: ann.laneCount }, (_, i) => `<tlclane>${spotsXml}</tlclane>`).join("")
+        ? Array.from({ length: ann.laneCount }, () => `<tlclane>${spotsXml}</tlclane>`).join("")
         : `<tlclane>${spotsXml}</tlclane>`;
       let plateAttrs = `id="${nextId()}" TopLeft="${u(ann.x)} ${u(ann.y)}" TopRight="${u(ann.x + ann.width)} ${u(ann.y)}" BottomRight="${u(ann.x + ann.width)} ${u(ann.y + ann.height)}" BottomLeft="${u(ann.x)} ${u(ann.y + ann.height)}" ShowOrigin="yes" ShowSolventFront="yes" ShowBorders="yes"`;
       if (ann.baselineFraction != null) plateAttrs += ` OriginFraction="${ann.baselineFraction.toFixed(3)}"`;
