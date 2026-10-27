@@ -1,134 +1,190 @@
-# ChemDraw Compatibility Implementation - TODO List (Updated)
+# ChemDraw Compatibility — Status & Remaining Work
 
-## Phase 1: Template Palettes (P0 - Highest Priority)
+> **Verified against the code on 2026-10-27** (app version 1.17.0, HEAD `9a2c78e9`).
+> Earlier revisions of this file overstated progress in Phase 1: several items
+> were checked off that were never actually added (notably the fused
+> heteroaromatics and the chair/boat/decalin/norbornane templates). Those are
+> now listed honestly below.
 
-### 1.1 Ring Templates Extension ✅
-- [x] Basic ring templates already in constants.ts (benzene, cyclohexane, etc.)
-- [x] Added 5-membered heterocycles (furan, thiophene, pyrrole, imidazole)
-- [x] Added 6-membered heterocycles (pyridine, pyrimidine, etc.)
-- [x] Added oxazole, thiazole, pyrazole, isoxazole, isothiazole
-- [x] Added triazoles (1,2,3- and 1,2,4-)
-- [x] Added fused heterocycles (indole, quinoline, isoquinoline, benzimidazole, purine)
-- [x] Added Cp ring (cyclopentadienyl)
-- [x] Added chair/boat cyclohexane templates
-- [x] Added decalins and norbornane
-- [x] Full aromatic sextet circle toggle for all 6-rings
+## Current Inventory (verified in source)
 
-### 1.2 Amino Acid Templates ✅
-- [x] Created src/model/aminoAcidTemplates.ts
-- [x] Alanine (fully defined with Fischer projection)
-- [ ] Remaining 19 amino acids need full definitions with side chains and L-stereochemistry
+| Family | File | Implemented | Missing |
+|---|---|---|---|
+| Ring templates | `src/model/constants.ts` | 31 rings: benzene, cyclohexane, cyclopentane, cyclobutane, cyclopropane, cycloheptane, cyclooctane, pyridine, pyrimidine, pyridazine, pyrazine, 1,3,5-/1,2,4-triazine, furan, thiophene, pyrrole, imidazole, oxazole, thiazole, pyrazole, isoxazole, isothiazole, 1,2,3-/1,2,4-triazole, piperidine, pyrrolidine, THF, THP, morpholine, piperazine, naphthalene | Indole, quinoline, isoquinoline, benzimidazole, purine; chair/boat cyclohexane; decalins; norbornane |
+| Amino acids | `src/model/aminoAcidTemplates.ts` | All 20 standard amino acids (`gly` … `val`) | — |
+| Nucleotides | `src/model/nucleotideTemplates.ts` | AMP, GMP, CMP, UMP, TMP, GTP, CTP, UTP | — |
+| Nucleobases | `src/model/nucleobaseTemplates.ts` | Adenine, guanine, cytosine, thymine, uracil | — |
+| Carbohydrates | `src/model/carbohydrateTemplates.ts` | D-Glucose (Fischer), L-Glucose (Fischer), D-Glucose (Haworth pyranose), maltose, D-galactose, D-mannose, D-fructose, D-ribose (all Fischer except the two noted) | Deoxyribose; lactose, sucrose, cellobiose; polysaccharide repeating units |
+| Steroids | `src/model/steroidTemplates.ts` | Gonane, cholesterol, testosterone, estradiol, progesterone, cortisol, cholic acid | Additional bile acids (deoxycholic, lithocholic, …) |
+| Terpenes | `src/model/terpeneTemplates.ts` | Limonene, caryophyllene, retinol, menthol, camphor, artemisinin, squalene | — |
+| Ligands | `src/model/structureTemplates.ts` | Cyclopentadienyl (Cp⁻) | — |
 
-### 1.3 Nucleotide Templates ✅
-- [x] Created src/model/nucleotideTemplates.ts
-- [x] AMP (Adenosine Monophosphate) fully defined
-- [ ] Remaining nucleotides (GMP, CMP, UMP, TMP/dTMP, GTP, CTP, UTP) follow same pattern
-
-### 1.4 Carbohydrate Templates ✅
-- [x] Created src/model/carbohydrateTemplates.ts
-- [x] D-Glucose Fischer projection
-- [x] D-Glucose Haworth pyranose
-- [x] Maltose disaccharide
-- [ ] Additional monosaccharides: galactose, mannose, fructose, ribose, deoxyribose
-- [ ] Additional disaccharides: lactose, sucrose, cellobiose
-- [ ] Polysaccharide repeating units
-
-### 1.5 Steroid Templates ✅
-- [x] Created src/model/steroidTemplates.ts
-- [x] Gonane (steroid nucleus) fully defined
-- [x] Cholesterol with -OH at C3 and hydrocarbon side chain at C17
-- [ ] Additional steroids: testosterone, estradiol, progesterone, cortisol, bile acids
-
-### 1.6 Terpene Templates ✅
-- [x] Created src/model/terpeneTemplates.ts
-- [x] Limonene (monoterpene, cyclohexene + isopropenyl)
-- [x] Caryophyllene (sesquiterpene, 10-membered ring with 4 double bonds, isopropyl + ethylidene)
-- [x] Retinol (diterpene, vitamin A, ionone ring + polyene chain C9-C20)
-- [ ] Additional terpenes: menthol, camphor (monoterpenes), artemisinin (sesquiterpene), etc.
-
-### 1.7 Template Picker UI
-- [ ] Redesign unified Template Palette Panel with tabs (Rings, Amino Acids, Nucleotides, etc.)
-- [ ] Implement categorized grid with search/filter
-- [ ] Add "My Templates" tab for user-created templates
-
-## Phase 2: Bond Types & Stereochemistry (P0) ✅
-- [x] Added `boldDouble`, `dashedDouble`, `hollowWedge` to `BondStereo` type
-- [x] Added `hollow?: boolean` to `Bond` interface
-- [x] Added `queryProps` to `Atom` and `Bond` interfaces
-- [x] Added `stereoGroup` to `Atom` interface
-- [x] Added `z?: number` to `Atom` interface for 3D coords
-- [x] Import: Parse `Display="BoldDouble"` → `stereo: "boldDouble"`
-- [x] Import: Parse `Display="DashedDouble"` → `stereo: "dashedDouble"`
-- [x] Import: Parse `Hollow="yes"` on wedge → `hollow: true`
-- [x] Export: Write new bond stereo types to CDXML
-- [x] Updated BondView.tsx to render new bond stereo types
-- [x] Handle enhanced stereo groups (AND/OR) in cdxDisplayToStereo
-
-## Phase 3: Arrow Tool Expansion (P0) ✅
-- [x] Added new `ArrowVariant` values: `dashed`, `double`, `bold`, `openHead`, `circleHead`, `diamondHead`, `tailed`
-- [x] Added `headStyle`, `tailStyle`, `shaftStyle` to `ArrowAnnotation`
-- [x] Import: Parse CDXML arrow head/tail types with `ArrowheadType`, `ArrowheadHead`, `ArrowheadTail`, `LineStyle`, `ArrowheadTailType`
-- [x] Import: Parse `Dash="yes"`, `LineWidth`, `Head="OpenHead"`, etc.
-- [x] Export: Write new arrow variants to CDXML with proper attributes
-- [x] Render dashed shaft in ArrowAnnotationView
-- [x] Render new arrow variants
-
-## Phase 4: Orbital Tool Expansion (P1) ✅
-- [x] Added `d`, `sp`, `sp2`, `sp3`, `hybrid` to `OrbitalVariant`
-- [x] Updated CDXML import to parse new `OrbitalType` values
-- [x] Updated OrbitalAnnotationView rendering for d, sp, sp2, sp3 variants
-- [x] Updated OrbitalAnnotation export to write CDX Orbital graphics with OrbitalType attribute
-
-## Phase 5: Shape Primitives ✅
-- [x] Added new `ShapeVariant` values: `polygon`, `arc`, `curve`, `polyline`, `roundedRect`, `triangle`, `hexagon`
-- [x] Added `fillPattern`, `lineStyle`, `lineCap`, `lineJoin`, `sides`, `startAngle`, `points` to `ShapeAnnotation`
-- [x] Updated CDXML import to parse shape attributes (FillType, FillPattern, LineStyle, LineCap, LineJoin, NumSides, StartAngle, Points)
-- [x] Updated CDXML export to write shape attributes
-- [x] Implement all new shape variants in ShapeAnnotationView rendering
-
-## Phase 6: TLC Enhancements ✅
-- [x] Enhanced `TlcSpot` with `label`, `uv`, `stain` fields
-- [x] Enhanced `TlcPlateAnnotation` with `baselineFraction`, `solventFrontFractions`, `showUV`, `uvWavelengths`, `stainType`, `laneLabels`, `laneCount`, `plateSize`, `showRfValues`
-- [x] Updated CDXML import to parse enhanced TLC attributes (OriginFraction, SolventFrontFraction, ShowUV, UVWavelengths, StainType, LaneLabels, PlateSize, ShowRfValues)
-- [x] Updated CDXML export to write enhanced TLC attributes
-- [x] TLC Rendering UI updates
-
-## Phase 7: BioDraw Elements (P3 - Deferred)
-- [ ] Deferred to future iteration
-
-## Phase 8: CDXML Fidelity (P0 - Critical) ✅
-- [x] Added `SGroup` type and `sgroups` field to `Molecule` interface
-- [x] Nickname/superatom system design for round-trip fidelity
-- [x] CDXML import/export: bond stereo types, new arrow variants, orbital types, shape primitives, TLC enhancements
-- [x] 3D coordinate preservation (`Atom.z`)
-- [ ] Multi-fragment document support (multiple `<fragment>` per page)
-- [ ] Page setup parsing/serialization (`<page>` attributes)
-- [ ] Scheme/Reaction Steps parsing (`<scheme>` and `<step>` elements)
-- [ ] S-Groups import/export for polymers, mixtures
-- [ ] Font/Color table fidelity verification
-- [ ] Round-trip test suite with real ChemDraw files
-
-## Phase 9: UI/UX Integration (P0)
-- [x] Keyboard shortcuts documented (ChemDraw compatibility mapping)
-- [ ] Template palette panel redesign (planning)
-- [ ] Arrow tool redesign (planning)
-- [ ] Bond tool enhancement (planning)
-- [ ] Context menu additions
-
-## Phase 10: File Formats (P1)
-- [ ] Document CDX as unsupported (undocumented binary)
-- [ ] Verify SMILES/MOL/SDF/XYZ import/export
-- [ ] Add CML support (optional)
-- [ ] Add ChemSketch SKC support (optional)
+Total built-in structure templates: **56** (1 ligand + 20 amino acids + 8 carbohydrates + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes).
 
 ---
 
-**Progress Summary**: 
-- Types updated: ✅ (BondStereo, Bond, Atom, ArrowVariant, ArrowAnnotation, OrbitalVariant, ShapeAnnotation, TlcSpot, TlcPlateAnnotation, Molecule, Point)
-- CDXML import/export: ✅ (bond stereo types, new arrow variants, orbital types, shape primitives, TLC enhancements, 3D coords)
-- Template files created: ✅ (aminoAcidTemplates.ts, nucleotideTemplates.ts, carbohydrateTemplates.ts, steroidTemplates.ts, terpeneTemplates.ts)
-- Ring templates extended: ✅ (in constants.ts with 5-/6-membered heterocycles, fused systems, Cp ring)
-- Bond types: ✅ (boldDouble, dashedDouble, hollowWedge added and rendering updated)
-- Validation spec tables: ✅ (all updated with new properties)
-- Type checking: ✅ (zero compilation errors)
-- Still need: Remaining template definitions (amino acids 19, nucleotides 6, steroids 5, terpenes 4+), UI components, round-trip testing)
+## Phase 1: Template Palettes
+
+### 1.1 Ring Templates — Partial
+- [x] Basic rings (benzene, cyclohexane, cyclopentane, cyclobutane, cyclopropane, cycloheptane, cyclooctane)
+- [x] 5-membered heterocycles (furan, thiophene, pyrrole, imidazole, oxazole, thiazole, pyrazole, isoxazole, isothiazole, triazoles)
+- [x] 6-membered heterocycles (pyridine, pyrimidine, pyridazine, pyrazine, triazines, piperidine, pyrrolidine, THF, THP, morpholine, piperazine)
+- [x] Naphthalene (fused, dedicated placement in `engine/ringPlacement.ts`)
+- [x] Aromatic sextet circle toggle for 6-rings
+- [x] Cp⁻ ring (lives in `structureTemplates.ts`, because `RingTemplate` has no charge field)
+- [ ] Fused heteroaromatics: indole, quinoline, isoquinoline, benzimidazole, purine. `constants.ts` comments say these "are defined as full StructureTemplates instead", but no such templates exist — this is the main ring gap.
+- [ ] Chair/boat cyclohexane templates (only mentioned in a doc comment)
+- [ ] Decalins (cis/trans)
+- [ ] Norbornane
+
+### 1.2 Amino Acid Templates ✅
+- [x] `src/model/aminoAcidTemplates.ts`
+- [x] All 20 standard amino acids with side chains and L-stereochemistry
+- [x] Glycine and the achiral/proline cases handled separately
+
+### 1.3 Nucleotide Templates ✅
+- [x] `src/model/nucleotideTemplates.ts`
+- [x] AMP, GMP, CMP, UMP, TMP
+- [x] GTP, CTP, UTP (triphosphates)
+
+### 1.4 Nucleobase Templates ✅
+- [x] `src/model/nucleobaseTemplates.ts`
+- [x] Adenine, guanine, cytosine, thymine, uracil
+
+### 1.5 Carbohydrate Templates — Mostly Done
+- [x] `src/model/carbohydrateTemplates.ts`
+- [x] D-Glucose (Fischer), L-Glucose (Fischer)
+- [x] D-Glucose (Haworth pyranose)
+- [x] Maltose (α-1,4 disaccharide)
+- [x] D-Galactose, D-Mannose, D-Fructose, D-Ribose (Fischer)
+- [ ] Deoxyribose (Fischer/Haworth)
+- [ ] Lactose (β-1,4 galactose–glucose)
+- [ ] Sucrose (α-1,2 glucose–fructose)
+- [ ] Cellobiose (β-1,4 glucose–glucose)
+- [ ] Polysaccharide repeating units (cellulose, amylose, chitin, …)
+
+### 1.6 Steroid Templates — Mostly Done
+- [x] `src/model/steroidTemplates.ts`
+- [x] Gonane (steroid nucleus)
+- [x] Cholesterol, testosterone, estradiol, progesterone, cortisol, cholic acid
+- [ ] Additional bile acids (deoxycholic, lithocholic, chenodeoxycholic)
+
+### 1.7 Terpene Templates ✅
+- [x] `src/model/terpeneTemplates.ts`
+- [x] Limonene, caryophyllene, retinol, menthol, camphor, artemisinin, squalene
+
+### 1.8 Template Picker UI — Partial
+- [x] Categorized grouped list (`StructureTemplatePicker.tsx`)
+- [x] Separate user-template picker with save/delete/import/export (`UserTemplatePicker.tsx`, `.enlacebookmarks`)
+- [ ] Unified Template Palette Panel with tabs (Rings, Amino Acids, Nucleotides, Carbohydrates, Steroids, Terpenes, Ligands, My Templates)
+- [ ] Categorized grid with search/filter
+- [ ] Merge the user-template picker into that panel as a "My Templates" tab
+- [ ] **Bug:** translations only define `structureCategory.sugars`, `.nucleobases`, `.ligands`. The categories `aminoAcids`, `carbohydrates`, `nucleotides`, `steroids`, `terpenes` render as raw keys (e.g. `structureCategory.aminoAcids`) because `translate()` falls back to the key.
+- [ ] **Inconsistency:** D-/L-glucose Fischer use category `sugars` while the other six carbohydrates use `carbohydrates`, so the picker shows two separate sugar groups. Normalize the category.
+
+---
+
+## Phase 2: Bond Types & Stereochemistry ✅
+- [x] `boldDouble`, `dashedDouble`, `hollowWedge` in `BondStereo`
+- [x] `hollow?: boolean` on `Bond`
+- [x] `queryProps` on `Atom`/`Bond`
+- [x] `stereoGroup` on `Atom`
+- [x] `z?: number` on `Atom` for 3D coordinates
+- [x] Import `Display="BoldDouble"` / `"DashedDouble"` / `Hollow="yes"`
+- [x] Export new bond stereo types to CDXML
+- [x] `BondView.tsx` renders the new stereo types
+- [x] Enhanced stereo groups (AND/OR) in `cdxDisplayToStereo`
+- [x] Computed CIP stereochemistry: OpenChemLib engine (`engine/stereo.ts`), canvas overlay (`ComputedStereoOverlay.tsx`), info-panel section, persistence, export exclusion, tests
+
+---
+
+## Phase 3: Arrow Tool Expansion ✅
+- [x] `ArrowVariant`: `dashed`, `double`, `bold`, `openHead`, `circleHead`, `diamondHead`, `tailed`
+- [x] `headStyle`, `tailStyle`, `shaftStyle` on `ArrowAnnotation`
+- [x] Import CDX arrow head/tail/line attributes
+- [x] Export new arrow variants
+- [x] Render dashed shafts and new variants
+
+---
+
+## Phase 4: Orbital Tool Expansion ✅
+- [x] `d`, `sp`, `sp2`, `sp3`, `hybrid` orbital variants
+- [x] CDXML import/export for the new `OrbitalType` values
+- [x] Rendering in `OrbitalAnnotationView`
+
+---
+
+## Phase 5: Shape Primitives ✅
+- [x] `polygon`, `arc`, `curve`, `polyline`, `roundedRect`, `triangle`, `hexagon`
+- [x] `fillPattern`, `lineStyle`, `lineCap`, `lineJoin`, `sides`, `startAngle`, `points`
+- [x] CDXML import/export of shape attributes
+- [x] Rendering in `ShapeAnnotationView`
+
+---
+
+## Phase 6: TLC Enhancements ✅
+- [x] `TlcSpot`: `label`, `uv`, `stain`
+- [x] `TlcPlateAnnotation`: baseline/solvent-front fractions, UV, stain type, lane labels/count, plate size, Rf values
+- [x] CDXML import/export of the enhanced attributes
+- [x] TLC rendering and interaction
+
+---
+
+## Phase 7: BioDraw Elements (P3 — Deferred)
+- [ ] Deferred to a future iteration
+
+---
+
+## Phase 8: CDXML Fidelity — Partial
+- [x] `SGroup` type and `sgroups` field on `Molecule`
+- [x] Bond stereo types, arrow variants, orbital types, shape primitives, TLC enhancements
+- [x] 3D coordinate preservation (`Atom.z`)
+- [x] Single-page, single-fragment documents with annotations (arrows, brackets, captions, shapes, orbitals, TLC)
+- [x] Round-trip tests for app-generated CDXML (including `fixtures/chemdraw-scheme.cdxml`)
+- [ ] Multi-fragment documents (multiple `<fragment>` per `<page>`); export always writes one fragment
+- [ ] Page setup parsing/serialization (`<page>` attributes: size, margins, bond length)
+- [ ] Scheme/reaction-step grouping (`<scheme>`, `<step>`) — arrows import, grouping metadata is dropped
+- [ ] S-Groups import/export for polymers/mixtures (`sgroups` is defined but not wired into CDXML I/O)
+- [ ] Nickname/superatom round-trip (abbreviations currently export as plain carbon; MOL export preserves the label)
+- [ ] Font/color-table fidelity verification
+- [ ] Real ChemDraw-file round-trip suite (currently only one fixture plus synthetic documents)
+- [ ] Fix pre-existing oxlint errors in `src/io/cdxml.ts`: unused `size` (line 575) and unused parameter `i` (line 599). `npm run check` fails only because of these.
+
+---
+
+## Phase 9: UI/UX Integration — Partial
+- [x] Keyboard shortcuts overlay (`ShortcutsOverlay.tsx`, opened with `?`)
+- [x] Context menu (atom/bond/selection/canvas actions, charge, radical, stereo, highlight, cleanup, collapse-to-group, IUPAC)
+- [x] 3D viewer surfaces: VDW/SAS/SES, opacity slider, coloring sync, persistence, tests
+- [ ] Template palette panel redesign (see 1.8)
+- [ ] Arrow tool refinement (full ChemDraw-style arrow editing)
+- [ ] Bond tool refinement (ChemDraw-compatible bond palette/behavior)
+- [ ] Complete missing category translations (see 1.8)
+
+---
+
+## Phase 10: File Formats — Partial
+- [x] Native project format `.enlacecraft` (tabs, annotations, view state)
+- [x] Import `.mol`, `.cdxml`, `.smi`/`.smiles`, `.enlacecraft` (with content sniffing for `.txt`/unknown)
+- [x] Export MOL, CDXML, SMILES; PNG/SVG/print
+- [x] 3D import `.xyz`, `.pdb`/`.ent`, `.mol`, `.sdf`; 3D export `.xyz`/`.mol`
+- [x] CDX binary documented as unsupported (undocumented format)
+- [ ] SDF multi-record import (only single structures are handled today)
+- [ ] CML import/export (optional)
+- [ ] ChemSketch SKC import/export (optional)
+
+---
+
+## Follow-ups (not ChemDraw-specific)
+
+- [ ] Stereo panel does not list manual `R/S` atom labels when there is no computed assignment.
+- [ ] No component-level test for the 3D surface toggle/opacity path.
+
+---
+
+## Progress Summary
+
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 8 carbohydrates, 7 steroids, 7 terpenes, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces.
+- **Main remaining work:** fused heteroaromatic + conformation ring templates; the four missing carbohydrates; the unified/searchable template palette; missing category translations; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
+- **Type checking:** `npx tsc -b` passes cleanly.
+- **Lint:** only the two pre-existing `src/io/cdxml.ts` errors.
