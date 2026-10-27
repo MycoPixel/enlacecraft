@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, Undo2, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, Bookmark, BookmarkPlus, Highlighter, Hash, Trash2,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, BookmarkPlus, Highlighter, Hash, Trash2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
@@ -13,8 +13,7 @@ import { ReactiveSitePicker } from "./ReactiveSitePicker";
 import { IsotopeButton } from "./IsotopeButton";
 import { RingPicker, RingIcon } from "./RingPicker";
 import { FunctionalGroupPicker } from "./FunctionalGroupPicker";
-import { StructureTemplatePicker, StructureTemplateIcon } from "./StructureTemplatePicker";
-import { UserTemplatePicker } from "./UserTemplatePicker";
+import { StructureTemplateIcon, TemplatePalette } from "./TemplatePalette";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
@@ -238,31 +237,23 @@ export function Sidebar() {
         )}>
           <RingIcon templateId={ringTemplateId} />
         </ToolDropdown>
-        {STRUCTURE_TEMPLATES.length > 0 && (
-          <ToolDropdown title={t("tool.structures")} active={false} renderContent={(close) => (
-            <StructureTemplatePicker
-              onChoose={(id) => {
-                const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
-                if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
-                close();
-              }}
-            />
-          )}>
-            <StructureTemplateIcon />
-          </ToolDropdown>
-        )}
-        <ToolDropdown title={t("tool.userTemplates")} active={false} renderContent={(close) => (
-          <UserTemplatePicker
-            templates={userTemplates}
-            onChoose={(id) => {
+        <ToolDropdown title={t("tool.templates")} active={false} renderContent={(close) => (
+          <TemplatePalette
+            userTemplates={userTemplates}
+            onChooseStructure={(id) => {
+              const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
+              if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+              close();
+            }}
+            onChooseUser={(id) => {
               const tmpl = userTemplates.find((s) => s.id === id);
               if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
               close();
             }}
-            onDelete={deleteUserTemplate}
+            onDeleteUser={deleteUserTemplate}
           />
         )}>
-          <Bookmark size={18} />
+          <StructureTemplateIcon />
         </ToolDropdown>
         <ToolDropdown
           title={hasSelectionToSave ? t("tool.saveTemplate") : t("tool.saveTemplateDisabled")}

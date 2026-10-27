@@ -14,7 +14,7 @@ interface UserTemplatePickerProps {
 }
 
 /**
- * Mirrors StructureTemplatePicker's list, but for the user's own saved
+ * Mirrors the built-in template grid, but for the user's own saved
  * templates (see model/userTemplates.ts) — each row adds a delete button
  * and a selection checkbox, since unlike the built-ins these are the
  * user's to manage and to export/back up. Clicking a row's label still

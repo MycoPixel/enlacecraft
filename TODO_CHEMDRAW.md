@@ -79,15 +79,17 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 - [x] `src/model/terpeneTemplates.ts`
 - [x] Limonene, caryophyllene, retinol, menthol, camphor, artemisinin, squalene
 
-### 1.8 Template Picker UI — Partial
-- [x] Categorized grouped list (`StructureTemplatePicker.tsx`)
-- [x] Separate user-template picker with save/delete/import/export (`UserTemplatePicker.tsx`, `.enlacebookmarks`)
-- [ ] Unified Template Palette Panel with tabs (Rings, Amino Acids, Nucleotides, Carbohydrates, Steroids, Terpenes, Ligands, My Templates)
-- [x] Search/filter in the categorized list (hides empty categories, no-results state, tested)
-- [ ] Convert the categorized list to a grid layout
-- [ ] Merge the user-template picker into that panel as a "My Templates" tab
-- [x] Category headings translated for every category (EN/ES); a regression test now asserts this
+### 1.8 Template Palette UI ✅
+- [x] Unified `TemplatePalette` with tabs: All, one per built-in category, and My Templates
+- [x] Search/filter (hides empty groups, no-results state, tested)
+- [x] Two-column grid layout for built-in templates
+- [x] User-template manager merged into the My Templates tab (save/delete/import/export)
+- [x] Category headings translated for every category (EN/ES); a regression test asserts this
 - [x] Normalized all carbohydrates to the `carbohydrates` category (D-/L-glucose no longer split into a separate `sugars` group)
+
+> Rings intentionally remain a dedicated tool/picker rather than a palette tab:
+> a ring is placed with a live preview through `placeRing`, not pasted as a
+> fragment, so it does not share the palette's insertion path.
 
 ---
 
@@ -162,7 +164,7 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 - [x] Keyboard shortcuts overlay (`ShortcutsOverlay.tsx`, opened with `?`)
 - [x] Context menu (atom/bond/selection/canvas actions, charge, radical, stereo, highlight, cleanup, collapse-to-group, IUPAC)
 - [x] 3D viewer surfaces: VDW/SAS/SES, opacity slider, coloring sync, persistence, tests
-- [ ] Template palette panel redesign (see 1.8)
+- [x] Template palette redesign (unified tabs, grid, search, My Templates)
 - [ ] Arrow tool refinement (full ChemDraw-style arrow editing)
 - [ ] Bond tool refinement (ChemDraw-compatible bond palette/behavior)
 
@@ -189,7 +191,7 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces; translated template categories.
-- **Main remaining work:** conformation ring templates (chair/boat, decalins, norbornane); polysaccharide repeating units; the unified/searchable template palette; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
+- **Main remaining work:** conformation ring templates (chair/boat, decalins, norbornane); polysaccharide repeating units; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
 - **Type checking:** `npx tsc -b` passes cleanly.
 - **Lint:** `oxlint` is clean on the touched files (the two old `cdxml.ts` errors are fixed).

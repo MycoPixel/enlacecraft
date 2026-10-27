@@ -14,8 +14,7 @@ import { FunctionalGroupPicker } from "../Sidebar/FunctionalGroupPicker";
 import { IsotopePicker } from "../Sidebar/IsotopePicker";
 import { ReactiveSitePicker } from "../Sidebar/ReactiveSitePicker";
 import { RingPicker } from "../Sidebar/RingPicker";
-import { StructureTemplatePicker } from "../Sidebar/StructureTemplatePicker";
-import { UserTemplatePicker } from "../Sidebar/UserTemplatePicker";
+import { TemplatePalette } from "../Sidebar/TemplatePalette";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { connectedComponents } from "../../model/molecule";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "../Sidebar/ArrowVariantPicker";
@@ -303,27 +302,20 @@ export function MobileToolbar() {
                 active={tool === "atom" && !!atomReactiveSite}
               />
 
-              {STRUCTURE_TEMPLATES.length > 0 && (
-                <>
-                  <SectionLabel>{t("tool.structures")}</SectionLabel>
-                  <StructureTemplatePicker
-                    onChoose={(id) => {
-                      const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
-                      if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
-                      setPanel(null);
-                    }}
-                  />
-                </>
-              )}
-              <SectionLabel>{t("tool.userTemplates")}</SectionLabel>
-              <UserTemplatePicker
-                templates={userTemplates}
-                onChoose={(id) => {
+              <SectionLabel>{t("tool.templates")}</SectionLabel>
+              <TemplatePalette
+                userTemplates={userTemplates}
+                onChooseStructure={(id) => {
+                  const tmpl = STRUCTURE_TEMPLATES.find((s) => s.id === id);
+                  if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
+                  setPanel(null);
+                }}
+                onChooseUser={(id) => {
                   const tmpl = userTemplates.find((s) => s.id === id);
                   if (tmpl) pasteFragment({ molecule: tmpl.molecule, annotations: tmpl.annotations });
                   setPanel(null);
                 }}
-                onDelete={deleteUserTemplate}
+                onDeleteUser={deleteUserTemplate}
               />
               {hasSelectionToSave && (
                 <div className="save-template-menu">

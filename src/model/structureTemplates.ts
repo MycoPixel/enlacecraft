@@ -37,7 +37,7 @@ export interface StructureTemplate {
   label: string;
   /** Groups related templates together in the picker (e.g. every sugar
    * under one heading, every nucleobase under another) instead of one
-   * long undifferentiated list — see StructureTemplatePicker.tsx. Purely
+   * long undifferentiated list — see TemplatePalette.tsx. Purely
    * a display grouping; has no effect on insertion. */
   category: string;
   molecule: Molecule;
