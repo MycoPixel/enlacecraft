@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { Annotation, Molecule, Point, TlcPlateAnnotation } from "../../types/chemistry";
 import { TLC_SPOT_GRAB_RADIUS, useMoleculeStore } from "../../store/useMoleculeStore";
 import { dist, TLC_BASELINE_FRACTION, TLC_FRONT_FRACTION, tlcSpotPosition } from "../../model/geometry";
+import { useT } from "../../i18n/useT";
 
 interface TlcPlateAnnotationViewProps {
   annotation: TlcPlateAnnotation;
@@ -36,18 +37,24 @@ const nearestTlcSpotHit = (plate: TlcPlateAnnotation, pt: Point): number | null 
  * Drag the body to move the whole plate; the bottom-right handle resizes
  * (spots stay put fractionally, so they ride along). With the TLC tool
  * active, clicking inside the plate spots it where you clicked, and
- * Shift+click removes the nearest spot — so spotting works without touching
- * the sidebar between every sample. Double-clicking the plate while the
- * select/lasso tool is active switches to the TLC tool, so after placing a
- * plate (which returns the tool to select) you don't have to go back to the
- * sidebar to start spotting.
+ * Shift+click removes the nearest spot (or the one directly under the
+ * cursor) — so spotting works without touching the sidebar between every
+ * sample. Each spot also gets a small × button whenever the plate is
+ * selected or the TLC tool is active, so a spot can be removed with an
+ * ordinary click. Double-clicking the plate while the select/lasso tool is
+ * active switches to the TLC tool, so after placing a plate (which returns
+ * the tool to select) you don't have to go back to the sidebar to start
+ * spotting.
  */
 export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcPlateAnnotationViewProps) {
+  const t = useT();
+  const tool = useMoleculeStore((s) => s.tool);
   const setSelectedAnnotationIds = useMoleculeStore((s) => s.setSelectedAnnotationIds);
   const moveAnnotationTransient = useMoleculeStore((s) => s.moveAnnotationTransient);
   const moveAnnotationsTransient = useMoleculeStore((s) => s.moveAnnotationsTransient);
   const updateTlcSize = useMoleculeStore((s) => s.updateTlcSize);
   const moveTlcSpot = useMoleculeStore((s) => s.moveTlcSpot);
+  const removeTlcSpot = useMoleculeStore((s) => s.removeTlcSpot);
   const commitCheckpoint = useMoleculeStore((s) => s.commitCheckpoint);
   const deleteAnnotation = useMoleculeStore((s) => s.deleteAnnotation);
 
@@ -76,8 +83,14 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
         const { view } = useMoleculeStore.getState();
         const pt: Point = { x: (e.clientX - rect.left - view.tx) / view.scale, y: (e.clientY - rect.top - view.ty) / view.scale };
         // Drag an existing spot if the click lands on one; otherwise add a
-        // new spot (Shift+click removes the nearest one).
+        // new spot. Shift+click always deletes: the spot under the cursor
+        // when there is one, else the nearest spot within grab range.
         const hit = nearestTlcSpotHit(annotation, pt);
+        if (e.shiftKey) {
+          if (hit != null) store.removeTlcSpot(annotation.id, hit);
+          else store.removeNearestTlcSpot(annotation.id, pt);
+          return;
+        }
         if (hit != null) {
           (e.currentTarget as Element).setPointerCapture(e.pointerId);
           const spot = annotation.spots[hit];
@@ -90,7 +103,6 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
           };
           return;
         }
-        if (e.shiftKey) { store.removeNearestTlcSpot(annotation.id, pt); return; }
         store.addTlcSpot(annotation.id, pt);
       }
       return;
@@ -223,18 +235,50 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
         x1={x} y1={frontY} x2={x + width} y2={frontY}
         stroke={color} strokeWidth={1.2} strokeDasharray="4 3" pointerEvents="none"
       />
-      {/* Spots: filled circles at their fractional positions. */}
+      {/* Spots: filled circles at their fractional positions. Each gets a
+          small × button while the plate is selected or the TLC tool is
+          active, so a misplaced spot can be removed with one click. */}
       {spots.map((spot, i) => {
         const pos = tlcSpotPosition(annotation, spot);
+        const r = spot.r ?? 4;
         return (
-          <circle
-            key={i}
-            cx={pos.x} cy={pos.y}
-            r={spot.r ?? 4}
-            fill={spot.color ?? color}
-            fillOpacity={0.85}
-            pointerEvents="none"
-          />
+          <g key={i}>
+            <circle
+              cx={pos.x} cy={pos.y}
+              r={r}
+              fill={spot.color ?? color}
+              fillOpacity={0.85}
+              pointerEvents="none"
+            />
+            {(selected || tool === "tlc") && (
+              <g
+                className="tlc-spot-delete"
+                data-export-exclude="true"
+                role="button"
+                aria-label={t("tlc.removeSpot")}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  removeTlcSpot(annotation.id, i);
+                }}
+              >
+                <title>{t("tlc.removeSpot")}</title>
+                <circle
+                  cx={pos.x + r + 4} cy={pos.y - r - 4} r={5.5}
+                  fill="var(--panel)" stroke="var(--ink-soft)" strokeWidth={1}
+                />
+                <line
+                  x1={pos.x + r + 2} y1={pos.y - r - 6}
+                  x2={pos.x + r + 6} y2={pos.y - r - 2}
+                  stroke="var(--ink-soft)" strokeWidth={1.2} strokeLinecap="round"
+                />
+                <line
+                  x1={pos.x + r + 6} y1={pos.y - r - 6}
+                  x2={pos.x + r + 2} y2={pos.y - r - 2}
+                  stroke="var(--ink-soft)" strokeWidth={1.2} strokeLinecap="round"
+                />
+              </g>
+            )}
+          </g>
         );
       })}
 

@@ -16,6 +16,13 @@ import type { TlcPlateAnnotation } from "../../types/chemistry";
  * hijack a double-click while some other drawing tool is active.
  */
 const PLATE: TlcPlateAnnotation = { id: "plate", kind: "tlc", x: 0, y: 0, width: 90, height: 130, spots: [] };
+const SPOTTED: TlcPlateAnnotation = {
+  ...PLATE,
+  spots: [
+    { fx: 0.5, fy: 0.5, r: 4 },
+    { fx: 0.25, fy: 0.75, r: 4 },
+  ],
+};
 
 let container: HTMLDivElement;
 let root: Root;
@@ -35,11 +42,11 @@ afterEach(() => {
   container.remove();
 });
 
-function render(selected = true) {
+function render(selected = true, annotation: TlcPlateAnnotation = PLATE) {
   act(() => {
     root.render(
       <svg>
-        <TlcPlateAnnotationView annotation={PLATE} selected={selected} viewScale={1} />
+        <TlcPlateAnnotationView annotation={annotation} selected={selected} viewScale={1} />
       </svg>,
     );
   });
@@ -51,6 +58,18 @@ function render(selected = true) {
 function doubleClick(target: Element) {
   act(() => {
     target.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+  });
+}
+
+function pointerDown(target: Element, opts: { clientX: number; clientY: number; shiftKey?: boolean }) {
+  act(() => {
+    target.dispatchEvent(new MouseEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      clientX: opts.clientX,
+      clientY: opts.clientY,
+      shiftKey: opts.shiftKey ?? false,
+    }));
   });
 }
 
@@ -78,5 +97,36 @@ describe("TLC plate double-click", () => {
     useMoleculeStore.setState({ tool: "tlc" });
     doubleClick(render());
     expect(useMoleculeStore.getState().tool).toBe("tlc");
+  });
+});
+
+describe("TLC spot deletion", () => {
+  beforeEach(() => {
+    useMoleculeStore.setState({ tool: "tlc", view: { tx: 0, ty: 0, scale: 1 }, annotations: { plate: SPOTTED } });
+  });
+
+  test("Shift+click directly on a spot removes that spot (not drags it)", () => {
+    const hit = render(true, SPOTTED);
+    // Spot 0 is at fractional (0.5, 0.5) on a 90×130 plate.
+    pointerDown(hit, { clientX: 45, clientY: 65, shiftKey: true });
+    const spots = (useMoleculeStore.getState().annotations.plate as TlcPlateAnnotation).spots;
+    expect(spots).toHaveLength(1);
+    expect(spots[0].fx).toBeCloseTo(0.25);
+  });
+
+  test("each spot gets a × button that removes it", () => {
+    render(true, SPOTTED);
+    const buttons = container.querySelectorAll(".tlc-spot-delete");
+    expect(buttons).toHaveLength(2);
+    pointerDown(buttons[0], { clientX: 0, clientY: 0 });
+    const spots = (useMoleculeStore.getState().annotations.plate as TlcPlateAnnotation).spots;
+    expect(spots).toHaveLength(1);
+    expect(spots[0].fx).toBeCloseTo(0.25);
+  });
+
+  test("× buttons are hidden when the plate is neither selected nor in TLC mode", () => {
+    useMoleculeStore.setState({ tool: "select" });
+    render(false, SPOTTED);
+    expect(container.querySelectorAll(".tlc-spot-delete")).toHaveLength(0);
   });
 });

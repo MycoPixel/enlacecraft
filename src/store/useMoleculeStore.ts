@@ -659,6 +659,9 @@ interface MoleculeStore {
   /** Removes the spot nearest to `p` (within a small grab radius); returns
    * true when a spot was removed. */
   removeNearestTlcSpot: (id: string, p: Point) => boolean;
+  /** Removes one spot by index (the per-spot × button and Shift+click on a
+   * spot both use this); returns true when a spot was removed. */
+  removeTlcSpot: (id: string, spotIndex: number) => boolean;
   /** Moves an existing spot to canvas point `p` (fractional coords recomputed
    * and clamped to the plate); used to drag a spotted sample around. */
   moveTlcSpot: (id: string, spotIndex: number, p: Point) => void;
@@ -2070,6 +2073,19 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const plate = anns[id];
         if (!plate || plate.kind !== "tlc") return anns;
         return { ...anns, [id]: { ...plate, spots: plate.spots.filter((_, i) => i !== bestIdx) } };
+      });
+      return true;
+    },
+
+    /** Removes one spot by index. The per-spot × button and Shift+click on
+     * a spot both use this; returns true when a spot was removed. */
+    removeTlcSpot: (id, spotIndex) => {
+      const ann = get().annotations[id];
+      if (!ann || ann.kind !== "tlc" || !ann.spots[spotIndex]) return false;
+      commitAnnotations((anns) => {
+        const plate = anns[id];
+        if (!plate || plate.kind !== "tlc" || !plate.spots[spotIndex]) return anns;
+        return { ...anns, [id]: { ...plate, spots: plate.spots.filter((_, i) => i !== spotIndex) } };
       });
       return true;
     },

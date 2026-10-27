@@ -921,6 +921,19 @@
   font-size: 12px;
 }
 
+.tlc-spot-delete {
+  cursor: pointer;
+}
+
+.tlc-spot-delete:hover circle {
+  fill: var(--danger);
+  stroke: var(--danger);
+}
+
+.tlc-spot-delete:hover line {
+  stroke: #fff;
+}
+
 .structure-list {
   display: flex;
   flex-direction: column;
