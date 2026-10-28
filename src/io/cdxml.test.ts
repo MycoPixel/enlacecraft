@@ -877,3 +877,111 @@ describe("importCdxmlDocument: a real ChemDraw document", () => {
     expect(plates[0].spots.every((s) => s.color === undefined)).toBe(true);
   });
 });
+
+// --- ChemDraw reaction-scheme grouping ---------------------------------
+// A <scheme> groups whole fragments on either side of one or more arrows.
+// This app stores that grouping on Molecule.schemes (see ReactionScheme's
+// doc comment); the tests below cover the real-file import, the export/
+// re-import cycle, multiple steps, and the stale-reference cleanup.
+describe("reaction scheme grouping", () => {
+  test("imports the scheme and step from a real ChemDraw document", () => {
+    const doc = importCdxmlDocument(chemdrawScheme);
+    expect(doc.molecule.schemes).toHaveLength(1);
+
+    const scheme = doc.molecule.schemes![0];
+    expect(scheme.steps).toHaveLength(1);
+    const step = scheme.steps[0];
+    expect(step.reactantAtomIds).toHaveLength(8);
+    expect(step.productAtomIds).toHaveLength(6);
+
+    // Every referenced atom really exists, and every arrow id resolves to
+    // the imported arrow annotation. The fixture points its step at graphic
+    // 49, a stale line that was superseded by the real arrow graphic 94 —
+    // the importer has to follow SupersededBy to land on the forward arrow.
+    for (const id of [...step.reactantAtomIds, ...step.productAtomIds]) {
+      expect(doc.molecule.atoms[id]).toBeDefined();
+    }
+    expect(step.arrowIds).toHaveLength(1);
+    const arrow = doc.annotations.find((a) => a.id === step.arrowIds[0]);
+    expect(arrow?.kind).toBe("arrow");
+    expect((arrow as ArrowAnnotation).variant).toBe("forward");
+  });
+
+  test("scheme grouping and its arrow reference survive export/import", () => {
+    const doc = importCdxmlDocument(chemdrawScheme);
+    const xml = exportCdxmlDocument(doc.molecule, doc.annotations);
+    expect(xml).toContain("<scheme");
+    expect(xml).toContain("ReactionStepReactants=");
+    expect(xml).toContain("ReactionStepProducts=");
+    expect(xml).toContain("ReactionStepArrows=");
+
+    const round = importCdxmlDocument(xml);
+    expect(round.molecule.schemes).toHaveLength(1);
+    const step = round.molecule.schemes![0].steps[0];
+    expect(step.reactantAtomIds).toHaveLength(8);
+    expect(step.productAtomIds).toHaveLength(6);
+    expect(step.arrowIds).toHaveLength(1);
+    const arrow = round.annotations.find((a) => a.id === step.arrowIds[0]);
+    expect(arrow?.kind).toBe("arrow");
+    expect((arrow as ArrowAnnotation).variant).toBe("forward");
+  });
+
+  test("a multi-step scheme over several fragments round-trips", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "b", { x: 60, y: 0 }, "O");
+    mol = addAtom(mol, "c", { x: 180, y: 0 }, "N");
+    mol = addAtom(mol, "d", { x: 300, y: 0 }, "S");
+    const arrow1: ArrowAnnotation = { id: "x1", kind: "arrow", x1: 100, y1: 0, x2: 140, y2: 0, variant: "forward" };
+    const arrow2: ArrowAnnotation = { id: "x2", kind: "arrow", x1: 220, y1: 0, x2: 260, y2: 0, variant: "forward" };
+    mol = {
+      ...mol,
+      schemes: [
+        {
+          id: "s1",
+          steps: [
+            { id: "st1", reactantAtomIds: ["a", "b"], productAtomIds: ["c"], arrowIds: ["x1"] },
+            { id: "st2", reactantAtomIds: ["c"], productAtomIds: ["d"], arrowIds: ["x2"] },
+          ],
+        },
+      ],
+    };
+
+    const round = importCdxmlDocument(exportCdxmlDocument(mol, [arrow1, arrow2]));
+    expect(round.molecule.schemes).toHaveLength(1);
+    const steps = round.molecule.schemes![0].steps;
+    expect(steps).toHaveLength(2);
+    expect(steps[0].reactantAtomIds).toHaveLength(2);
+    expect(steps[0].productAtomIds).toHaveLength(1);
+    expect(steps[1].reactantAtomIds).toHaveLength(1);
+    expect(steps[1].productAtomIds).toHaveLength(1);
+    for (const step of steps) {
+      expect(step.arrowIds).toHaveLength(1);
+      const arrow = round.annotations.find((a) => a.id === step.arrowIds[0]);
+      expect(arrow?.kind).toBe("arrow");
+    }
+  });
+
+  test("stale fragment and arrow references are skipped rather than written", () => {
+    let mol = addAtom(emptyMolecule(), "a", { x: 0, y: 0 }, "C");
+    mol = {
+      ...mol,
+      schemes: [
+        // Entirely stale: nothing to export, so the whole scheme goes away.
+        { id: "s1", steps: [{ id: "st1", reactantAtomIds: ["ghost"], productAtomIds: [], arrowIds: ["gone"] }] },
+        // Half valid: the atom survives, the arrow does not.
+        { id: "s2", steps: [{ id: "st2", reactantAtomIds: ["a", "ghost"], productAtomIds: [], arrowIds: ["gone"] }] },
+      ],
+    };
+
+    const xml = exportCdxmlDocument(mol, []);
+    const schemes = [...xml.matchAll(/<scheme /g)];
+    expect(schemes).toHaveLength(1);
+    expect(xml).not.toContain('ReactionStepArrows=');
+
+    const round = importCdxmlDocument(xml);
+    expect(round.molecule.schemes).toHaveLength(1);
+    expect(round.molecule.schemes![0].steps[0].reactantAtomIds).toHaveLength(1);
+    expect(round.molecule.schemes![0].steps[0].arrowIds).toEqual([]);
+  });
+});

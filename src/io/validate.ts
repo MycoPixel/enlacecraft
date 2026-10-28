@@ -18,6 +18,8 @@ import type {
   ViewTransform,
   AtomQueryProps,
   BondQueryProps,
+  ReactionScheme,
+  ReactionStep,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
 import { PERIODIC_TABLE } from "../model/constants";
@@ -61,6 +63,8 @@ export const LIMITS = {
   maxAtoms: 20_000,
   maxBonds: 40_000,
   maxAnnotations: 5_000,
+  maxReactionSchemes: 500,
+  maxReactionSteps: 5_000,
   maxTemplates: 500,
   maxTitleChars: 200,
   maxIdChars: 128,
@@ -463,6 +467,122 @@ function optionalRecordEntries(raw: unknown, what: string, max: number): [string
   return raw === undefined || raw === null ? [] : recordEntries(raw, what, max);
 }
 
+/** Ids inside a reaction scheme are plain arrays, not record keys, but they
+ * still have to be bounded and non-empty before they can be looked up. */
+const reactionIdList =
+  (max: number): Parser<string[]> =>
+  (v) => {
+    if (!Array.isArray(v) || v.length > max) return BAD;
+    const out: string[] = [];
+    for (const e of v) {
+      if (typeof e !== "string" || e.length === 0 || e.length > LIMITS.maxIdChars) return BAD;
+      out.push(e);
+    }
+    return out;
+  };
+
+/** Returns an id that neither this document's schemes nor a previous
+ * fallback has already used, without disturbing the caller's set. Prefixed
+ * so a fallback can never collide with a numeric atom/bond/annotation id. */
+function freshSchemeId(used: ReadonlySet<string>, prefix: "scheme-" | "step-"): string {
+  let id = `${prefix}${nextId()}`;
+  while (used.has(id)) id = `${prefix}${nextId()}`;
+  return id;
+}
+
+/**
+ * Validates `Molecule.schemes` (ChemDraw reaction-step grouping). Scheme and
+ * step ids are regenerated only when missing/duplicated; atom ids are
+ * filtered to atoms that actually survived sanitization. Arrow ids are left
+ * alone here — `sanitizeMolecule` has no access to the annotation map, so
+ * project.ts prunes those after it has sanitized both halves of a tab.
+ */
+function sanitizeReactionSchemes(
+  raw: unknown,
+  atoms: Record<string, Atom>,
+  report: RepairReport
+): ReactionScheme[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) throw new ImportValidationError("schemes: expected an array");
+  if (raw.length > LIMITS.maxReactionSchemes) {
+    throw new ImportValidationError(`schemes: too many entries (${raw.length} > ${LIMITS.maxReactionSchemes})`);
+  }
+
+  const usedSchemeIds = new Set<string>();
+  const usedStepIds = new Set<string>();
+  const out: ReactionScheme[] = [];
+
+  for (const rawScheme of raw) {
+    if (!isPlainObject(rawScheme) || !Array.isArray(rawScheme.steps)) {
+      report.droppedOther++;
+      continue;
+    }
+    if (rawScheme.steps.length > LIMITS.maxReactionSteps) {
+      throw new ImportValidationError(`scheme: too many steps (${rawScheme.steps.length} > ${LIMITS.maxReactionSteps})`);
+    }
+
+    const rawSchemeId = rawScheme.id;
+    const schemeId =
+      typeof rawSchemeId === "string" &&
+      rawSchemeId.length > 0 &&
+      rawSchemeId.length <= LIMITS.maxIdChars &&
+      !usedSchemeIds.has(rawSchemeId)
+        ? rawSchemeId
+        : freshSchemeId(usedSchemeIds, "scheme-");
+    usedSchemeIds.add(schemeId);
+
+    const steps: ReactionStep[] = [];
+    for (const rawStep of rawScheme.steps) {
+      if (!isPlainObject(rawStep)) {
+        report.droppedOther++;
+        continue;
+      }
+      const reactantParsed =
+        rawStep.reactantAtomIds === undefined ? [] : reactionIdList(LIMITS.maxAtoms)(rawStep.reactantAtomIds);
+      const productParsed =
+        rawStep.productAtomIds === undefined ? [] : reactionIdList(LIMITS.maxAtoms)(rawStep.productAtomIds);
+      const arrowsParsed =
+        rawStep.arrowIds === undefined ? [] : reactionIdList(LIMITS.maxAnnotations)(rawStep.arrowIds);
+      if (reactantParsed === BAD || productParsed === BAD || arrowsParsed === BAD) {
+        report.droppedOther++;
+        continue;
+      }
+
+      const reactantAtomIds = [...new Set(reactantParsed)].filter((id) => hasOwn(atoms, id));
+      const productAtomIds = [...new Set(productParsed)].filter((id) => hasOwn(atoms, id));
+      if (reactantAtomIds.length === 0 && productAtomIds.length === 0) {
+        report.droppedOther++;
+        continue;
+      }
+
+      const rawStepId = rawStep.id;
+      const stepId =
+        typeof rawStepId === "string" &&
+        rawStepId.length > 0 &&
+        rawStepId.length <= LIMITS.maxIdChars &&
+        !usedStepIds.has(rawStepId)
+          ? rawStepId
+          : freshSchemeId(usedStepIds, "step-");
+      usedStepIds.add(stepId);
+
+      steps.push({
+        id: stepId,
+        reactantAtomIds,
+        productAtomIds,
+        arrowIds: [...new Set(arrowsParsed)],
+      });
+    }
+
+    if (steps.length === 0) {
+      report.droppedOther++;
+      continue;
+    }
+    out.push({ id: schemeId, steps });
+  }
+
+  return out.length > 0 ? out : undefined;
+}
+
 /** Validates and rebuilds a Molecule. Throws ImportValidationError only for unrepairable structure. */
 export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairReport()): Molecule {
   if (!isPlainObject(raw)) throw new ImportValidationError("molecule: expected an object");
@@ -513,7 +633,8 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
     aromaticRingDisplays[key] = { id: key, atomIds: ids };
   }
 
-  return { atoms, bonds, hapticBonds, aromaticRingDisplays };
+  const schemes = sanitizeReactionSchemes(raw.schemes, atoms, report);
+  return { atoms, bonds, hapticBonds, aromaticRingDisplays, ...(schemes ? { schemes } : {}) };
 }
 
 // ---------------------------------------------------------------------------

@@ -3,13 +3,20 @@ import { nextId } from "./id";
 import { BOND_LEN } from "./constants";
 import { angleDelta, angleOf, dist, polar, snapAngle } from "./geometry";
 import { isMetalLike } from "./valence";
+import { pruneSchemesForAtoms } from "./reactionSchemes";
 
 export function emptyMolecule(): Molecule {
   return { atoms: {}, bonds: {}, hapticBonds: {}, aromaticRingDisplays: {} };
 }
 
 export function cloneMolecule(mol: Molecule): Molecule {
-  return { atoms: { ...mol.atoms }, bonds: { ...mol.bonds }, hapticBonds: { ...mol.hapticBonds }, aromaticRingDisplays: { ...mol.aromaticRingDisplays } };
+  return {
+    atoms: { ...mol.atoms },
+    bonds: { ...mol.bonds },
+    hapticBonds: { ...mol.hapticBonds },
+    aromaticRingDisplays: { ...mol.aromaticRingDisplays },
+    ...(mol.schemes ? { schemes: mol.schemes } : {}),
+  };
 }
 
 /** Keeps only the haptic bonds whose metal atom and every ring atom are
@@ -387,7 +394,8 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
   }
   const hapticBonds = survivingHapticBonds(mol.hapticBonds, (aid) => aid !== id);
   const aromaticRingDisplays = survivingAromaticRingDisplays(mol.aromaticRingDisplays, (aid) => aid !== id);
-  return { atoms, bonds, hapticBonds, aromaticRingDisplays };
+  const schemes = pruneSchemesForAtoms(mol.schemes, new Set(Object.keys(atoms)));
+  return { atoms, bonds, hapticBonds, aromaticRingDisplays, ...(schemes ? { schemes } : {}) };
 }
 
 export function deleteBond(mol: Molecule, id: string): Molecule {
@@ -508,11 +516,13 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
     delete bonds[connected[0].id];
   }
 
+  const schemes = pruneSchemesForAtoms(mol.schemes, atoms);
   return {
     atoms,
     bonds,
     hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => id in atoms),
     aromaticRingDisplays: survivingAromaticRingDisplays(mol.aromaticRingDisplays, (id) => id in atoms),
+    ...(schemes ? { schemes } : {}),
   };
 }
 
@@ -652,7 +662,16 @@ export function insertMolecule(
     aromaticRingDisplays[newId] = { id: newId, atomIds: r.atomIds.map((id) => idMap[id]) };
   }
 
-  return { mol: { atoms, bonds, hapticBonds, aromaticRingDisplays }, newAtomIds };
+  return {
+    mol: {
+      atoms,
+      bonds,
+      hapticBonds,
+      aromaticRingDisplays,
+      ...(base.schemes ? { schemes: base.schemes } : {}),
+    },
+    newAtomIds,
+  };
 }
 
 /**

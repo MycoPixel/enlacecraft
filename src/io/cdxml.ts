@@ -9,6 +9,8 @@ import type {
   Element as ChemElement,
   Molecule,
   OrbitalAnnotation,
+  ReactionScheme,
+  ReactionStep,
   ShapeAnnotation,
   ShapeVariant,
   TextAnnotation,
@@ -421,10 +423,26 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
   const cdxIdOf: Record<string, string> = {};
   for (const id of atomIds) cdxIdOf[id] = nextId();
 
+  // Scheme bookkeeping needs to translate this app's atom/annotation ids
+  // back into the CDX ids just handed out. Fragments are recorded per atom
+  // (a scheme names whole fragments), arrows per annotation (an equilibrium
+  // arrow writes two graphics, so one annotation can own several ids).
+  const fragmentIdByAtomId: Record<string, string> = {};
+  const arrowGraphicIdsByAnnotationId = new Map<string, string[]>();
+  const arrowGraphicId = (annId: string): string => {
+    const id = nextId();
+    const ids = arrowGraphicIdsByAnnotationId.get(annId);
+    if (ids) ids.push(id);
+    else arrowGraphicIdsByAnnotationId.set(annId, [id]);
+    return id;
+  };
+
   out += `<page>\n`;
   for (const component of components) {
     const inComponent = new Set(component);
-    out += `<fragment id="${nextId()}">\n`;
+    const fragmentId = nextId();
+    out += `<fragment id="${fragmentId}">\n`;
+    for (const id of component) fragmentIdByAtomId[id] = fragmentId;
 
     for (const id of component) {
       const a = mol.atoms[id];
@@ -585,27 +603,27 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
         const len = Math.hypot(px2 - px1, py2 - py1) || 1;
         const angular = (curvature / len) * 270; // Approximate angular size
         const angularSign = ann.variant === "curved" ? -1 : 1;
-        out += `<arrow id="${nextId()}" Head3D="${x1} ${y1} 0" Tail3D="${x2} ${y2} 0" AngularSize="${angularSign * Number(angular.toFixed(1))}" ArrowheadHead="${headStyle === "half" ? "Half" : "Full"}" ArrowheadTail="${tailStyle === "half" ? "Half" : tailStyle === "full" ? "Full" : "None"}" ArrowheadType="${headStyle === "open" ? "Open" : headStyle === "circle" ? "Circle" : headStyle === "diamond" ? "Diamond" : "Solid"}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+        out += `<arrow id="${arrowGraphicId(ann.id)}" Head3D="${x1} ${y1} 0" Tail3D="${x2} ${y2} 0" AngularSize="${angularSign * Number(angular.toFixed(1))}" ArrowheadHead="${headStyle === "half" ? "Half" : "Full"}" ArrowheadTail="${tailStyle === "half" ? "Half" : tailStyle === "full" ? "Full" : "None"}" ArrowheadType="${headStyle === "open" ? "Open" : headStyle === "circle" ? "Circle" : headStyle === "diamond" ? "Diamond" : "Solid"}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "forward") {
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+        out += `<graphic id="${arrowGraphicId(ann.id)}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "resonance") {
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${headAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+        out += `<graphic id="${arrowGraphicId(ann.id)}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${headAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "retrosynthetic") {
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="RetroSynthetic" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+        out += `<graphic id="${arrowGraphicId(ann.id)}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="RetroSynthetic" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "equilibrium") {
         // Equilibrium: two offset harpoons
         const px1 = ann.x1 * scale, py1 = ann.y1 * scale, px2 = ann.x2 * scale, py2 = ann.y2 * scale;
         const len = Math.hypot(px2 - px1, py2 - py1) || 1;
         const nx = -(py2 - py1) / len, ny = (px2 - px1) / len;
         const o = 3;
-        out += `<graphic id="${nextId()}" BoundingBox="${f4(px1 + nx * o)} ${f4(py1 + ny * o)} ${f4(px2 + nx * o)} ${f4(py2 + ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"${lineStyleAttr}/>\n`;
-        out += `<graphic id="${nextId()}" BoundingBox="${f4(px2 - nx * o)} ${f4(py2 - ny * o)} ${f4(px1 - nx * o)} ${f4(py1 - ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"${lineStyleAttr}/>\n`;
+        out += `<graphic id="${arrowGraphicId(ann.id)}" BoundingBox="${f4(px1 + nx * o)} ${f4(py1 + ny * o)} ${f4(px2 + nx * o)} ${f4(py2 + ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"${lineStyleAttr}/>\n`;
+        out += `<graphic id="${arrowGraphicId(ann.id)}" BoundingBox="${f4(px2 - nx * o)} ${f4(py2 - ny * o)} ${f4(px1 - nx * o)} ${f4(py1 - ny * o)}" GraphicType="Line" Head="HalfHead" Tail="None"${lineStyleAttr}/>\n`;
       } else if (ann.variant === "dashed" || ann.variant === "bold" || ann.variant === "double") {
         // New variants that map to line style
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+        out += `<graphic id="${arrowGraphicId(ann.id)}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       } else if (ann.variant === "openHead" || ann.variant === "circleHead" || ann.variant === "diamondHead" || ann.variant === "tailed") {
         // Variants that are primarily about head/tail style
-        out += `<graphic id="${nextId()}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
+        out += `<graphic id="${arrowGraphicId(ann.id)}" BoundingBox="${x1} ${y1} ${x2} ${y2}" GraphicType="Line" Head="${headAttr}" Tail="${tailAttr}"${lineStyleAttr}${ann.headSize ? ` HeadSize="${({ small: 1000, medium: 2250, large: 3500 } as Record<ArrowHeadSize, number>)[ann.headSize!]}"` : ""}/>\n`;
       }
     } else if (ann.kind === "bracket") {
       if (bracketWritten.has(ann.id)) continue;
@@ -737,6 +755,32 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
       }
       out += `</t>\n`;
     }
+  }
+
+  // Scheme/step bookkeeping comes last: it references the fragment and
+  // arrow ids handed out above, and ChemDraw writes it as a page-level
+  // object after the structures/graphics it groups. Stale references are
+  // skipped rather than written — a step with no surviving structures is
+  // dropped entirely.
+  for (const scheme of mol.schemes ?? []) {
+    const stepXml: string[] = [];
+    for (const step of scheme.steps) {
+      const reactantFragments = [
+        ...new Set(step.reactantAtomIds.map((id) => fragmentIdByAtomId[id]).filter((id): id is string => !!id)),
+      ];
+      const productFragments = [
+        ...new Set(step.productAtomIds.map((id) => fragmentIdByAtomId[id]).filter((id): id is string => !!id)),
+      ];
+      if (reactantFragments.length === 0 && productFragments.length === 0) continue;
+
+      const arrowIds = [...new Set(step.arrowIds.flatMap((id) => arrowGraphicIdsByAnnotationId.get(id) ?? []))];
+      let attrs = `id="${nextId()}"`;
+      if (reactantFragments.length > 0) attrs += ` ReactionStepReactants="${reactantFragments.join(" ")}"`;
+      if (productFragments.length > 0) attrs += ` ReactionStepProducts="${productFragments.join(" ")}"`;
+      if (arrowIds.length > 0) attrs += ` ReactionStepArrows="${arrowIds.join(" ")}"`;
+      stepXml.push(`<step ${attrs}/>`);
+    }
+    if (stepXml.length > 0) out += `<scheme id="${nextId()}">${stepXml.join("")}</scheme>\n`;
   }
 
   out += `</page>\n</CDXML>\n`;
@@ -905,6 +949,9 @@ interface HarpoonLine {
   y1: number;
   x2: number;
   y2: number;
+  /** CDX id of the graphic this line came from, so a scheme's
+   * ReactionStepArrows can be resolved back to the imported annotation. */
+  graphicId?: string;
 }
 
 /**
@@ -922,9 +969,9 @@ interface HarpoonLine {
  * harpoon is probably what the author meant, and a forward arrow is the
  * closest thing this app's annotation layer has to it.
  */
-function pairHarpoons(harpoons: HarpoonLine[]): { paired: HarpoonLine[]; lone: HarpoonLine[] } {
+function pairHarpoons(harpoons: HarpoonLine[]): { pairs: { a: HarpoonLine; b: HarpoonLine }[]; lone: HarpoonLine[] } {
   const used: boolean[] = Array.from({ length: harpoons.length }, () => false);
-  const paired: HarpoonLine[] = [];
+  const pairs: { a: HarpoonLine; b: HarpoonLine }[] = [];
   const lone: HarpoonLine[] = [];
   for (let i = 0; i < harpoons.length; i++) {
     if (used[i]) continue;
@@ -951,12 +998,12 @@ function pairHarpoons(harpoons: HarpoonLine[]): { paired: HarpoonLine[]; lone: H
     }
     if (match >= 0) {
       used[match] = true;
-      paired.push(a);
+      pairs.push({ a, b: harpoons[match] });
     } else {
       lone.push(a);
     }
   }
-  return { paired, lone };
+  return { pairs, lone };
 }
 
 /**
@@ -1077,8 +1124,12 @@ function makeShape(
 function importAnnotations(
   doc: Document,
   scale: number
-): Annotation[] {
+): { annotations: Annotation[]; annotationIdByGraphicId: Map<string, string> } {
   const annotations: Annotation[] = [];
+  // CDX graphic id -> this app's annotation id. Reaction schemes name their
+  // arrows by the former, so importCdxmlDocument needs this to translate
+  // ReactionStepArrows into ids that survive in the annotation map.
+  const annotationIdByGraphicId = new Map<string, string>();
   const room = () => {
     if (annotations.length >= LIMITS.maxAnnotations) {
       throw new Error(`CDXML has too many annotations (> ${LIMITS.maxAnnotations})`);
@@ -1139,6 +1190,7 @@ function importAnnotations(
     // would draw the arrow twice (and the stale line graphic usually has no
     // Head/Tail, so it would also arrive as a stray plain line).
     if (g.getAttribute("SupersededBy")) continue;
+    const firstNewAnnotation = annotations.length;
     const type = (g.getAttribute("GraphicType") ?? "").trim().toLowerCase();
     const bbox = parseBBox(g);
     if (!bbox) continue;
@@ -1225,7 +1277,11 @@ function importAnnotations(
       } else if (head === "half" || tail === "half") {
         // Exactly one harpoon end — collect for equilibrium pairing before
         // committing to an interpretation (see pairHarpoons).
-        harpoons.push(tail === "none" ? { x1: rx1, y1: ry1, x2: rx2, y2: ry2 } : { x1: rx2, y1: ry2, x2: rx1, y2: ry1 });
+        harpoons.push(
+          tail === "none"
+            ? { x1: rx1, y1: ry1, x2: rx2, y2: ry2, graphicId: g.getAttribute("id") ?? undefined }
+            : { x1: rx2, y1: ry2, x2: rx1, y2: ry1, graphicId: g.getAttribute("id") ?? undefined }
+        );
       } else {
         // One full head, one end bare: the plain reaction arrow. Orient
         // tail -> head regardless of which bounding-box corner holds the
@@ -1364,18 +1420,34 @@ function importAnnotations(
     }
     // Anything else (Quad, symbols, ...) has no annotation equivalent —
     // skipped rather than invented (see the file doc comment).
+
+    // Remember which arrow(s) this graphic produced. Harpoons are paired
+    // after the loop, so their mapping is recorded there instead.
+    const graphicId = g.getAttribute("id");
+    if (graphicId) {
+      for (let i = firstNewAnnotation; i < annotations.length; i++) {
+        const ann = annotations[i];
+        if (ann.kind === "arrow") annotationIdByGraphicId.set(graphicId, ann.id);
+      }
+    }
   }
 
   // Pair up the straight single-harpoon lines: two pointing into each
   // other are one equilibrium arrow; a leftover imports as a forward arrow.
-  const { paired, lone } = pairHarpoons(harpoons);
-  for (const h of paired) {
+  const { pairs, lone } = pairHarpoons(harpoons);
+  for (const { a, b } of pairs) {
     room();
-    annotations.push(makeArrow(h.x1, h.y1, h.x2, h.y2, "equilibrium", scale));
+    const ann = makeArrow(a.x1, a.y1, a.x2, a.y2, "equilibrium", scale);
+    annotations.push(ann);
+    for (const gid of [a.graphicId, b.graphicId]) {
+      if (gid) annotationIdByGraphicId.set(gid, ann.id);
+    }
   }
   for (const h of lone) {
     room();
-    annotations.push(makeArrow(h.x1, h.y1, h.x2, h.y2, "forward", scale));
+    const ann = makeArrow(h.x1, h.y1, h.x2, h.y2, "forward", scale);
+    annotations.push(ann);
+    if (h.graphicId) annotationIdByGraphicId.set(h.graphicId, ann.id);
   }
 
   // --- <arrow> elements: ChemDraw's dedicated reaction-arrow object in
@@ -1399,6 +1471,7 @@ function importAnnotations(
     const head = hasHeadAttrs ? cdxHeadClass(el.getAttribute("ArrowheadHead") ?? el.getAttribute("Head")) : "full";
     const tail = hasHeadAttrs ? cdxHeadClass(el.getAttribute("ArrowheadTail") ?? el.getAttribute("Tail")) : "none";
     if (head === "none" && tail === "none") continue;
+    const firstNewAnnotation = annotations.length;
 
     // Parse shaft style attributes
     const shaftStyle = (el.getAttribute("LineStyle") ?? "").toLowerCase();
@@ -1462,6 +1535,14 @@ function importAnnotations(
       annotations.push(makeArrow(tailPt.x, tailPt.y, headPt.x, headPt.y, "forward", scale, tail === "half" ? "single" : "full", undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
     } else {
       annotations.push(makeArrow(headPt.x, headPt.y, tailPt.x, tailPt.y, "forward", scale, undefined, undefined, headSize, parsedHeadStyle, parsedTailStyle, parsedShaftStyle));
+    }
+
+    const graphicId = el.getAttribute("id");
+    if (graphicId) {
+      for (let i = firstNewAnnotation; i < annotations.length; i++) {
+        const ann = annotations[i];
+        if (ann.kind === "arrow") annotationIdByGraphicId.set(graphicId, ann.id);
+      }
     }
   }
 
@@ -1624,7 +1705,84 @@ function importAnnotations(
   // Same untrusted-input rule as project files and clipboard fragments:
   // this HTML came off disk, so it goes through DOMPurify before it can
   // reach any innerHTML write.
-  return sanitizeAnnotationList(annotations);
+  const cleaned = sanitizeAnnotationList(annotations);
+  const keptIds = new Set(cleaned.map((a) => a.id));
+  for (const [graphicId, annotationId] of annotationIdByGraphicId) {
+    if (!keptIds.has(annotationId)) annotationIdByGraphicId.delete(graphicId);
+  }
+  return { annotations: cleaned, annotationIdByGraphicId };
+}
+
+/**
+ * Reads ChemDraw's `<scheme>`/`<step>` grouping. CDX names its members by
+ * *file* ids: `ReactionStepReactants`/`Products` list fragment ids and
+ * `ReactionStepArrows` lists graphic ids (space-separated). Both are
+ * translated to this app's ids here; anything that didn't survive import is
+ * dropped, and a step with no structures left is omitted rather than kept as
+ * a dangling reference.
+ *
+ * The arrow lookup follows `SupersededBy` first: ChemDraw leaves the
+ * original line graphic behind when it upgrades one in place, and the
+ * fixture this reader is tested against points the scheme at the stale
+ * graphic (49) while the real arrow is the replacement (94).
+ */
+function importReactionSchemes(
+  doc: Document,
+  atomIdsByFragmentId: Map<string, string[]>,
+  annotationIdByGraphicId: Map<string, string>
+): ReactionScheme[] {
+  const elementsById = new Map<string, Element>();
+  for (const el of Array.from(doc.querySelectorAll("graphic, arrow"))) {
+    const id = el.getAttribute("id");
+    if (id) elementsById.set(id, el);
+  }
+
+  const resolveSuperseded = (id: string): string => {
+    let current = id;
+    const seen = new Set<string>();
+    while (!seen.has(current)) {
+      seen.add(current);
+      const next = elementsById.get(current)?.getAttribute("SupersededBy");
+      if (!next) return current;
+      current = next;
+    }
+    return current;
+  };
+
+  const splitIds = (raw: string | null): string[] =>
+    (raw ?? "").trim().split(/\s+/).filter(Boolean);
+
+  const schemes: ReactionScheme[] = [];
+  for (const schemeEl of Array.from(doc.querySelectorAll("scheme"))) {
+    const steps: ReactionStep[] = [];
+    for (const stepEl of Array.from(schemeEl.querySelectorAll("step"))) {
+      const reactantAtomIds = [
+        ...new Set(
+          splitIds(stepEl.getAttribute("ReactionStepReactants")).flatMap(
+            (fragmentId) => atomIdsByFragmentId.get(fragmentId) ?? []
+          )
+        ),
+      ];
+      const productAtomIds = [
+        ...new Set(
+          splitIds(stepEl.getAttribute("ReactionStepProducts")).flatMap(
+            (fragmentId) => atomIdsByFragmentId.get(fragmentId) ?? []
+          )
+        ),
+      ];
+      const arrowIds = [
+        ...new Set(
+          splitIds(stepEl.getAttribute("ReactionStepArrows"))
+            .map((graphicId) => annotationIdByGraphicId.get(resolveSuperseded(graphicId)))
+            .filter((id): id is string => !!id)
+        ),
+      ];
+      if (reactantAtomIds.length === 0 && productAtomIds.length === 0) continue;
+      steps.push({ id: nextId(), reactantAtomIds, productAtomIds, arrowIds });
+    }
+    if (steps.length > 0) schemes.push({ id: nextId(), steps });
+  }
+  return schemes;
 }
 
 /**
@@ -1656,6 +1814,8 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
   const idByCdxId = new Map<string, string>();
   const rawX = new Map<string, number>();
   const rawY = new Map<string, number>();
+  // Fragment id -> the atom ids imported from it, for scheme/step mapping.
+  const atomIdsByFragmentId = new Map<string, string[]>();
 
   // Only nodes in a top-level fragment are real atoms. A nickname/fragment
   // node's own definition lives in a nested <fragment>, whose nodes describe
@@ -1684,6 +1844,12 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
 
     const id = nextId();
     idByCdxId.set(cdxId, id);
+    const fragmentId = n.parentElement?.closest("fragment")?.getAttribute("id");
+    if (fragmentId) {
+      const fragmentAtoms = atomIdsByFragmentId.get(fragmentId);
+      if (fragmentAtoms) fragmentAtoms.push(id);
+      else atomIdsByFragmentId.set(fragmentId, [id]);
+    }
     rawX.set(id, x);
     rawY.set(id, y);
     // A labeled node (nickname, formula, generic/unspecified label) carries
@@ -1753,9 +1919,14 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     mol.bonds[id] = { id, a1, a2, order: stereo === "none" || stereo === "boldDouble" || stereo === "dashedDouble" ? order : 1, stereo, doubleSide: "auto", hollow };
   }
 
-  const annotations = importAnnotations(doc, scale);
+  const { annotations, annotationIdByGraphicId } = importAnnotations(doc, scale);
+  const molecule = finalizeImportedMolecule(mol);
+  const schemes = importReactionSchemes(doc, atomIdsByFragmentId, annotationIdByGraphicId);
 
-  return { molecule: finalizeImportedMolecule(mol), annotations };
+  return {
+    molecule: schemes.length > 0 ? { ...molecule, schemes } : molecule,
+    annotations,
+  };
 }
 
 /** Molecule-only convenience wrapper — the original entry point, kept for

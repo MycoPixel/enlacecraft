@@ -424,3 +424,55 @@ describe("MOL / CDXML parsers", () => {
     expect(() => importCdxml(`<CDXML><page><fragment>${nodes}</fragment></page></CDXML>`)).toThrow(/too many atoms/i);
   });
 });
+
+describe("reaction scheme sanitization", () => {
+  const atoms = { a0: atom("a0"), a1: atom("a1", 60) };
+
+  test("keeps a scheme whose atom ids exist and drops stale ones", () => {
+    const mol = sanitizeMolecule({
+      atoms,
+      bonds: {},
+      schemes: [
+        { id: "s1", steps: [{ id: "st1", reactantAtomIds: ["a0", "ghost"], productAtomIds: ["a1"], arrowIds: ["ann1"] }] },
+      ],
+    });
+    expect(mol.schemes).toEqual([
+      { id: "s1", steps: [{ id: "st1", reactantAtomIds: ["a0"], productAtomIds: ["a1"], arrowIds: ["ann1"] }] },
+    ]);
+  });
+
+  test("regenerates missing and duplicate scheme/step ids", () => {
+    const mol = sanitizeMolecule({
+      atoms,
+      bonds: {},
+      schemes: [
+        { id: "dup", steps: [{ id: "step", reactantAtomIds: ["a0"], productAtomIds: [], arrowIds: [] }] },
+        { id: "dup", steps: [{ id: "step", reactantAtomIds: ["a1"], productAtomIds: [], arrowIds: [] }] },
+      ],
+    });
+    const schemes = mol.schemes!;
+    expect(schemes).toHaveLength(2);
+    expect(schemes[0].id).not.toBe(schemes[1].id);
+    expect(schemes[0].steps[0].id).not.toBe(schemes[1].steps[0].id);
+    // The first, well-formed ids are kept as-is.
+    expect(schemes[0].id).toBe("dup");
+    expect(schemes[0].steps[0].id).toBe("step");
+  });
+
+  test("drops a step with no surviving atoms and then the empty scheme", () => {
+    const mol = sanitizeMolecule({
+      atoms,
+      bonds: {},
+      schemes: [{ id: "s1", steps: [{ id: "st1", reactantAtomIds: ["ghost"], productAtomIds: [], arrowIds: [] }] }],
+    });
+    expect(mol.schemes).toBeUndefined();
+  });
+
+  test("refuses an oversized scheme list rather than truncating it", () => {
+    const schemes = Array.from({ length: LIMITS.maxReactionSchemes + 1 }, (_, i) => ({
+      id: `s${i}`,
+      steps: [{ id: `st${i}`, reactantAtomIds: ["a0"], productAtomIds: [], arrowIds: [] }],
+    }));
+    expect(() => sanitizeMolecule({ atoms, bonds: {}, schemes })).toThrow(ImportValidationError);
+  });
+});

@@ -14,6 +14,7 @@ import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, BOND_LEN, ISOTOPE_PRESET
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { collapseToGroup, findCollapsibleGroups } from "../model/groupCollapse";
+import { pruneSchemeArrowIds } from "../model/reactionSchemes";
 import type { Embed3DMethod } from "../io/embed3d";
 import {
   STRUCTURE3D_STYLES,
@@ -896,6 +897,16 @@ function idsUsedByDocuments(
     ids.push(...Object.keys(tb.molecule.bonds));
     ids.push(...Object.keys(tb.molecule.hapticBonds));
     ids.push(...Object.keys(tb.molecule.aromaticRingDisplays));
+    // Scheme/step ids are minted by nextId() too, and their arrow references
+    // are annotation ids that may be stale; reserve every one so a restored
+    // document can't mint a colliding id later.
+    for (const scheme of tb.molecule.schemes ?? []) {
+      ids.push(scheme.id);
+      for (const step of scheme.steps) {
+        ids.push(step.id);
+        ids.push(...step.arrowIds);
+      }
+    }
     // Values, not keys. Annotation records are keyed by the annotation's own
     // id and both come from nextId(), so the keys would work too - but reading
     // the id off the value keeps this correct if the keying ever diverges,
@@ -945,7 +956,18 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     set((s) => {
       const next = mutate(s.annotations);
       if (next === s.annotations) return s;
+      // A scheme's arrow ids point into this map, so deleting an arrow has
+      // to drop the reference in the same undo step — otherwise a later
+      // save writes a step pointing at an annotation that no longer exists.
+      const schemes = pruneSchemeArrowIds(s.molecule.schemes, next);
+      let molecule = s.molecule;
+      if (schemes !== s.molecule.schemes) {
+        molecule = { ...s.molecule };
+        if (schemes) molecule.schemes = schemes;
+        else delete molecule.schemes;
+      }
       return {
+        ...(molecule === s.molecule ? {} : { molecule }),
         annotations: next,
         past: [...s.past, { molecule: s.molecule, annotations: s.annotations }].slice(-HISTORY_LIMIT),
         future: [],

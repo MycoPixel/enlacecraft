@@ -314,6 +314,37 @@ export interface Molecule {
    * multiple attachments, etc. — MDL MOL/SDF extension. Preserved for
    * round-trip fidelity with formats that support them. */
   sgroups?: Record<string, SGroup>;
+  /**
+   * ChemDraw reaction schemes and their steps, preserved across CDXML
+   * import/export. A scheme groups whole structures on the page (reactants
+   * and products) with the arrow(s) connecting them, so ChemDraw can treat
+   * the reaction as one object for renumbering and reaction-format export.
+   *
+   * Lives on the molecule rather than as a separate document field — like
+   * sgroups — so undo, tabs, autosave and the native project format carry it
+   * with no parallel plumbing. The atom ids refer to this molecule's own
+   * atoms; the arrow ids refer to the sibling annotation map in the store /
+   * project tab, so those are pruned when an arrow is deleted. Absent means
+   * the drawing has no scheme grouping (the overwhelmingly common case).
+   */
+  schemes?: ReactionScheme[];
+}
+
+/** One reaction step: the structures on either side of an arrow. */
+export interface ReactionStep {
+  id: string;
+  /** Atom ids making up the reactant structure(s), in file order. */
+  reactantAtomIds: string[];
+  /** Atom ids making up the product structure(s), in file order. */
+  productAtomIds: string[];
+  /** Annotation ids of the arrows connecting the two sides. */
+  arrowIds: string[];
+}
+
+/** A ChemDraw scheme — one or more reaction steps treated as a unit. */
+export interface ReactionScheme {
+  id: string;
+  steps: ReactionStep[];
 }
 
 /** S-group (structural group) types per MDL specification. */

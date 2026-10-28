@@ -9,6 +9,7 @@ import { useStereoAnalysis } from "../../hooks/useStereoAnalysis";
 import type { Molecule } from "../../types/chemistry";
 import { MIN_HEAVY_ATOMS_FOR_ADVANCED_DESCRIPTORS } from "../../io/moleculeDescriptors";
 import { hasPlaceholderLabels } from "../../model/valence";
+import { schemeArrowIds, schemeAtomIds, summarizeScheme } from "../../model/reactionSchemes";
 import { Formula } from "../common/Formula";
 import { exportSmiles } from "../../io/smiles";
 import { fetchInChI, PubChemError } from "../../io/pubchem";
@@ -260,6 +261,7 @@ export function MoleculeInfoButton() {
               </>
             )}
             {hasAnyAtoms && <StereoSection molecule={molecule} />}
+            <SchemeSection molecule={molecule} />
             <div className="molecule-info__divider" />
             <div className="molecule-info__label">{t("moleculeInfo.smiles")}</div>
             <div className="molecule-info__smiles-row">
@@ -535,6 +537,62 @@ export function StereoSection({ molecule }: { molecule: Molecule }) {
           </span>
         </div>
       ))}
+    </>
+  );
+}
+
+/**
+ * Read-only view of ChemDraw reaction-scheme grouping (see ReactionScheme's
+ * doc comment). This app imports and re-exports `<scheme>`/`<step>` data so
+ * a drawing opened from ChemDraw keeps its reaction semantics, but it has no
+ * scheme *authoring* UI yet — so this section deliberately only reports what
+ * is there and lets the person select a whole reaction at once.
+ *
+ * Selecting sets both the atom selection and the annotation selection: the
+ * structures on either side are atoms, while the connecting arrows live in
+ * the annotation map, and "the reaction" means both.
+ */
+export function SchemeSection({ molecule }: { molecule: Molecule }) {
+  const t = useT();
+  const setSelected = useMoleculeStore((s) => s.setSelected);
+  const setSelectedAnnotationIds = useMoleculeStore((s) => s.setSelectedAnnotationIds);
+
+  const schemes = molecule.schemes ?? [];
+  if (schemes.length === 0) return null;
+
+  const selectScheme = (scheme: (typeof schemes)[number]) => {
+    setSelected(new Set(schemeAtomIds(scheme)));
+    setSelectedAnnotationIds(new Set(schemeArrowIds(scheme)));
+  };
+
+  return (
+    <>
+      <div className="molecule-info__divider" />
+      <div className="molecule-info__label">{t("moleculeInfo.schemes")}</div>
+      <div className="molecule-info__stereo-list">
+        {schemes.map((scheme, i) => {
+          const summary = summarizeScheme(scheme);
+          return (
+            <button
+              key={scheme.id}
+              type="button"
+              className="molecule-info__stereo-row"
+              onClick={() => selectScheme(scheme)}
+              title={t("moleculeInfo.schemeClickHint")}
+            >
+              <span>{t("moleculeInfo.schemeName", { n: i + 1 })}</span>
+              <span className="molecule-info__stereo-value">
+                {t("moleculeInfo.schemeSummary", {
+                  steps: summary.steps,
+                  reactants: summary.reactants,
+                  products: summary.products,
+                })}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="align-menu__hint">{t("moleculeInfo.schemeHint")}</p>
     </>
   );
 }

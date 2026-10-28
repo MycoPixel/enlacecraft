@@ -6,7 +6,7 @@
 import { describe, expect, test } from "vitest";
 import { importProject, exportProject, ProjectParseError } from "./project";
 import { findConnectedFragments } from "../model/valence";
-import type { TextAnnotation } from "../types/chemistry";
+import type { Molecule, TextAnnotation } from "../types/chemistry";
 
 /**
  * Regression test for a real bug: a project file (or autosave snapshot)
@@ -213,5 +213,106 @@ describe("importProject migrates old saves missing aromaticRingDisplays", () => 
 
     const project = importProject(saved);
     expect(project.tabs[0].molecule.aromaticRingDisplays).toEqual({ r0: { id: "r0", atomIds: ["a1", "a2", "a3", "a4", "a5", "a6"] } });
+  });
+});
+
+// ChemDraw reaction-scheme grouping is stored on the molecule (see
+// ReactionScheme's doc comment), so it must survive a project save/open
+// cycle like sgroups do — and its arrow references, which point into the
+// sibling annotation map, must be pruned when that map loses an arrow.
+describe("reaction scheme grouping in projects", () => {
+  const baseMolecule: Molecule = {
+    atoms: {
+      a0: { id: "a0", x: 0, y: 0, element: "C", charge: 0 },
+      a1: { id: "a1", x: 60, y: 0, element: "O", charge: 0 },
+    },
+    bonds: {},
+    hapticBonds: {},
+    aromaticRingDisplays: {},
+  };
+
+  test("schemes and their arrow references survive a save/open cycle", () => {
+    const saved = exportProject({
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Scheme",
+          molecule: {
+            ...baseMolecule,
+            schemes: [
+              {
+                id: "s1",
+                steps: [
+                  { id: "st1", reactantAtomIds: ["a0"], productAtomIds: ["a1"], arrowIds: ["ann1"] },
+                ],
+              },
+            ],
+          },
+          annotations: {
+            ann1: { id: "ann1", kind: "arrow", x1: 80, y1: 0, x2: 140, y2: 0, variant: "forward" },
+          },
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const project = importProject(saved);
+    expect(project.tabs[0].molecule.schemes).toEqual([
+      { id: "s1", steps: [{ id: "st1", reactantAtomIds: ["a0"], productAtomIds: ["a1"], arrowIds: ["ann1"] }] },
+    ]);
+  });
+
+  test("an arrow reference to a missing annotation is pruned on load", () => {
+    const saved = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Scheme",
+          molecule: {
+            ...baseMolecule,
+            schemes: [
+              { id: "s1", steps: [{ id: "st1", reactantAtomIds: ["a0"], productAtomIds: ["a1"], arrowIds: ["gone"] }] },
+            ],
+          },
+          annotations: {},
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const project = importProject(saved);
+    const step = project.tabs[0].molecule.schemes![0].steps[0];
+    expect(step.arrowIds).toEqual([]);
+    // The structure grouping itself is still meaningful, so it stays.
+    expect(step.reactantAtomIds).toEqual(["a0"]);
+    expect(step.productAtomIds).toEqual(["a1"]);
+  });
+
+  test("a scheme whose atoms were all dropped is removed entirely", () => {
+    const saved = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Scheme",
+          molecule: {
+            atoms: {},
+            bonds: {},
+            schemes: [
+              { id: "s1", steps: [{ id: "st1", reactantAtomIds: ["ghost"], productAtomIds: [], arrowIds: [] }] },
+            ],
+          },
+          annotations: {},
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const project = importProject(saved);
+    expect(project.tabs[0].molecule.schemes).toBeUndefined();
   });
 });

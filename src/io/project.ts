@@ -1,5 +1,6 @@
 import type { Annotation, Molecule, ViewTransform } from "../types/chemistry";
 import { nextId } from "../model/id";
+import { pruneSchemeArrowIds } from "../model/reactionSchemes";
 import {
   ImportValidationError,
   LIMITS,
@@ -102,11 +103,22 @@ function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, re
   }
   const id = typeof tab.id === "string" && tab.id.length > 0 && tab.id.length <= LIMITS.maxIdChars ? tab.id : fallbackId;
   const title = typeof tab.title === "string" ? tab.title.slice(0, LIMITS.maxTitleChars) : fallbackTitle;
+  const molecule = sanitizeMolecule(tab.molecule, report);
+  const annotations = sanitizeAnnotationRecord(tab.annotations, report);
+  // Scheme arrow references point into the annotation map, so they can only
+  // be checked once both halves of the tab are clean.
+  const schemes = pruneSchemeArrowIds(molecule.schemes, annotations);
+  let cleanedMolecule = molecule;
+  if (schemes !== molecule.schemes) {
+    cleanedMolecule = { ...molecule };
+    if (schemes) cleanedMolecule.schemes = schemes;
+    else delete cleanedMolecule.schemes;
+  }
   return {
     id,
     title,
-    molecule: sanitizeMolecule(tab.molecule, report),
-    annotations: sanitizeAnnotationRecord(tab.annotations, report),
+    molecule: cleanedMolecule,
+    annotations,
     view: sanitizeView(tab.view),
   };
 }
