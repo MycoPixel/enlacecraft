@@ -2,6 +2,7 @@ import type {
   Annotation,
   ArrowAnnotation,
   ArrowHeadSize,
+  Atom,
   BondOrder,
   BondStereo,
   BracketAnnotation,
@@ -14,8 +15,9 @@ import type {
   TlcPlateAnnotation,
   TlcSpot,
 } from "../types/chemistry";
-import { emptyMolecule } from "../model/molecule";
-import { BOND_LEN, PERIODIC_TABLE } from "../model/constants";
+import { connectedComponents, emptyMolecule } from "../model/molecule";
+import { ABBREVIATED_GROUPS, BOND_LEN, PERIODIC_TABLE } from "../model/constants";
+import { parseAtomLabel } from "../model/atomLabelParser";
 import { calibrateImportScale } from "./importScale";
 import { nextId } from "../model/id";
 import { LIMITS, finalizeImportedMolecule } from "./validate";
@@ -36,32 +38,33 @@ import { sanitizeAnnotationList } from "./sanitizeHtml";
  * XML format rather than the binary one. So `.cdxml` is what actually gets
  * you real ChemDraw interop here.
  *
- * Supports: atoms (element, position, charge), bonds (order, wedge/hash/wavy
- * plus the emphasis styles Bold and Dash), and — alongside the molecule —
- * this app's annotation layer: reaction and mechanism arrows (straight,
- * equilibrium, resonance, retrosynthetic, curved arcs with full or fishhook
- * heads), caption text (bold/italic/underline/sub/superscript plus inline
- * font-size and color runs), square/curly/paren brackets, the plain graphics
- * primitives (rectangles, ovals, headless lines — imported as this app's
- * shape annotations), orbital glyphs, and TLC plates with their lanes/spots.
- * See importCdxmlDocument's doc comment for the honest list of
- * approximations the arrow/text mapping makes, and
- * exportCdxmlDocument's for what is deliberately left out of the written
- * file.
+ * Supports: atoms (element, position, charge, isotope, radical, abbreviated-
+ * group labels), bonds (order, wedge/hash/wavy plus the emphasis styles Bold
+ * and Dash), and — alongside the molecule — this app's annotation layer:
+ * reaction and mechanism arrows (straight, equilibrium, resonance,
+ * retrosynthetic, curved arcs with full or fishhook heads), caption text
+ * (bold/italic/underline/sub/superscript plus inline font-size and color
+ * runs), square/curly/paren
+ * brackets, the plain graphics primitives (rectangles, ovals, headless lines
+ * — imported as this app's shape annotations), orbital glyphs, and TLC plates
+ * with their lanes/spots. Structures are written one <fragment> per connected
+ * component, as ChemDraw lays them out. Abbreviated groups round-trip through
+ * CDX's labeled-node schema (a Nickname/Unspecified <n> carrying a <t>
+ * label), which ChemDraw reads and interprets chemically. See
+ * importCdxmlDocument's doc comment for the honest list of approximations the
+ * arrow/text mapping makes, and exportCdxmlDocument's for what is
+ * deliberately left out of the written file.
  *
  * Does not support: CDX's stereo/query bond types beyond the Display values
  * mapped above (the bold wedged hash has no distinct CDX Display and
  * degrades to the ordinary wedged hash on export), dashed arrow shafts (no
  * portable CDX representation this writer can verify — app-only), CDX's
  * scheme/reaction-step *bookkeeping* (the arrows themselves import fine;
- * the grouping metadata around them is dropped), multi-fragment layout,
- * CDX's "nickname" node schema for abbreviated groups ("Boc", "Ph", ...
- * export as a plain carbon — CDX has its own nickname schema, but without a
- * confirmed spec to validate against, guessing at it risks writing a file
- * ChemDraw can't open, which is worse than the label simply not surviving
- * the round trip; MOL export (molfile.ts) preserves the label instead, via
- * the well-established convention of writing the abbreviation directly as
- * the atom symbol).
+ * the grouping metadata around them is dropped), and multi-center/
+ * variable-attachment nodes (a ChemDraw ferrocene imports as the bare metal
+ * plus its rings, rather than gaining a bogus carbon per attachment node;
+ * haptic bonds stay an app-only concept). S-groups have a model in
+ * types/chemistry.ts but no producer or CDXML mapping yet.
  */
 
 /** Atomic number <-> element symbol, derived from the full PERIODIC_TABLE
@@ -72,6 +75,74 @@ const ATOMIC_NUMBER_TO_ELEMENT: Record<number, ChemElement> = Object.fromEntries
 const ELEMENT_TO_ATOMIC_NUMBER: Record<ChemElement, number> = Object.fromEntries(
   PERIODIC_TABLE.map((e) => [e.symbol, e.number])
 ) as Record<ChemElement, number>;
+
+/** Registry group id -> the label drawn for it. Used when writing an
+ * abbreviated group as a CDX nickname node, where the drawn label (not the
+ * internal id) is what the file records. */
+const GROUP_LABEL_BY_ID: Record<string, string> = Object.fromEntries(
+  ABBREVIATED_GROUPS.map((g) => [g.id, g.label])
+);
+
+/** CDX NodeType names/values (see the CDX Node_Type property). Nodes typed
+ * 10-12 are attachment/definition markers rather than atoms, and nodes with
+ * a label type (0, 2-9) carry a <t> label this reader maps back to a group. */
+const NODE_TYPE_BY_NAME: Record<string, number> = {
+  Unspecified: 0,
+  Element: 1,
+  ElementList: 2,
+  ElementListNickname: 3,
+  Nickname: 4,
+  Fragment: 5,
+  Formula: 6,
+  GenericNickname: 7,
+  AnonymousAlternativeGroup: 8,
+  NamedAlternativeGroup: 9,
+  MultiAttachment: 10,
+  VariableAttachment: 11,
+  ExternalConnectionPoint: 12,
+  LinkNode: 13,
+};
+
+function parseNodeType(n: Element): number {
+  const raw = (n.getAttribute("NodeType") ?? "").trim();
+  if (!raw) return 1; // absent = Element
+  const num = parseInt(raw, 10);
+  if (Number.isFinite(num)) return num;
+  return NODE_TYPE_BY_NAME[raw] ?? 1;
+}
+
+/** The text drawn on a labeled node (its direct <t> child), or "" when the
+ * node has none. A nickname's *definition* fragment also contains <t>
+ * labels, but those belong to nested <n> children, not this node. */
+function nodeLabelText(n: Element): string {
+  for (const child of Array.from(n.children)) {
+    if (child.tagName.toLowerCase() === "t") return (child.textContent ?? "").trim();
+  }
+  return "";
+}
+
+/** Maps a CDX node label back onto this app's atom fields, reusing the same
+ * parser the on-canvas label editor uses so "Ph", "COOH" and "R1" land in
+ * the same group slots a user would get by typing them. An unparseable label
+ * leaves the node's Element attribute in place. */
+function cdxLabelFields(label: string): Partial<Pick<Atom, "element" | "isotope" | "group" | "groupFormula">> {
+  if (!label) return {};
+  const parsed = parseAtomLabel(label);
+  switch (parsed.kind) {
+    case "element":
+      return { element: parsed.element };
+    case "isotope":
+      return { element: parsed.element, isotope: parsed.massNumber };
+    case "presetGroup":
+      return { group: parsed.groupId };
+    case "formula":
+      return { group: parsed.formula, groupFormula: parsed.formula };
+    case "generic":
+      return { group: parsed.text };
+    default:
+      return {};
+  }
+}
 
 /**
  * CDXML mixes two unit systems: every *coordinate* is in drawing units
@@ -291,8 +362,8 @@ function to2(v: number): string {
  * 2, 3, 4... in order (see the CDX ColorTable property: "Color indexes 0
  * and 1 always correspond to black and white and are not saved in the
  * color table"). Entry 0 is white and entry 1 black, matching what
- * ChemDraw itself writes, so any non-black text color the annotation
- * toolbar produced gets appended on first use. */
+ * ChemDraw itself writes, so any non-black text or TLC-spot color the
+ * annotation toolbar produced gets appended on first use. */
 let exportPalette: string[] = [];
 
 function colorPaletteIndex(cssColor: string): number {
@@ -315,15 +386,22 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
   const scale = 30 / BOND_LEN;
   const u = (v: number): string => (v * scale).toFixed(4);
 
-  // Pre-scan text annotations so every color they use is already in the
-  // colortable by the time the header is written.
+  // Pre-scan every annotation color — caption text runs and TLC spot dots —
+  // so the colortable is complete before the header is written. Indexes are
+  // assigned in first-use order, so a color first seen while writing the
+  // body would otherwise point past the end of the already-emitted table.
   exportPalette = ["#ffffff", "#000000"];
   for (const ann of annotations) {
-    if (ann.kind !== "text") continue;
-    const doc = new DOMParser().parseFromString(ann.html, "text/html");
-    for (const span of Array.from(doc.querySelectorAll("span"))) {
-      const color = parseCssColor(span.getAttribute("style"));
-      if (color) colorPaletteIndex(color);
+    if (ann.kind === "text") {
+      const doc = new DOMParser().parseFromString(ann.html, "text/html");
+      for (const span of Array.from(doc.querySelectorAll("span"))) {
+        const color = parseCssColor(span.getAttribute("style"));
+        if (color) colorPaletteIndex(color);
+      }
+    } else if (ann.kind === "tlc") {
+      for (const spot of ann.spots) {
+        if (spot.color) colorPaletteIndex(spot.color);
+      }
     }
   }
 
@@ -332,71 +410,105 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
   out += `<CDXML CreationProgram="EnlaceCraft" Name="${escapeXml(name)}" BondLength="30" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10" FractionalWidths="yes" InterpretChemically="yes">\n`;
   out += `<colortable>${exportPalette.map((c) => `<color r="${hexToCdxR(c, "r")}" g="${hexToCdxR(c, "g")}" b="${hexToCdxR(c, "b")}"/>`).join("")}</colortable>\n`;
   out += `<fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable>\n`;
-  out += `<page>\n<fragment id="${nextId()}">\n`;
+
+  // One <fragment> per connected component, which is how ChemDraw itself
+  // lays out separate structures on a page. Import merges every <n>/<b>
+  // across fragments, so this changes the written grouping without changing
+  // what a round trip produces. An empty molecule still writes one (empty)
+  // fragment, matching the single-fragment shape callers already expect.
+  const components: string[][] = atomIds.length > 0 ? connectedComponents(mol, atomIds) : [[]];
 
   const cdxIdOf: Record<string, string> = {};
-  for (const id of atomIds) {
-    const a = mol.atoms[id];
-    const cdxId = nextId();
-    cdxIdOf[id] = cdxId;
-    const x = u(a.x);
-    const y = u(a.y);
-    const atomicNumber = ELEMENT_TO_ATOMIC_NUMBER[a.element] ?? 6;
-    let attrs = `id="${cdxId}" p="${x} ${y}"`;
-    // Carbon (6) is CDX's implicit default element — omitting the attribute
-    // is what ChemDraw itself does for plain skeletal carbons — but writing
-    // it explicitly is equally valid and simpler/more robust to round-trip.
-    attrs += ` Element="${atomicNumber}"`;
-    if (a.charge) attrs += ` Charge="${a.charge}"`;
-    out += `<n ${attrs}/>\n`;
-  }
+  for (const id of atomIds) cdxIdOf[id] = nextId();
 
-  // Dative bonds (see Bond.dative's doc comment) and haptic bonds (see
-  // HapticBond's doc comment) are both dropped here rather than written —
-  // same choice molfile.ts makes and for the same reason: CDXML's plain
-  // Order/Display attributes have no distinct dative-bond representation
-  // this writer implements, so writing one out as a normal Order="1" bond
-  // would silently relabel an M<-L donor bond as an ordinary covalent
-  // bond, which is worse than omitting it. Chemically incomplete on
-  // export, but not silently wrong — this app's own project format is
-  // still the lossless round-trip for these.
-  for (const b of bondList) {
-    if (b.dative) continue;
-    const bId = cdxIdOf[b.a1];
-    const eId = cdxIdOf[b.a2];
-    if (!bId || !eId) continue;
-    let attrs = `id="${nextId()}" B="${bId}" E="${eId}" Order="${b.order}"`;
-    // "Begin"/"End" in CDX's Display value names which node (B or E) is the
-    // narrow/pointed end — our model always treats a1 (here, B) as that
-    // narrow end (see BondView), so "...Begin" variants match directly.
-    // The emphasis styles map onto CDX's own Display vocabulary where one
-    // exists (Bold, Dash — the plain non-stereochemical dashed bond); the
-    // bold wedged hash has no distinct CDX Display of its own and degrades
-    // to the ordinary wedged hash, the same way it degrades in molfile
-    // export (molfile.ts) — visible geometry survives, weight doesn't.
-    if (b.stereo === "wedge") {
-      attrs += b.hollow ? ` Display="HollowWedgeBegin"` : ` Display="WedgeBegin"`;
-    } else if (b.stereo === "dash") {
-      attrs += ` Display="WedgedHashBegin"`;
-    } else if (b.stereo === "boldHash") {
-      attrs += ` Display="WedgedHashBegin"`;
-    } else if (b.stereo === "wavy") {
-      attrs += ` Display="Wavy"`;
-    } else if (b.stereo === "bold") {
-      attrs += ` Display="Bold"`;
-    } else if (b.stereo === "dashed") {
-      attrs += ` Display="Dash"`;
-    } else if (b.stereo === "boldDouble") {
-      attrs += ` Display="BoldDouble"`;
-    } else if (b.stereo === "dashedDouble") {
-      attrs += ` Display="DashedDouble"`;
-    } else if (b.stereo === "hollowWedge") {
-      attrs += ` Display="HollowWedgeBegin"`;
+  out += `<page>\n`;
+  for (const component of components) {
+    const inComponent = new Set(component);
+    out += `<fragment id="${nextId()}">\n`;
+
+    for (const id of component) {
+      const a = mol.atoms[id];
+      const cdxId = cdxIdOf[id];
+      const x = u(a.x);
+      const y = u(a.y);
+      if (a.group) {
+        // CDX's labeled-node schema: the <t> child is the label ChemDraw
+        // draws (and, with InterpretChemically, interprets), so "Ph" comes
+        // back as a phenyl group instead of a bare carbon. Registry groups
+        // are Nickname nodes; free-typed formulas and placeholder labels
+        // ("COOH", "R1") are Unspecified, since a Nickname must name one
+        // symbol and carry an expanded fragment definition this app does
+        // not store.
+        const label = GROUP_LABEL_BY_ID[a.group] ?? a.group;
+        const nodeType = GROUP_LABEL_BY_ID[a.group] ? "Nickname" : "Unspecified";
+        let attrs = `id="${cdxId}" p="${x} ${y}" NodeType="${nodeType}"`;
+        if (a.charge) attrs += ` Charge="${a.charge}"`;
+        out += `<n ${attrs}><t id="${nextId()}" p="${x} ${y}"><s font="3" size="10">${escapeXml(label)}</s></t></n>\n`;
+      } else {
+        let attrs = `id="${cdxId}" p="${x} ${y}"`;
+        // Carbon (6) is CDX's implicit default element — omitting the
+        // attribute is what ChemDraw itself does for plain skeletal
+        // carbons — but writing it explicitly is equally valid and
+        // simpler/more robust to round-trip.
+        attrs += ` Element="${ELEMENT_TO_ATOMIC_NUMBER[a.element] ?? 6}"`;
+        if (a.charge) attrs += ` Charge="${a.charge}"`;
+        // CDX stores an absolute mass number, the same quantity as
+        // Atom.isotope. Radical value 2 is CDX's doublet (monoradical),
+        // which is the only radical this app's boolean models.
+        if (a.isotope) attrs += ` Isotope="${a.isotope}"`;
+        if (a.radical) attrs += ` Radical="2"`;
+        out += `<n ${attrs}/>\n`;
+      }
     }
-    out += `<b ${attrs}/>\n`;
-  }
 
-  out += `</fragment>\n`;
+    // Dative bonds (see Bond.dative's doc comment) and haptic bonds (see
+    // HapticBond's doc comment) are both dropped here rather than written —
+    // same choice molfile.ts makes and for the same reason: CDXML's plain
+    // Order/Display attributes have no distinct dative-bond representation
+    // this writer implements, so writing one out as a normal Order="1" bond
+    // would silently relabel an M<-L donor bond as an ordinary covalent
+    // bond, which is worse than omitting it. Chemically incomplete on
+    // export, but not silently wrong — this app's own project format is
+    // still the lossless round-trip for these.
+    for (const b of bondList) {
+      if (b.dative) continue;
+      if (!inComponent.has(b.a1) || !inComponent.has(b.a2)) continue;
+      const bId = cdxIdOf[b.a1];
+      const eId = cdxIdOf[b.a2];
+      if (!bId || !eId) continue;
+      let attrs = `id="${nextId()}" B="${bId}" E="${eId}" Order="${b.order}"`;
+      // "Begin"/"End" in CDX's Display value names which node (B or E) is the
+      // narrow/pointed end — our model always treats a1 (here, B) as that
+      // narrow end (see BondView), so "...Begin" variants match directly.
+      // The emphasis styles map onto CDX's own Display vocabulary where one
+      // exists (Bold, Dash — the plain non-stereochemical dashed bond); the
+      // bold wedged hash has no distinct CDX Display of its own and degrades
+      // to the ordinary wedged hash, the same way it degrades in molfile
+      // export (molfile.ts) — visible geometry survives, weight doesn't.
+      if (b.stereo === "wedge") {
+        attrs += b.hollow ? ` Display="HollowWedgeBegin"` : ` Display="WedgeBegin"`;
+      } else if (b.stereo === "dash") {
+        attrs += ` Display="WedgedHashBegin"`;
+      } else if (b.stereo === "boldHash") {
+        attrs += ` Display="WedgedHashBegin"`;
+      } else if (b.stereo === "wavy") {
+        attrs += ` Display="Wavy"`;
+      } else if (b.stereo === "bold") {
+        attrs += ` Display="Bold"`;
+      } else if (b.stereo === "dashed") {
+        attrs += ` Display="Dash"`;
+      } else if (b.stereo === "boldDouble") {
+        attrs += ` Display="BoldDouble"`;
+      } else if (b.stereo === "dashedDouble") {
+        attrs += ` Display="DashedDouble"`;
+      } else if (b.stereo === "hollowWedge") {
+        attrs += ` Display="HollowWedgeBegin"`;
+      }
+      out += `<b ${attrs}/>\n`;
+    }
+
+    out += `</fragment>\n`;
+  }
 
   // Arrows, brackets and captions live as siblings of the <fragment>,
   // directly under the <page> — the same placement ChemDraw itself uses
@@ -1545,29 +1657,56 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
   const rawX = new Map<string, number>();
   const rawY = new Map<string, number>();
 
-  const nodes = Array.from(doc.querySelectorAll("n"));
+  // Only nodes in a top-level fragment are real atoms. A nickname/fragment
+  // node's own definition lives in a nested <fragment>, whose nodes describe
+  // the abbreviation's expansion — importing those as extra atoms would
+  // duplicate the structure they stand for.
+  const nodes = Array.from(doc.querySelectorAll("n")).filter((n) => !n.parentElement?.closest("n"));
   if (nodes.length > LIMITS.maxAtoms) {
     throw new Error(`CDXML has too many atoms (${nodes.length} > ${LIMITS.maxAtoms})`);
   }
   for (const n of nodes) {
     const cdxId = n.getAttribute("id");
     if (!cdxId) continue;
+    const nodeType = parseNodeType(n);
+    // Multi/variable attachment and external-connection nodes are bond
+    // endpoints with no atom of their own; importing them as atoms used to
+    // add bogus carbons (a ferrocene drawing gained two).
+    if (nodeType >= 10 && nodeType <= 12) continue;
     const p = (n.getAttribute("p") || "0 0").trim().split(/\s+/).map(Number);
     const [x, y, z] = p.length >= 3 ? p : p.length >= 2 ? p : [0, 0];
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("CDXML atom has invalid coordinates");
     const atomicNumber = n.getAttribute("Element") ? parseInt(n.getAttribute("Element")!, 10) : 6;
     const element = ATOMIC_NUMBER_TO_ELEMENT[atomicNumber] ?? "C";
     const charge = parseInt(n.getAttribute("Charge") || "0", 10) || 0;
+    const isotopeAttr = parseInt(n.getAttribute("Isotope") || "", 10);
+    const radicalAttr = parseInt(n.getAttribute("Radical") || "0", 10) || 0;
 
     const id = nextId();
     idByCdxId.set(cdxId, id);
     rawX.set(id, x);
     rawY.set(id, y);
-    mol.atoms[id] = { id, x: 0, y: 0, element, charge, ...(Number.isFinite(z) ? { z } : {}) };
+    // A labeled node (nickname, formula, generic/unspecified label) carries
+    // its meaning in the <t> child; map it back onto this app's group model
+    // so "Ph" doesn't come back as a bare carbon.
+    const labeled = nodeType !== 1 ? cdxLabelFields(nodeLabelText(n)) : {};
+    mol.atoms[id] = {
+      id, x: 0, y: 0, element, charge,
+      ...(Number.isFinite(isotopeAttr) ? { isotope: isotopeAttr } : {}),
+      // Radical is only meaningful on Element nodes; 1 (singlet) and 3
+      // (triplet) are diradicals this app can't express, but showing one
+      // unpaired-electron dot is closer than dropping the mark entirely.
+      ...(nodeType === 1 && radicalAttr > 0 ? { radical: true } : {}),
+      ...(Number.isFinite(z) ? { z } : {}),
+      ...labeled,
+    };
   }
 
   const bondPairs: { a1: string; a2: string; order: BondOrder; stereo: BondStereo; hollow?: boolean }[] = [];
   for (const b of Array.from(doc.querySelectorAll("b"))) {
+    // Bonds inside a nickname's definition fragment reference that
+    // definition's own nodes, not the page's atoms.
+    if (b.parentElement?.closest("n")) continue;
     const bCdx = b.getAttribute("B");
     const eCdx = b.getAttribute("E");
     if (!bCdx || !eCdx) continue;

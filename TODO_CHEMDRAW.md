@@ -148,15 +148,19 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 - [x] `SGroup` type and `sgroups` field on `Molecule`
 - [x] Bond stereo types, arrow variants, orbital types, shape primitives, TLC enhancements
 - [x] 3D coordinate preservation (`Atom.z`)
-- [x] Single-page, single-fragment documents with annotations (arrows, brackets, captions, shapes, orbitals, TLC)
+- [x] Single-page documents with annotations (arrows, brackets, captions, shapes, orbitals, TLC)
 - [x] Round-trip tests for app-generated CDXML (including `fixtures/chemdraw-scheme.cdxml`)
-- [ ] Multi-fragment documents (multiple `<fragment>` per `<page>`); export always writes one fragment
+- [x] Multi-fragment documents: export writes one `<fragment>` per connected component; import already merged them
+- [x] Nickname/superatom round-trip: registry groups (`Ph`, `Boc`, …) write CDX labeled nodes; free-typed formulas/placeholders (`COOH`, `R1`) write `NodeType="Unspecified"` labels
+- [x] Isotope mass numbers (`Isotope`) and radical dots (`Radical="2"`) round-trip
+- [x] Import skips multi-/variable-attachment and external-connection nodes instead of adding bogus carbons
+- [x] Nickname definition fragments no longer leak their internal nodes/bonds into the imported molecule
+- [x] Color-table fidelity: TLC spot colors are pre-scanned, so every emitted `color` index exists in the header table
 - [ ] Page setup parsing/serialization (`<page>` attributes: size, margins, bond length)
 - [ ] Scheme/reaction-step grouping (`<scheme>`, `<step>`) — arrows import, grouping metadata is dropped
-- [ ] S-Groups import/export for polymers/mixtures (`sgroups` is defined but not wired into CDXML I/O)
-- [ ] Nickname/superatom round-trip (abbreviations currently export as plain carbon; MOL export preserves the label)
-- [ ] Font/color-table fidelity verification
-- [ ] Real ChemDraw-file round-trip suite (currently only one fixture plus synthetic documents)
+- [ ] S-Groups import/export for polymers/mixtures (`sgroups` has no producer in the app yet, so this is deferred until there is something to round-trip)
+- [ ] Font/color-table fidelity verification against real ChemDraw output
+- [ ] Real ChemDraw-file round-trip suite (currently one fixture plus synthetic documents)
 
 ---
 
@@ -191,7 +195,7 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC; single-fragment CDXML round-trip; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
-- **Main remaining work:** conformation ring templates (chair/boat, decalins, norbornane); polysaccharide repeating units; CDXML multi-fragment/page/scheme/S-group/nickname fidelity; SDF multi-record and optional CML/SKC.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, and a complete color table; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
+- **Main remaining work:** conformation ring templates (chair/boat, decalins, norbornane); polysaccharide repeating units; CDXML page setup and scheme/step grouping; S-groups (no producer yet); SDF multi-record and optional CML/SKC.
 - **Type checking:** `npx tsc -b` passes cleanly.
-- **Lint:** `oxlint` is clean on the touched files (the two old `cdxml.ts` errors are fixed).
+- **Lint:** `oxlint` is clean on the touched files.

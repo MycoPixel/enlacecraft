@@ -5,7 +5,7 @@
 // vitest.config.ts's default "node" environment, overridden per-file here)
 // while valence.test.ts/molfile.test.ts stay on the faster default.
 import { describe, expect, test } from "vitest";
-import { addAtom, addBond, emptyMolecule } from "../model/molecule";
+import { addAtom, addBond, emptyMolecule, setAtomCustomGroup } from "../model/molecule";
 import { exportCdxml, exportCdxmlDocument, importCdxml, importCdxmlDocument } from "./cdxml";
 import chemdrawScheme from "./fixtures/chemdraw-scheme.cdxml?raw";
 import type { ArrowAnnotation, BracketAnnotation, Molecule, OrbitalAnnotation, ShapeAnnotation, TextAnnotation, TlcPlateAnnotation } from "../types/chemistry";
@@ -52,6 +52,22 @@ describe("exportCdxml / importCdxml round-trip", () => {
     expect(Object.values(roundTripped.atoms)[0].charge).toBe(1);
   });
 
+  test("isotope mass number round-trips through CDX's Isotope property", () => {
+    let mol = addAtom(emptyMolecule(), "c1", { x: 0, y: 0 }, "C");
+    mol = { ...mol, atoms: { ...mol.atoms, c1: { ...mol.atoms.c1, isotope: 13 } } };
+    const xml = exportCdxml(mol);
+    expect(xml).toContain('Isotope="13"');
+    expect(Object.values(importCdxml(xml).atoms)[0].isotope).toBe(13);
+  });
+
+  test("a radical dot round-trips as CDX's doublet Radical value", () => {
+    let mol = addAtom(emptyMolecule(), "o1", { x: 0, y: 0 }, "O");
+    mol = { ...mol, atoms: { ...mol.atoms, o1: { ...mol.atoms.o1, radical: true } } };
+    const xml = exportCdxml(mol);
+    expect(xml).toContain('Radical="2"');
+    expect(Object.values(importCdxml(xml).atoms)[0].radical).toBe(true);
+  });
+
   test("wedge stereo survives and forces bond order to 1", () => {
     let mol = emptyMolecule();
     mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
@@ -91,15 +107,48 @@ describe("exportCdxml / importCdxml round-trip", () => {
     expect(bond.stereo).toBe("bold");
   });
 
-  test("an abbreviated-group atom exports as its plain base element (group label is dropped)", () => {
-    // Documented behavior (see cdxml.ts's file doc comment): CDX's own
-    // "nickname" node schema isn't implemented, so Ph/Boc/etc. round-trip
-    // as a bare carbon rather than failing or silently mislabeling.
+  test("an abbreviated-group atom round-trips through a CDX nickname node", () => {
     const mol = addAtom(emptyMolecule(), "g1", { x: 0, y: 0 }, "C", "Ph");
-    const roundTripped = importCdxml(exportCdxml(mol));
-    const atom = Object.values(roundTripped.atoms)[0];
+    const xml = exportCdxml(mol);
+    expect(xml).toContain('NodeType="Nickname"');
+    expect(xml).toContain(">Ph</s>");
+    const atom = Object.values(importCdxml(xml).atoms)[0];
     expect(atom.element).toBe("C");
-    expect(atom.group).toBeUndefined();
+    expect(atom.group).toBe("Ph");
+  });
+
+  test("a free-typed formula round-trips as a labeled node", () => {
+    const mol = setAtomCustomGroup(addAtom(emptyMolecule(), "g1", { x: 0, y: 0 }, "C"), "g1", "COOH", "COOH");
+    const xml = exportCdxml(mol);
+    expect(xml).toContain('NodeType="Unspecified"');
+    const atom = Object.values(importCdxml(xml).atoms)[0];
+    expect(atom.group).toBe("COOH");
+    expect(atom.groupFormula).toBe("COOH");
+  });
+
+  test("a placeholder label round-trips as a generic group", () => {
+    const mol = setAtomCustomGroup(addAtom(emptyMolecule(), "g1", { x: 0, y: 0 }, "C"), "g1", "R1", undefined);
+    const atom = Object.values(importCdxml(exportCdxml(mol)).atoms)[0];
+    expect(atom.group).toBe("R1");
+    expect(atom.groupFormula).toBeUndefined();
+  });
+
+  test("disconnected structures export as separate fragments and re-import as one molecule", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 42, y: 0 }, "O");
+    mol = addBond(mol, "b0", "a0", "a1");
+    mol = addAtom(mol, "a2", { x: 0, y: 80 }, "C");
+    mol = addAtom(mol, "a3", { x: 42, y: 80 }, "N");
+    mol = addBond(mol, "b1", "a2", "a3");
+    mol = addAtom(mol, "a4", { x: 120, y: 120 }, "Na");
+
+    const xml = exportCdxml(mol);
+    expect(xml.match(/<fragment /g)).toHaveLength(3);
+
+    const roundTripped = importCdxml(xml);
+    expect(Object.keys(roundTripped.atoms)).toHaveLength(5);
+    expect(Object.keys(roundTripped.bonds)).toHaveLength(2);
   });
 
   test("self-calibration scales an imported geometry onto this app's BOND_LEN", () => {
@@ -238,6 +287,49 @@ ${bonds}
 
   test("malformed XML raises an error rather than silently returning an empty molecule", () => {
     expect(() => importCdxml("<CDXML><n unterminated")).toThrow("Not a valid CDXML file");
+  });
+});
+
+describe("importCdxml: labeled nodes and attachment markers", () => {
+  function page(body: string): string {
+    return `<CDXML BondLength="30"><page><fragment id="1">${body}</fragment></page></CDXML>`;
+  }
+
+  test("a nickname node imports as a group, not as its definition fragment's atoms", () => {
+    const doc = importCdxmlDocument(page(
+      `<n id="1" p="0 0" Element="6"/>` +
+      `<n id="2" p="30 0" NodeType="Nickname">` +
+      `<t id="3" p="30 0"><s font="3" size="10">Ph</s></t>` +
+      // ChemDraw stores the abbreviation's expansion here. Those nodes are
+      // definition-only and must not become atoms of their own.
+      `<fragment id="4"><n id="5" p="0 0" Element="6"/><n id="6" p="30 0" Element="6"/><b id="7" B="5" E="6"/></fragment>` +
+      `</n>` +
+      `<b id="8" B="1" E="2"/>`
+    ));
+    expect(Object.keys(doc.molecule.atoms)).toHaveLength(2);
+    expect(Object.keys(doc.molecule.bonds)).toHaveLength(1);
+    const group = Object.values(doc.molecule.atoms).find((a) => a.group);
+    expect(group?.group).toBe("Ph");
+  });
+
+  test("a numeric NodeType and a formula label map onto groupFormula", () => {
+    const doc = importCdxmlDocument(page(
+      `<n id="1" p="0 0" Element="0" NodeType="6"><t id="2" p="0 0"><s>COOH</s></t></n>`
+    ));
+    const atom = Object.values(doc.molecule.atoms)[0];
+    expect(atom.group).toBe("COOH");
+    expect(atom.groupFormula).toBe("COOH");
+  });
+
+  test("a multi-attachment node is skipped rather than imported as a carbon", () => {
+    const doc = importCdxmlDocument(page(
+      `<n id="1" p="0 0" Element="26"/>` +
+      `<n id="2" p="60 0" Element="6"/><n id="3" p="60 30" Element="6"/>` +
+      `<n id="4" p="45 15" NodeType="MultiAttachment" Attachments="2 3"/>` +
+      `<b id="5" B="1" E="4"/>`
+    ));
+    expect(Object.keys(doc.molecule.atoms)).toHaveLength(3);
+    expect(Object.keys(doc.molecule.bonds)).toHaveLength(0);
   });
 });
 
@@ -677,6 +769,24 @@ describe("exportCdxmlDocument / importCdxmlDocument round-trip", () => {
     const texts = doc.annotations.filter((a): a is TextAnnotation => a.kind === "text");
     expect(texts).toHaveLength(1);
     expect(texts[0].html).toMatch(/color:\s*#ff0000/i);
+  });
+
+  test("a colored TLC spot is in the colortable its color index references", () => {
+    const plate: TlcPlateAnnotation = {
+      id: "p1", kind: "tlc", x: 0, y: 0, width: 90, height: 130,
+      spots: [{ fx: 0.5, fy: 0.4, r: 4, color: "#00aa55" }],
+    };
+    const xml = exportCdxmlDocument(emptyMolecule(), [plate]);
+    // Every index must fall inside the table that was already written in the
+    // header (0 = default ink, 1 = white, entries start at 2).
+    const tableEntries = (xml.match(/<color /g) ?? []).length;
+    const indexes = [...xml.matchAll(/color="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(indexes.length).toBeGreaterThan(0);
+    for (const idx of indexes) expect(idx).toBeLessThan(tableEntries + 2);
+
+    const doc = importCdxmlDocument(xml);
+    const imported = doc.annotations[0] as TlcPlateAnnotation;
+    expect(imported.spots[0].color).toBe("#00aa55");
   });
 
   test("plain exportCdxml (molecule only) writes no graphics or text", () => {
