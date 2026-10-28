@@ -325,7 +325,7 @@ export function MoleculeInfoButton() {
  * via its molecule-identity cache, so opening the panel after turning the
  * overlay on doesn't repeat the work.
  */
-function StereoSection({ molecule }: { molecule: Molecule }) {
+export function StereoSection({ molecule }: { molecule: Molecule }) {
   const t = useT();
   const analysis = useStereoAnalysis(molecule, true);
   const showComputedStereo = useMoleculeStore((s) => s.showComputedStereo);
@@ -365,6 +365,13 @@ function StereoSection({ molecule }: { molecule: Molecule }) {
         return a.stereoLabel && computed && computed !== a.stereoLabel;
       })
     : [];
+  // A manual label on an atom the engine couldn't assign (or on a molecule
+  // it can't analyse at all) still belongs in the panel — otherwise setting
+  // R/S on an achiral-looking or abbreviated-group structure made the label
+  // silently disappear from here even though it's drawn on the canvas.
+  const manualOnlyAtoms = Object.values(molecule.atoms).filter(
+    (a) => a.stereoLabel && !computedByAtom.has(a.id)
+  );
 
   const issueCount = ok
     ? ok.undefinedAtoms.length + ok.undefinedBonds.length + ok.ambiguousAtoms.length + ok.ambiguousBonds.length
@@ -390,7 +397,7 @@ function StereoSection({ molecule }: { molecule: Molecule }) {
         <p className="align-menu__hint">{t(`moleculeInfo.stereoUnavailable.${analysis.reason}`)}</p>
       )}
 
-      {ok && computedCount === 0 && issueCount === 0 && (
+      {ok && computedCount === 0 && issueCount === 0 && manualOnlyAtoms.length === 0 && (
         <p className="align-menu__hint">{t("moleculeInfo.stereoNone")}</p>
       )}
 
@@ -435,6 +442,26 @@ function StereoSection({ molecule }: { molecule: Molecule }) {
                   ({label})
                   {relative && <span className="molecule-info__stereo-note"> \u2248</span>}
                 </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {manualOnlyAtoms.length > 0 && (
+        <>
+          <div className="molecule-info__stereo-subhead">{t("moleculeInfo.stereoManualAssigned")}</div>
+          <div className="molecule-info__stereo-list">
+            {manualOnlyAtoms.map((atom) => (
+              <button
+                key={`manual-atom-${atom.id}`}
+                type="button"
+                className="molecule-info__stereo-row"
+                onClick={() => selectAtom(atom.id)}
+                title={t("moleculeInfo.stereoClickHint")}
+              >
+                <span>{atomTag(atom.id)}</span>
+                <span className="molecule-info__stereo-value">({atom.stereoLabel})</span>
               </button>
             ))}
           </div>

@@ -16,11 +16,11 @@
 | Nucleotides | `src/model/nucleotideTemplates.ts` | AMP, GMP, CMP, UMP, TMP, GTP, CTP, UTP | — |
 | Nucleobases | `src/model/nucleobaseTemplates.ts` | Adenine, guanine, cytosine, thymine, uracil | — |
 | Carbohydrates | `src/model/carbohydrateTemplates.ts`, `src/model/polysaccharideTemplates.ts` | D-Glucose (Fischer), L-Glucose (Fischer), D-Glucose (Haworth pyranose), maltose, D-galactose, D-mannose, D-fructose, D-ribose (all Fischer except the two noted), 2-deoxy-D-ribose, lactose, sucrose, cellobiose; cellulose/amylose/chitin repeating units | — |
-| Steroids | `src/model/steroidTemplates.ts` | Gonane, cholesterol, testosterone, estradiol, progesterone, cortisol, cholic acid | Additional bile acids (deoxycholic, lithocholic, …) |
+| Steroids | `src/model/steroidTemplates.ts` | Gonane, cholesterol, testosterone, estradiol, progesterone, cortisol, cholic acid, deoxycholic acid, lithocholic acid, chenodeoxycholic acid | — |
 | Terpenes | `src/model/terpeneTemplates.ts` | Limonene, caryophyllene, retinol, menthol, camphor, artemisinin, squalene | — |
 | Ligands | `src/model/structureTemplates.ts` | Cyclopentadienyl (Cp⁻) | — |
 
-Total built-in structure templates: **68** (1 ligand + 20 amino acids + 12 carbohydrates + 3 polysaccharide repeats + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes + 5 fused heteroaromatics).
+Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbohydrates + 3 polysaccharide repeats + 8 nucleotides + 5 nucleobases + 10 steroids/bile acids + 7 terpenes + 5 fused heteroaromatics).
 
 ---
 
@@ -69,11 +69,11 @@ Total built-in structure templates: **68** (1 ligand + 20 amino acids + 12 carbo
 > Fischer/Haworth projections. Their formulas are pinned in
 > `structureTemplates.test.ts`.
 
-### 1.6 Steroid Templates — Mostly Done
+### 1.6 Steroid Templates ✅
 - [x] `src/model/steroidTemplates.ts`
 - [x] Gonane (steroid nucleus)
 - [x] Cholesterol, testosterone, estradiol, progesterone, cortisol, cholic acid
-- [ ] Additional bile acids (deoxycholic, lithocholic, chenodeoxycholic)
+- [x] Additional bile acids (deoxycholic, lithocholic, chenodeoxycholic)
 
 ### 1.7 Terpene Templates ✅
 - [x] `src/model/terpeneTemplates.ts`
@@ -188,14 +188,13 @@ Total built-in structure templates: **68** (1 ligand + 20 amino acids + 12 carbo
 
 ## Follow-ups (not ChemDraw-specific)
 
-- [ ] Stereo panel does not list manual `R/S` atom labels when there is no computed assignment.
 - [ ] No component-level test for the 3D surface toggle/opacity path.
 
 ---
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 3 polysaccharide repeating units, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 36 ring templates (including chair/boat cyclohexane, cis/trans-decalin, and norbornane); bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, and a complete color table; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 3 polysaccharide repeating units, 10 steroids/bile acids, 7 terpenes, 5 fused heteroaromatics, 36 ring templates (including chair/boat cyclohexane, cis/trans-decalin, and norbornane); bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, and a complete color table; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
 - **Main remaining work:** CDXML page setup and scheme/step grouping; S-groups (no producer yet); optional CML/SKC.
 - **Type checking:** `npx tsc -b` passes cleanly.
 - **Lint:** `oxlint` is clean on the touched files.
