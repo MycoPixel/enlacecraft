@@ -1,26 +1,26 @@
 # ChemDraw Compatibility — Status & Remaining Work
 
-> **Verified against the code on 2026-10-27** (app version 1.17.0, HEAD `9a2c78e9`).
+> **Verified against the code on 2026-10-28** (app version 1.17.0).
 > Earlier revisions of this file overstated progress in Phase 1: several items
-> were checked off that were never actually added (notably the fused
-> heteroaromatics and the chair/boat/decalin/norbornane templates). Those are
-> now listed honestly below.
+> were checked off before they were actually added (notably the fused
+> heteroaromatics and the chair/boat/decalin/norbornane templates). Both are
+> now implemented and listed below.
 
 ## Current Inventory (verified in source)
 
 | Family | File | Implemented | Missing |
 |---|---|---|---|
-| Ring templates | `src/model/constants.ts` | 31 rings: benzene, cyclohexane, cyclopentane, cyclobutane, cyclopropane, cycloheptane, cyclooctane, pyridine, pyrimidine, pyridazine, pyrazine, 1,3,5-/1,2,4-triazine, furan, thiophene, pyrrole, imidazole, oxazole, thiazole, pyrazole, isoxazole, isothiazole, 1,2,3-/1,2,4-triazole, piperidine, pyrrolidine, THF, THP, morpholine, piperazine, naphthalene | Chair/boat cyclohexane; decalins; norbornane |
+| Ring templates | `src/model/constants.ts`, `src/model/ringConformations.ts` | 36 rings: benzene, cyclohexane, cyclohexane (chair), cyclohexane (boat), cyclopentane, cyclobutane, cyclopropane, cycloheptane, cyclooctane, pyridine, pyrimidine, pyridazine, pyrazine, 1,3,5-/1,2,4-triazine, furan, thiophene, pyrrole, imidazole, oxazole, thiazole, pyrazole, isoxazole, isothiazole, 1,2,3-/1,2,4-triazole, piperidine, pyrrolidine, THF, THP, morpholine, piperazine, naphthalene, cis-decalin, trans-decalin, norbornane | — |
 | Fused heteroaromatics | `src/model/heterocycleTemplates.ts` | Indole, quinoline, isoquinoline, benzimidazole, purine | — |
 | Amino acids | `src/model/aminoAcidTemplates.ts` | All 20 standard amino acids (`gly` … `val`) | — |
 | Nucleotides | `src/model/nucleotideTemplates.ts` | AMP, GMP, CMP, UMP, TMP, GTP, CTP, UTP | — |
 | Nucleobases | `src/model/nucleobaseTemplates.ts` | Adenine, guanine, cytosine, thymine, uracil | — |
-| Carbohydrates | `src/model/carbohydrateTemplates.ts` | D-Glucose (Fischer), L-Glucose (Fischer), D-Glucose (Haworth pyranose), maltose, D-galactose, D-mannose, D-fructose, D-ribose (all Fischer except the two noted), 2-deoxy-D-ribose, lactose, sucrose, cellobiose | Polysaccharide repeating units |
+| Carbohydrates | `src/model/carbohydrateTemplates.ts`, `src/model/polysaccharideTemplates.ts` | D-Glucose (Fischer), L-Glucose (Fischer), D-Glucose (Haworth pyranose), maltose, D-galactose, D-mannose, D-fructose, D-ribose (all Fischer except the two noted), 2-deoxy-D-ribose, lactose, sucrose, cellobiose; cellulose/amylose/chitin repeating units | — |
 | Steroids | `src/model/steroidTemplates.ts` | Gonane, cholesterol, testosterone, estradiol, progesterone, cortisol, cholic acid | Additional bile acids (deoxycholic, lithocholic, …) |
 | Terpenes | `src/model/terpeneTemplates.ts` | Limonene, caryophyllene, retinol, menthol, camphor, artemisinin, squalene | — |
 | Ligands | `src/model/structureTemplates.ts` | Cyclopentadienyl (Cp⁻) | — |
 
-Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbohydrates + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes + 5 fused heteroaromatics).
+Total built-in structure templates: **68** (1 ligand + 20 amino acids + 12 carbohydrates + 3 polysaccharide repeats + 8 nucleotides + 5 nucleobases + 7 steroids + 7 terpenes + 5 fused heteroaromatics).
 
 ---
 
@@ -34,9 +34,9 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 - [x] Aromatic sextet circle toggle for 6-rings
 - [x] Cp⁻ ring (lives in `structureTemplates.ts`, because `RingTemplate` has no charge field)
 - [x] Fused heteroaromatics: indole, quinoline, isoquinoline, benzimidazole, purine (`heterocycleTemplates.ts`, added to the Structures picker)
-- [ ] Chair/boat cyclohexane templates (only mentioned in a doc comment)
-- [ ] Decalins (cis/trans)
-- [ ] Norbornane
+- [x] Chair/boat cyclohexane templates (`ringConformations.ts` fixed layouts)
+- [x] Decalins (cis/trans, with explicit bridgehead H wedges/dashes)
+- [x] Norbornane
 
 ### 1.2 Amino Acid Templates ✅
 - [x] `src/model/aminoAcidTemplates.ts`
@@ -62,7 +62,7 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 - [x] Lactose (β-1,4 galactose–glucose)
 - [x] Sucrose (α-1,2 glucose–fructose)
 - [x] Cellobiose (β-1,4 glucose–glucose)
-- [ ] Polysaccharide repeating units (cellulose, amylose, chitin, …)
+- [x] Polysaccharide repeating units (cellulose, amylose, chitin) in `polysaccharideTemplates.ts`, drawn with a bracket pair and italic *n*
 
 > The four added templates are generated from PubChem isomeric SMILES through
 > `importSmiles` (OpenChemLib 2D layout + wedge/dash parity), not hand-laid
@@ -195,7 +195,7 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 31 ring templates; bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, and a complete color table; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
-- **Main remaining work:** conformation ring templates (chair/boat, decalins, norbornane); polysaccharide repeating units; CDXML page setup and scheme/step grouping; S-groups (no producer yet); SDF multi-record and optional CML/SKC.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 3 polysaccharide repeating units, 7 steroids, 7 terpenes, 5 fused heteroaromatics, 36 ring templates (including chair/boat cyclohexane, cis/trans-decalin, and norbornane); bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, and a complete color table; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
+- **Main remaining work:** CDXML page setup and scheme/step grouping; S-groups (no producer yet); optional CML/SKC.
 - **Type checking:** `npx tsc -b` passes cleanly.
 - **Lint:** `oxlint` is clean on the touched files.

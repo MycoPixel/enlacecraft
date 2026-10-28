@@ -4,6 +4,7 @@ import { CARBOHYDRATE_TEMPLATES } from "./carbohydrateTemplates";
 import { FUSED_HETEROCYCLE_TEMPLATES } from "./heterocycleTemplates";
 import { NUCLEOBASE_TEMPLATES } from "./nucleobaseTemplates";
 import { NUCLEOTIDE_TEMPLATES } from "./nucleotideTemplates";
+import { POLYSACCHARIDE_TEMPLATES } from "./polysaccharideTemplates";
 import { STEROID_TEMPLATES } from "./steroidTemplates";
 import { TERPENE_TEMPLATES } from "./terpeneTemplates";
 
@@ -71,6 +72,7 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
 
   ...AMINO_ACID_TEMPLATES,
   ...CARBOHYDRATE_TEMPLATES,
+  ...POLYSACCHARIDE_TEMPLATES,
   ...FUSED_HETEROCYCLE_TEMPLATES,
   ...NUCLEOTIDE_TEMPLATES,
   ...NUCLEOBASE_TEMPLATES,

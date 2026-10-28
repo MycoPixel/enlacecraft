@@ -1,5 +1,5 @@
-import type { Molecule, Point, RingAttachment, RingTemplate } from "../types/chemistry";
-import { addAtom, addBond } from "../model/molecule";
+import type { Molecule, Point, RingAttachment, RingTemplate, RingTemplateLayout } from "../types/chemistry";
+import { addAtom, addBond, setAtomChargeAbsolute } from "../model/molecule";
 import { angleOf, dist, polar } from "../model/geometry";
 import { neighborAngles } from "../model/valence";
 import { BOND_LEN } from "../model/constants";
@@ -101,12 +101,168 @@ function computeSingleRingVertices(mol: Molecule, sides: number, center: Point, 
   return vertices;
 }
 
+// ---------------------------------------------------------------------
+// Fixed-layout rings: chair/boat cyclohexane, decalins, norbornane.
+// ---------------------------------------------------------------------
+
+/** Bounding-box centre of a fixed layout, used as the rotation pivot for
+ * atom attachments and the anchor for empty-canvas placement. */
+function layoutCenter(layout: RingTemplateLayout): Point {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const atom of layout.atoms) {
+    minX = Math.min(minX, atom.x);
+    maxX = Math.max(maxX, atom.x);
+    minY = Math.min(minY, atom.y);
+    maxY = Math.max(maxY, atom.y);
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
+
+interface LayoutTransform {
+  worldOf: (p: Point) => Point;
+  attachIds: Record<string, string>;
+}
+
+/**
+ * Resolves the rigid (rotation + translation, plus uniform scale when
+ * fusing onto a bond) transform that carries a fixed layout into world
+ * space, honoring `attachment` exactly like resolveNaphthaleneTransform
+ * does for naphthalene.
+ */
+function resolveLayoutTransform(
+  mol: Molecule,
+  layout: RingTemplateLayout,
+  center: Point,
+  attachment: RingAttachment
+): LayoutTransform {
+  const byKey = new Map(layout.atoms.map((a) => [a.key, a]));
+  const fallbackKeys: [string, string] | null = layout.atoms.length >= 2
+    ? [layout.atoms[0].key, layout.atoms[1].key]
+    : null;
+
+  if (attachment.type === "bond") {
+    const p1 = mol.atoms[attachment.a1];
+    const p2 = mol.atoms[attachment.a2];
+    const keys = layout.attachBond ?? fallbackKeys;
+    const q1 = keys ? byKey.get(keys[0]) : undefined;
+    const q2 = keys ? byKey.get(keys[1]) : undefined;
+    if (p1 && p2 && keys && q1 && q2) {
+      const localLength = dist(q1, q2);
+      if (localLength > 0) {
+        const scale = dist(p1, p2) / localLength;
+        const build = (target1: Point, target2: Point, id1: string, id2: string) => {
+          const theta = angleOf(target1, target2) - angleOf(q1, q2);
+          const cos = Math.cos(theta);
+          const sin = Math.sin(theta);
+          const rq1 = rotate({ x: q1.x * scale, y: q1.y * scale }, cos, sin);
+          const worldOf = (p: Point): Point => {
+            const rp = rotate({ x: p.x * scale, y: p.y * scale }, cos, sin);
+            return { x: target1.x + rp.x - rq1.x, y: target1.y + rp.y - rq1.y };
+          };
+          return { worldOf, attachIds: { [keys[0]]: id1, [keys[1]]: id2 } };
+        };
+        const candidateA = build(p1, p2, attachment.a1, attachment.a2);
+        const candidateB = build(p2, p1, attachment.a2, attachment.a1);
+
+        const others = [
+          ...otherNeighborPositions(mol, attachment.a1, attachment.a2),
+          ...otherNeighborPositions(mol, attachment.a2, attachment.a1),
+        ];
+        const scoreOf = (worldOf: (p: Point) => Point) => {
+          let sum = 0;
+          for (const atom of layout.atoms) {
+            if (atom.key === keys[0] || atom.key === keys[1]) continue;
+            const wp = worldOf(atom);
+            for (const o of others) sum += dist(wp, o);
+          }
+          return sum;
+        };
+        if (others.length) {
+          return scoreOf(candidateA.worldOf) >= scoreOf(candidateB.worldOf) ? candidateA : candidateB;
+        }
+        const avgY = (worldOf: (p: Point) => Point) => {
+          let sum = 0, n = 0;
+          for (const atom of layout.atoms) {
+            if (atom.key === keys[0] || atom.key === keys[1]) continue;
+            sum += worldOf(atom).y;
+            n++;
+          }
+          return n ? sum / n : 0;
+        };
+        return avgY(candidateA.worldOf) <= avgY(candidateB.worldOf) ? candidateA : candidateB;
+      }
+    }
+    // Fall through to empty-canvas placement if the bond disappeared.
+  }
+
+  const c = layoutCenter(layout);
+
+  if (attachment.type === "atom") {
+    const atom = mol.atoms[attachment.atomId];
+    const key = layout.attachAtom ?? layout.atoms[0]?.key;
+    const v0 = key ? byKey.get(key) : undefined;
+    if (atom && v0 && key) {
+      const existingAngles = neighborAngles(mol, attachment.atomId);
+      const dir = existingAngles.length ? existingAngles[0] + Math.PI : -Math.PI / 2;
+      const localDir = angleOf(v0, c);
+      const theta = dir - localDir;
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      const worldOf = (p: Point): Point => {
+        const r = rotate({ x: p.x - v0.x, y: p.y - v0.y }, cos, sin);
+        return { x: atom.x + r.x, y: atom.y + r.y };
+      };
+      return { worldOf, attachIds: { [key]: attachment.atomId } };
+    }
+  }
+
+  const worldOf = (p: Point): Point => ({ x: p.x - c.x + center.x, y: p.y - c.y + center.y });
+  return { worldOf, attachIds: {} };
+}
+
+/** Places a fixed-layout ring (see RingTemplate.layout) — atoms/bonds come
+ * straight from the layout, transformed into place by
+ * resolveLayoutTransform. */
+function placeLayoutRing(mol: Molecule, layout: RingTemplateLayout, center: Point, attachment: RingAttachment): Molecule {
+  const { worldOf, attachIds } = resolveLayoutTransform(mol, layout, center, attachment);
+
+  let working = mol;
+  const ids: Record<string, string> = {};
+  for (const atom of layout.atoms) {
+    const existing = attachIds[atom.key];
+    if (existing) {
+      // Fusing onto an existing atom: leave its element/identity as-is,
+      // matching the generic ring placement above.
+      ids[atom.key] = existing;
+      continue;
+    }
+    const id = nextId();
+    working = addAtom(working, id, worldOf(atom), atom.element);
+    if (atom.charge) working = setAtomChargeAbsolute(working, id, atom.charge);
+    ids[atom.key] = id;
+  }
+
+  for (const bond of layout.bonds) {
+    const a1 = ids[bond.from];
+    const a2 = ids[bond.to];
+    if (!a1 || !a2) continue;
+    // addBond is a no-op when the pair is already bonded (the shared edge
+    // when fusing onto a bond), preserving that bond's own order/stereo.
+    working = addBond(working, nextId(), a1, a2, bond.order ?? 1, bond.stereo ?? "none");
+  }
+
+  return working;
+}
+
 /**
  * Places a new ring in `mol` per `attachment` — centered at `center` on
  * empty canvas, fused through a single existing atom, or fused directly
  * onto an existing bond (which becomes one of the new ring's edges).
  */
 export function placeRing(mol: Molecule, template: RingTemplate, center: Point, attachment: RingAttachment): Molecule {
+  if (template.layout) {
+    return placeLayoutRing(mol, template.layout, center, attachment);
+  }
   if (template.fused) {
     return placeNaphthalene(mol, center, attachment);
   }
@@ -357,6 +513,16 @@ function placeNaphthalene(mol: Molecule, center: Point, attachment: RingAttachme
  * hexagon) for naphthalene.
  */
 export function previewRingLoops(mol: Molecule, template: RingTemplate, center: Point, attachment: RingAttachment): Point[][] {
+  if (template.layout) {
+    const { worldOf } = resolveLayoutTransform(mol, template.layout, center, attachment);
+    const byKey = new Map(template.layout.atoms.map((a) => [a.key, a]));
+    return template.layout.loops.map((loop) =>
+      loop.map((key) => {
+        const atom = byKey.get(key);
+        return atom ? worldOf(atom) : { x: center.x, y: center.y };
+      })
+    );
+  }
   if (template.fused) {
     const { local, worldOf } = resolveNaphthaleneTransform(mol, center, attachment);
     const loopA = ["S1", "S2", "A1", "A2", "A3", "A4"].map((k) => worldOf(local[k]));

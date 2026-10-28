@@ -495,6 +495,54 @@ export interface RingTemplate {
    * generic MiniRing polygon.
    */
   fused?: boolean;
+  /**
+   * Fixed atom/bond layout for templates whose 2D geometry isn't a single
+   * regular polygon — the chair/boat cyclohexane projections, the decalins
+   * (which also carry explicit bridgehead hydrogens) and norbornane. When
+   * present this replaces the generic sides/heteroatoms/bondOrders geometry
+   * in placeRing and previewRingLoops; see engine/ringPlacement.ts.
+   *
+   * Coordinates are in world px at the same scale as BOND_LEN (42), with the
+   * layout's bounding-box centre at the origin. They are rigidly rotated +
+   * translated into place, and scaled uniformly when fusing onto an
+   * existing bond whose length differs from the layout's attach edge.
+   */
+  layout?: RingTemplateLayout;
+}
+
+/** One atom in a RingTemplate's fixed `layout` (see that field's doc
+ * comment). `key` is local to the template only. */
+export interface RingTemplateLayoutAtom {
+  key: string;
+  element: Element;
+  x: number;
+  y: number;
+  /** Formal charge, omitted (0) for everything in the built-in layouts. */
+  charge?: number;
+}
+
+/** One bond in a RingTemplate's fixed `layout`. `order` defaults to single;
+ * `stereo` defaults to "none". */
+export interface RingTemplateLayoutBond {
+  from: string;
+  to: string;
+  order?: BondOrder;
+  stereo?: BondStereo;
+}
+
+export interface RingTemplateLayout {
+  atoms: RingTemplateLayoutAtom[];
+  bonds: RingTemplateLayoutBond[];
+  /** Ring-walk cycles used to draw the hover preview, one point loop per
+   * ring. Explicit hydrogens/bridges are deliberately left out so the
+   * preview reads as the ring outline, not the full skeleton. */
+  loops: string[][];
+  /** Atom key that fuses onto an existing atom when the ring tool is used
+   * over an atom. Falls back to the layout's first atom when omitted. */
+  attachAtom?: string;
+  /** Bond endpoint keys that fuse onto an existing bond when the ring tool
+   * is used over a bond. Falls back to the first two atoms when omitted. */
+  attachBond?: [string, string];
 }
 
 /** One atom in a FunctionalGroupTemplate's local layout — see that type's

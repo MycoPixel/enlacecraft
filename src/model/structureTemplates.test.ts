@@ -55,6 +55,9 @@ const EXPECTED_FORMULAS: Record<string, string> = {
   lactose: "C12H22O11",
   sucrose: "C12H22O11",
   cellobiose: "C12H22O11",
+  "cellulose-repeat": "C12H22O11",
+  "amylose-repeat": "C12H22O11",
+  "chitin-repeat": "C16H28N2O11",
   indole: "C8H7N",
   quinoline: "C9H7N",
   isoquinoline: "C9H7N",
@@ -167,6 +170,24 @@ describe("built-in structure templates", () => {
       }
       const actual = computeFormula(t.molecule);
       if (actual !== expected) problems.push(`${t.id}: expected ${expected}, got ${actual}`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("polysaccharide repeats are enclosed by a bracket pair with an italic n", () => {
+    const problems: string[] = [];
+    for (const id of ["cellulose-repeat", "amylose-repeat", "chitin-repeat"]) {
+      const template = STRUCTURE_TEMPLATES.find((t) => t.id === id);
+      if (!template) {
+        problems.push(`${id}: template missing`);
+        continue;
+      }
+      const brackets = template.annotations.filter((a) => a.kind === "bracket");
+      if (brackets.length !== 2) problems.push(`${id}: expected 2 brackets, got ${brackets.length}`);
+      const facings = brackets.map((b) => (b.kind === "bracket" ? b.facing : "")).sort();
+      if (facings.join(",") !== "close,open") problems.push(`${id}: bracket facings ${facings.join(",")}`);
+      const label = template.annotations.find((a) => a.kind === "text" && a.html.includes("<i>n</i>"));
+      if (!label) problems.push(`${id}: missing italic n label`);
     }
     expect(problems).toEqual([]);
   });

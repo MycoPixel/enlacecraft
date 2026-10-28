@@ -1,4 +1,11 @@
 import type { Element, RingTemplate } from "../types/chemistry";
+import {
+  CIS_DECALIN_LAYOUT,
+  CYCLOHEXANE_BOAT_LAYOUT,
+  CYCLOHEXANE_CHAIR_LAYOUT,
+  NORBORNANE_LAYOUT,
+  TRANS_DECALIN_LAYOUT,
+} from "./ringConformations";
 
 /** Canonical bond length in SVG user units at zoom = 1. */
 export const BOND_LEN = 42;
@@ -373,6 +380,15 @@ export const REACTIVE_SITE_PRESETS: ReactiveSitePreset[] = [
 export const RING_TEMPLATES: RingTemplate[] = [
   { id: "benzene", label: "Benzene", sides: 6, aromatic: true },
   { id: "cyclohexane", label: "Cyclohexane", sides: 6, aromatic: false },
+  // Fixed projections — see ringConformations.ts and RingTemplate.layout.
+  {
+    id: "cyclohexane-chair", label: "Cyclohexane (chair)", sides: 6, aromatic: false,
+    layout: CYCLOHEXANE_CHAIR_LAYOUT,
+  },
+  {
+    id: "cyclohexane-boat", label: "Cyclohexane (boat)", sides: 6, aromatic: false,
+    layout: CYCLOHEXANE_BOAT_LAYOUT,
+  },
   { id: "cyclopentane", label: "Cyclopentane", sides: 5, aromatic: false },
   { id: "cyclobutane", label: "Cyclobutane", sides: 4, aromatic: false },
   { id: "cyclopropane", label: "Cyclopropane", sides: 3, aromatic: false },
@@ -446,6 +462,21 @@ export const RING_TEMPLATES: RingTemplate[] = [
     // own placement + icon code paths.
     id: "naphthalene", label: "Naphthalene", sides: 6, aromatic: true,
     fused: true,
+  },
+  {
+    // Two fused cyclohexanes + explicit bridgehead H's (wedge = toward the
+    // viewer). cis has both H's wedged; trans has one wedge + one dash.
+    id: "cis-decalin", label: "cis-Decalin", sides: 6, aromatic: false,
+    layout: CIS_DECALIN_LAYOUT,
+  },
+  {
+    id: "trans-decalin", label: "trans-Decalin", sides: 6, aromatic: false,
+    layout: TRANS_DECALIN_LAYOUT,
+  },
+  {
+    // Bicyclo[2.2.1]heptane: the six-membered ring plus its one-carbon bridge.
+    id: "norbornane", label: "Norbornane", sides: 6, aromatic: false,
+    layout: NORBORNANE_LAYOUT,
   },
   // --- Additional 5-membered heteroaromatics ---
   {

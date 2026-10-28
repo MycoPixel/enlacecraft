@@ -19,10 +19,14 @@ build.
   no manual work, and it re-evaluates live as you edit the structure. Click the
   double-bond tool again on an existing double bond to override it, cycling
   auto → left → right → center → auto
-- Ring templates: carbocycles (benzene, cyclopropane through cyclooctane) plus
+- Ring templates: carbocycles (benzene, cyclopropane through cyclooctane),
+  conformation templates (cyclohexane chair/boat, cis/trans-decalin, norbornane),
   common heterocycles — pyridine, furan, thiophene, pyrrole, imidazole, pyrimidine,
   piperidine, pyrrolidine, tetrahydrofuran, tetrahydropyran, morpholine, piperazine
-  — and fused naphthalene; place fresh or fuse onto an existing atom
+  — and fused naphthalene; place fresh, fuse onto an existing atom, or fuse onto an
+  existing bond. A searchable Structures palette adds amino acids, nucleotides,
+  nucleobases, carbohydrates (including cellulose/amylose/chitin repeating units),
+  steroids, terpenes, and fused heteroaromatics.
 - Functional-group templates (hydroxyl, amine, thiol, ether, carboxylic acid, ester,
   amide, ketone, aldehyde, nitrile, nitro) and a small abbreviated-group/superatom
   registry (Me, Et, tBu, Ph, Bn, Ac, OMe, Boc, Ts), plus free-text atom labels that
@@ -430,7 +434,6 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
 
 - Valence/charge rules are a simplified organic-chemistry approximation (see comments in
   `model/valence.ts`), not a full valence-electron model.
-- Ring fusion shares only the attachment atom, not a full shared edge.
 - MOL support covers the common V2000 atom/bond/charge (inline column and `M  CHG`
   property lines) and wedge fields, not SGroups, isotopes, or 3D coordinates, and
   there's no V3000 support. (The 3D structure view is unrelated to this — it
@@ -441,9 +444,10 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
   nickname libraries ChemDraw ships. User-saved fragments (`model/userTemplates.ts`) cover
   reusable custom structures, but they paste back in as a full expanded fragment rather
   than collapsing to a single labeled vertex the way a true superatom/nickname does.
-- Built-in `StructureTemplate`s (`model/structureTemplates.ts`) are limited to D-/L-glucose
-  Fischer projections — no amino acid, peptide, nucleotide, or other biomolecule template
-  library yet. See "Extending it" above for where more would plug in.
+- Built-in `StructureTemplate`s cover amino acids, nucleotides, nucleobases,
+  carbohydrates (including polysaccharide repeating units), steroids, terpenes, and
+  fused heteroaromatics, but not peptides/proteins or full polymer chains. See
+  "Extending it" above for where more would plug in.
 - No reaction atom-mapping (numbering corresponding atoms across reactants/products).
 - CDXML import/export only; no native `.cdx` (ChemDraw's binary format is undocumented —
   see the comment at the top of `io/cdxml.ts`). Within CDXML, curved mechanism
