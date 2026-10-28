@@ -13,7 +13,8 @@ const PROJECT_EXTENSION = ".enlacecraft";
 // Structure formats the Open dialog / drag-onto-window flows may read.
 // .smi/.smiles are plain-text SMILES files (one molecule per line, often
 // "SMILES name" pairs) — parsed by io/smilesImport.ts on the renderer side.
-const OPENABLE_EXTENSIONS = new Set([PROJECT_EXTENSION, ".mol", ".cdxml", ".smi", ".smiles"]);
+// .sdf is a multi-record MDL SD file, parsed by io/molfile.ts's importSdf.
+const OPENABLE_EXTENSIONS = new Set([PROJECT_EXTENSION, ".mol", ".sdf", ".cdxml", ".smi", ".smiles"]);
 
 // ---------------------------------------------------------------------------
 // External links

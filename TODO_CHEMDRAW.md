@@ -176,11 +176,11 @@ Total built-in structure templates: **65** (1 ligand + 20 amino acids + 12 carbo
 
 ## Phase 10: File Formats — Partial
 - [x] Native project format `.enlacecraft` (tabs, annotations, view state)
-- [x] Import `.mol`, `.cdxml`, `.smi`/`.smiles`, `.enlacecraft` (with content sniffing for `.txt`/unknown)
+- [x] Import `.mol`, `.sdf` (multi-record), `.cdxml`, `.smi`/`.smiles`, `.enlacecraft` (with content sniffing for `.txt`/unknown)
 - [x] Export MOL, CDXML, SMILES; PNG/SVG/print
 - [x] 3D import `.xyz`, `.pdb`/`.ent`, `.mol`, `.sdf`; 3D export `.xyz`/`.mol`
 - [x] CDX binary documented as unsupported (undocumented format)
-- [ ] SDF multi-record import (only single structures are handled today)
+- [x] SDF multi-record import — each structure opens in its own tab, capped at `LIMITS.maxTabs`; unreadable records are skipped and reported
 - [ ] CML import/export (optional)
 - [ ] ChemSketch SKC import/export (optional)
 

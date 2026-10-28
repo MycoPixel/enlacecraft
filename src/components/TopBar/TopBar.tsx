@@ -275,7 +275,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       <input
         ref={fileInputRef}
         type="file"
-        accept=".mol,.cdxml,.smi,.smiles,.enlacecraft"
+        accept=".mol,.sdf,.cdxml,.smi,.smiles,.enlacecraft"
         style={{ display: "none" }}
         onChange={(e) => e.target.files?.[0] && doImportFile(e.target.files[0])}
       />

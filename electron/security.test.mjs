@@ -206,6 +206,10 @@ describe("file IO helpers (real temp dir)", () => {
     await fsp.writeFile(ok, "hello");
     expect(await security.readOpenableFile(fsp, ok)).toEqual({ fileName: "a.mol", content: "hello" });
 
+    const sdf = path.join(dir, "library.sdf");
+    await fsp.writeFile(sdf, "$$$$");
+    expect(await security.readOpenableFile(fsp, sdf)).toEqual({ fileName: "library.sdf", content: "$$$$" });
+
     const exe = path.join(dir, "a.exe");
     await fsp.writeFile(exe, "x");
     await expect(security.readOpenableFile(fsp, exe)).rejects.toThrow(/unsupported/i);

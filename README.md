@@ -79,7 +79,8 @@ build.
 - Compound search understands Spanish names too (e.g. "cafeína", "ácido acético")
   even though PubChem itself is indexed mostly in English — see below
 - Import/export MOL (V2000, including `M  CHG` charges and `M  ISO` isotope
-  labels), import/export CDXML as a full document — molecules *plus* reaction/
+  labels), import multi-record `.sdf` files as one tab per structure, import/
+  export CDXML as a full document — molecules *plus* reaction/
   resonance/equilibrium/retrosynthetic/curved arrows, square/curly/paren
   brackets, rectangles/ovals/lines, bold & dashed bonds, and styled text
   captions (underline, size, color — see `io/cdxml.ts` for what does and

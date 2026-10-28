@@ -119,7 +119,7 @@ export default function App() {
     document.documentElement.setAttribute("lang", language);
   }, [language]);
 
-  // Drag-and-drop file import (.mol/.cdxml/.enlacecraft) onto the app
+  // Drag-and-drop file import (.mol/.sdf/.cdxml/.enlacecraft) onto the app
   // window — works the same in the web build and the desktop build alike,
   // since it's a plain browser API rather than anything Electron-specific
   // (unlike the native Open/Save dialogs in TopBar.tsx, which only exist

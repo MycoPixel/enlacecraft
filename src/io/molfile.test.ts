@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { addAtom, addBond, emptyMolecule } from "../model/molecule";
 import { computeFormula } from "../model/valence";
-import { exportMol, importMol } from "./molfile";
+import { exportMol, importMol, importSdf } from "./molfile";
 import type { Molecule } from "../types/chemistry";
 
 /** A 3-atom chain (C-C-O, single bonds), same shape as ethanol's skeleton —
@@ -333,3 +333,74 @@ function chainWithExtras2() {
   mol = addBond(mol, "b1", "a1", "a2");
   return mol;
 }
+
+describe("importSdf", () => {
+  test("reads every $$$$-separated record and keeps its title line", () => {
+    const sdf = [
+      exportMol(chainWithExtras2(), "ethane"),
+      "$$$$",
+      exportMol(ethanolSkeleton(), "ethanol"),
+      "$$$$",
+    ].join("\n");
+
+    const { records, skipped } = importSdf(sdf);
+    expect(skipped).toBe(0);
+    expect(records).toHaveLength(2);
+    expect(records.map((r) => r.title)).toEqual(["ethane", "ethanol"]);
+    expect(Object.keys(records[0].molecule.atoms)).toHaveLength(2);
+    expect(Object.keys(records[1].molecule.atoms)).toHaveLength(3);
+  });
+
+  test("accepts a final record without a trailing $$$$", () => {
+    const sdf = `${exportMol(chainWithExtras2(), "ethane")}\n$$$$\n${exportMol(ethanolSkeleton(), "ethanol")}`;
+    const { records } = importSdf(sdf);
+    expect(records).toHaveLength(2);
+    expect(records[1].title).toBe("ethanol");
+  });
+
+  test("a plain MOL file (no separator) is a one-record SDF", () => {
+    const { records, skipped } = importSdf(exportMol(ethanolSkeleton(), "ethanol"));
+    expect(skipped).toBe(0);
+    expect(records).toHaveLength(1);
+    expect(records[0].title).toBe("ethanol");
+  });
+
+  test("data fields after M  END are ignored, not parsed as another molecule", () => {
+    const sdf = [
+      exportMol(chainWithExtras2(), "ethane"),
+      "> <PUBCHEM_COMPOUND_CID>",
+      "6324",
+      "",
+      "$$$$",
+    ].join("\n");
+
+    const { records } = importSdf(sdf);
+    expect(records).toHaveLength(1);
+    expect(Object.keys(records[0].molecule.atoms)).toHaveLength(2);
+  });
+
+  test("one unreadable record is skipped instead of aborting the whole file", () => {
+    const sdf = [
+      exportMol(chainWithExtras2(), "good-1"),
+      "$$$$",
+      "broken record",
+      "  no counts line",
+      "",
+      "$$$$",
+      exportMol(ethanolSkeleton(), "good-2"),
+      "$$$$",
+    ].join("\n");
+
+    const { records, skipped } = importSdf(sdf);
+    expect(skipped).toBe(1);
+    expect(records.map((r) => r.title)).toEqual(["good-1", "good-2"]);
+  });
+
+  test("throws the parser's error when no record is readable", () => {
+    expect(() => importSdf("broken record\n  no counts line\n")).toThrow();
+  });
+
+  test("empty input yields no records and no error", () => {
+    expect(importSdf("")).toEqual({ records: [], skipped: 0 });
+  });
+});

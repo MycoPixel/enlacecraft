@@ -62,7 +62,7 @@ export interface ElectronBridge {
   // renderer isn't allowed to name the destination.
   saveProjectFileToCurrent: (content: string) => Promise<SaveProjectToCurrentResult>;
   // Native "Open" dialog covering every format this app can import
-  // (.enlacecraft/.mol/.cdxml) in one picker — see electron/main.cjs's
+  // (.enlacecraft/.mol/.sdf/.cdxml) in one picker — see electron/main.cjs's
   // "dialog:open-file" handler. Returns the file's raw text content
   // already read from disk, ready to hand to useFileImport() exactly like
   // a browser-read File's content would be.

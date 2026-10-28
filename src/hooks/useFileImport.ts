@@ -1,5 +1,5 @@
 import { useMoleculeStore } from "../store/useMoleculeStore";
-import { importMol } from "../io/molfile";
+import { importMol, importSdf } from "../io/molfile";
 import { importCdxmlDocument } from "../io/cdxml";
 import type { Annotation } from "../types/chemistry";
 import { importSmiles, detectStructureText, SmilesImportError } from "../io/smilesImport";
@@ -12,10 +12,10 @@ import { forgetSaveDestination, baseName } from "../io/saveProject";
  * Parses a file's raw text content — already read, from wherever it came
  * from (the browser <input type="file"> picker, a native Electron Open
  * dialog, or a drag-and-drop onto the window) — and loads it into the app:
- * either as a new molecule tab (.mol/.cdxml/.smi) or a fully restored
- * project (.enlacecraft, with all its tabs). Centralized here so those
- * entry points share one dispatch implementation instead of near-identical
- * copies drifting apart over time.
+ * either as one or more new molecule tabs (.mol/.sdf/.cdxml/.smi) or a
+ * fully restored project (.enlacecraft, with all its tabs). Centralized here
+ * so those entry points share one dispatch implementation instead of
+ * near-identical copies drifting apart over time.
  *
  * Dispatch is by extension where the extension is trustworthy, and by
  * content sniffing (`detectStructureText`) where it isn't — so a plain
@@ -23,7 +23,9 @@ import { forgetSaveDestination, baseName } from "../io/saveProject";
  * long as its *contents* are recognizable. Sniffing only ever overrides
  * the extension for the loose cases (.txt and unknown extensions); a
  * .mol that smells like something else is still fed to importMol, keeping
- * the old error surface for genuinely corrupt files.
+ * the old error surface for genuinely corrupt files. An SDF is a sequence
+ * of MOL blocks, so it gets its own multi-tab path; a `$$$$` separator is
+ * enough to route there even when the extension is misleading.
  */
 export function useFileImport() {
   const importMoleculeAsNewTab = useMoleculeStore((s) => s.importMoleculeAsNewTab);
@@ -66,6 +68,41 @@ export function useFileImport() {
             ? t("status.importedWithSkips", { count: atomCount, skipped })
             : t("status.imported", { count: atomCount }),
         );
+        return;
+      }
+      const isSdf = lower.endsWith(".sdf") || (!isCdxml && !isSmiles && content.includes("$$$$"));
+      if (isSdf) {
+        const { records, skipped } = importSdf(content);
+        // The project loader caps a saved document at LIMITS.maxTabs tabs;
+        // a huge vendor library must obey the same ceiling rather than
+        // creating an unbounded tab bar. Count tabs already open, so
+        // importing into a busy session can't overshoot either.
+        const capacity = Math.max(0, LIMITS.maxTabs - useMoleculeStore.getState().tabs.length);
+        if (capacity === 0) {
+          setStatus(t("status.tabLimitReached", { limit: LIMITS.maxTabs }));
+          return;
+        }
+        const imported = records.slice(0, capacity);
+        const overflow = records.length - imported.length;
+        // The document on screen is now this file's content, so a plain
+        // Save must ask for a project file rather than overwrite the .sdf.
+        forgetSaveDestination();
+        setProjectFileName(null);
+        const base = name.replace(/\.[^.]+$/, "");
+        imported.forEach((record, i) => {
+          // Prefer the writer's own title line; fall back to the filename,
+          // numbered only when there is more than one structure to tell apart.
+          const title = record.title || (records.length > 1 ? `${base} ${i + 1}` : base);
+          importMoleculeAsNewTab(record.molecule, title, {});
+        });
+        const count = imported.length;
+        if (overflow > 0) {
+          setStatus(t("status.importedSdfTruncated", { count, skipped: skipped + overflow, limit: LIMITS.maxTabs }));
+        } else if (skipped > 0) {
+          setStatus(t("status.importedSdfWithSkips", { count, skipped }));
+        } else {
+          setStatus(t("status.importedSdf", { count }));
+        }
         return;
       }
       const sniffed = isSmiles || isCdxml ? null : detectStructureText(content);

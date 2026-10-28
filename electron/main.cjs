@@ -279,24 +279,25 @@ handleTrusted("dialog:save-project-to", async (event, payload) => {
 });
 
 // Native "Open" covering every format this app imports in one picker —
-// mirrors the browser <input accept=".mol,.cdxml,.enlacecraft"> in
+// mirrors the browser <input accept=".mol,.sdf,.cdxml,.enlacecraft"> in
 // TopBar.tsx. Reads the file here (main process has real filesystem
 // access; the renderer, even in Electron, does not) and hands the raw
 // text straight back — the renderer's useFileImport() hook then parses it
 // exactly the same way it would a browser-read File's content, so the
 // two paths share all their actual import logic.
 //
-// Hardened: only .enlacecraft/.mol/.cdxml, only regular files, and nothing
-// over 25 MB is read into memory (see security.readOpenableFile).
+// Hardened: only .enlacecraft/.mol/.sdf/.cdxml, only regular files, and
+// nothing over 25 MB is read into memory (see security.readOpenableFile).
 handleTrusted("dialog:open-file", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     title: "Open",
     properties: ["openFile"],
     filters: [
-      { name: "All supported files", extensions: ["enlacecraft", "mol", "cdxml", "smi", "smiles"] },
+      { name: "All supported files", extensions: ["enlacecraft", "mol", "sdf", "cdxml", "smi", "smiles"] },
       { name: "EnlaceCraft project", extensions: ["enlacecraft"] },
       { name: "MDL Molfile", extensions: ["mol"] },
+      { name: "MDL SD file", extensions: ["sdf"] },
       { name: "ChemDraw XML", extensions: ["cdxml"] },
       { name: "SMILES", extensions: ["smi", "smiles"] },
     ],

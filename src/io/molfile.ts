@@ -424,3 +424,67 @@ export function importMol(text: string): Molecule {
   // display, without needing real atom/bond nodes for each one.
   return stripExplicitHydrogens(finalizeImportedMolecule(mol));
 }
+
+/** One structure in an SDF file: the molecule plus the title line the
+ * writer put at the top of its mol block (often a compound name). */
+export interface SdfRecord {
+  molecule: Molecule;
+  title: string;
+}
+
+export interface SdfImportResult {
+  records: SdfRecord[];
+  /** Records that looked like mol blocks but couldn't be parsed. */
+  skipped: number;
+}
+
+/**
+ * Reads an MDL SD file (.sdf): a sequence of mol blocks separated by
+ * `$$$$` lines, optionally followed by data fields. A plain MOL file is
+ * also accepted (one record, no separator), which makes the dispatcher's
+ * `.sdf` handling safe for mislabeled single structures.
+ *
+ * A record that fails to parse is counted and skipped rather than aborting
+ * the whole import — a 500-compound vendor library with one corrupt entry
+ * should still open the other 499. If nothing parses at all, the first
+ * parser error is rethrown so the caller can report it the same way it
+ * reports a bad .mol.
+ */
+export function importSdf(text: string): SdfImportResult {
+  const chunks: string[] = [];
+  let current: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim() === "$$$$") {
+      if (current.length > 0) chunks.push(current.join("\n"));
+      current = [];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) chunks.push(current.join("\n"));
+
+  const records: SdfRecord[] = [];
+  let skipped = 0;
+  let firstError: unknown = null;
+  for (const chunk of chunks) {
+    if (chunk.trim().length === 0) continue;
+    try {
+      // importMol is deliberately tolerant of a short atom block, which
+      // means a non-mol chunk ("broken record", an HTML error page, a
+      // stray text block between $$$$ lines) would otherwise import as an
+      // empty molecule and silently add a blank tab. A real record always
+      // carries the counts-line format tag or the property-block
+      // terminator, so use either as the cheap sanity check.
+      if (!/\bV[23]000\b/.test(chunk) && !/M  END/.test(chunk)) {
+        throw new Error("Not a mol block");
+      }
+      const title = (chunk.split(/\r?\n/, 1)[0] ?? "").trim();
+      records.push({ molecule: importMol(chunk), title });
+    } catch (err) {
+      skipped += 1;
+      if (firstError === null) firstError = err;
+    }
+  }
+  if (records.length === 0 && firstError !== null) throw firstError;
+  return { records, skipped };
+}
