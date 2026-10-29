@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, Point, RingAttachment, RingTemplate, RotationSession, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, RingAttachment, RingTemplate, RotationSession, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
@@ -15,6 +15,7 @@ import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTempla
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { collapseToGroup, findCollapsibleGroups } from "../model/groupCollapse";
 import { pruneSchemeArrowIds } from "../model/reactionSchemes";
+import { defaultPageSetup } from "../model/pageSetup";
 import type { Embed3DMethod } from "../io/embed3d";
 import {
   STRUCTURE3D_STYLES,
@@ -223,6 +224,9 @@ interface TabDocument {
   molecule: Molecule;
   annotations: Record<string, Annotation>;
   view: ViewTransform;
+  /** Page geometry for this tab (see PageSetup). Unlike `view`, this is not
+   * undoable: it describes the paper, not the drawing. */
+  page: PageSetup;
   past: Snapshot[];
   future: Snapshot[];
   hasUnsavedChanges: boolean;
@@ -242,6 +246,10 @@ export interface SavedTab {
   molecule: Molecule;
   annotations: Record<string, Annotation>;
   view: ViewTransform;
+  /** Optional so tabs restored from older saves (and the many tests that
+   * build a SavedTab by hand) keep working; loadProject substitutes the
+   * default when it is absent. */
+  page?: PageSetup;
 }
 
 const DEFAULT_TEXT_WIDTH = 160;
@@ -407,6 +415,9 @@ interface MoleculeStore {
   functionalGroupPendingPlacement: { template: FunctionalGroupTemplate; attachment: FunctionalGroupAttachment; center: Point } | null;
   selected: Set<string>;
   view: ViewTransform;
+  /** Page/paper setup for the active tab (see PageSetup); the inactive tabs'
+   * copies live in tabDocuments. */
+  page: PageSetup;
   theme: Theme;
   /** The drawing canvas's own background — separate from the app theme;
    * see CanvasBackground's doc comment. */
@@ -799,8 +810,10 @@ interface MoleculeStore {
    * come in through the optional `annotations` record (already sanitized
    * and id-fresh — minted through nextId() during parsing, same as the
    * molecule's own ids, so no reserveIds() dance is needed here, unlike
-   * the project-restore paths which install ids verbatim). */
-  importMoleculeAsNewTab: (mol: Molecule, title?: string, annotations?: Record<string, Annotation>) => void;
+   * the project-restore paths which install ids verbatim). CDXML imports
+   * also pass the file's own `page` setup so its paper size/bond length
+   * survives the trip. */
+  importMoleculeAsNewTab: (mol: Molecule, title?: string, annotations?: Record<string, Annotation>, page?: PageSetup) => void;
   /** Brings in a full saved .enlacecraft project as additional new tabs
    * alongside whatever tabs already exist, instead of replacing them —
    * used by the toolbar Import button. */
@@ -989,6 +1002,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     molecule: s.molecule,
     annotations: s.annotations,
     view: s.view,
+    page: s.page,
     past: s.past,
     future: s.future,
     hasUnsavedChanges: s.hasUnsavedChanges,
@@ -1065,6 +1079,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     functionalGroupPendingPlacement: null,
     selected: new Set(),
     view: { scale: 1, tx: 0, ty: 0 },
+    page: defaultPageSetup(),
     theme: detectInitialTheme(),
     // Plain white canvas (screenshot-ready) until someone picks otherwise;
     // "theme" restores the normal themed background + grid. Persisted — see
@@ -1499,7 +1514,15 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       const tabDocuments: Record<string, TabDocument> = {};
       for (const tb of data.tabs) {
         if (tb.id === active.id) continue; // lives in the top-level fields below instead
-        tabDocuments[tb.id] = { molecule: tb.molecule, annotations: tb.annotations, view: tb.view, past: [], future: [], hasUnsavedChanges: false };
+        tabDocuments[tb.id] = {
+          molecule: tb.molecule,
+          annotations: tb.annotations,
+          view: tb.view,
+          page: tb.page ?? defaultPageSetup(),
+          past: [],
+          future: [],
+          hasUnsavedChanges: false,
+        };
       }
       set({
         tabs: data.tabs.map((tb) => ({ id: tb.id, title: tb.title })),
@@ -1508,6 +1531,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         molecule: active.molecule,
         annotations: active.annotations,
         view: active.view,
+        page: active.page ?? defaultPageSetup(),
         past: [],
         future: [],
         // Just opened exactly what's on disk — nothing to save yet, in this
@@ -1516,7 +1540,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         ...transientResetFields(),
       });
     },
-    importMoleculeAsNewTab: (mol, title, annotations = {}) => {
+    importMoleculeAsNewTab: (mol, title, annotations = {}, page = defaultPageSetup()) => {
       tabNumberCounter += 1;
       const id = `tab-${nextId()}`;
       const tabTitle = title ?? translate(get().language, "tab.defaultTitle", { n: tabNumberCounter });
@@ -1530,6 +1554,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         molecule: mol,
         annotations,
         view: DEFAULT_VIEW,
+        page,
         past: [],
         future: [],
         hasUnsavedChanges: true,
@@ -1547,7 +1572,15 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         idMap.set(tb.id, newId);
         newTabInfos.push({ id: newId, title: tb.title });
         if (tb.id === activeSaved.id) continue; // lives in the top-level fields below instead
-        newTabDocuments[newId] = { molecule: tb.molecule, annotations: tb.annotations, view: tb.view, past: [], future: [], hasUnsavedChanges: true };
+        newTabDocuments[newId] = {
+          molecule: tb.molecule,
+          annotations: tb.annotations,
+          view: tb.view,
+          page: tb.page ?? defaultPageSetup(),
+          past: [],
+          future: [],
+          hasUnsavedChanges: true,
+        };
       }
       const newActiveId = idMap.get(activeSaved.id)!;
       set((s) => ({
@@ -1557,6 +1590,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         molecule: activeSaved.molecule,
         annotations: activeSaved.annotations,
         view: activeSaved.view,
+        page: activeSaved.page ?? defaultPageSetup(),
         past: [],
         future: [],
         hasUnsavedChanges: true,
@@ -1566,7 +1600,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     getAllTabsForSave: () => {
       const s = get();
       return s.tabs.map((tb) => {
-        if (tb.id === s.activeTabId) return { id: tb.id, title: tb.title, molecule: s.molecule, annotations: s.annotations, view: s.view };
+        if (tb.id === s.activeTabId) {
+          return { id: tb.id, title: tb.title, molecule: s.molecule, annotations: s.annotations, view: s.view, page: s.page };
+        }
         const doc = s.tabDocuments[tb.id];
         return {
           id: tb.id,
@@ -1574,6 +1610,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
           molecule: doc?.molecule ?? M.emptyMolecule(),
           annotations: doc?.annotations ?? {},
           view: doc?.view ?? DEFAULT_VIEW,
+          page: doc?.page ?? defaultPageSetup(),
         };
       });
     },
@@ -1586,12 +1623,13 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         tabDocuments: {
           ...s.tabDocuments,
           [s.activeTabId]: snapshotActiveDocument(s),
-          [id]: { molecule: M.emptyMolecule(), annotations: {}, view: DEFAULT_VIEW, past: [], future: [], hasUnsavedChanges: false },
+          [id]: { molecule: M.emptyMolecule(), annotations: {}, view: DEFAULT_VIEW, page: defaultPageSetup(), past: [], future: [], hasUnsavedChanges: false },
         },
         activeTabId: id,
         molecule: M.emptyMolecule(),
         annotations: {},
         view: DEFAULT_VIEW,
+        page: defaultPageSetup(),
         past: [],
         future: [],
         hasUnsavedChanges: false,
@@ -1609,6 +1647,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         molecule: incoming.molecule,
         annotations: incoming.annotations,
         view: incoming.view,
+        page: incoming.page,
         past: incoming.past,
         future: incoming.future,
         hasUnsavedChanges: incoming.hasUnsavedChanges,
@@ -1649,6 +1688,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
           molecule: incoming.molecule,
           annotations: incoming.annotations,
           view: incoming.view,
+          page: incoming.page,
           past: incoming.past,
           future: incoming.future,
           hasUnsavedChanges: incoming.hasUnsavedChanges,

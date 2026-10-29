@@ -156,7 +156,7 @@ Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbo
 - [x] Import skips multi-/variable-attachment and external-connection nodes instead of adding bogus carbons
 - [x] Nickname definition fragments no longer leak their internal nodes/bonds into the imported molecule
 - [x] Color-table fidelity: TLC spot colors are pre-scanned, so every emitted `color` index exists in the header table
-- [ ] Page setup parsing/serialization (`<page>` attributes: size, margins, bond length)
+- [x] Page setup parsing/serialization (`<page>` BoundingBox, root `BondLength`/`MarginWidth`): stored per tab, persisted in projects, and used to scale export coordinates; files without a page get an A4-or-content page
 - [x] Scheme/reaction-step grouping (`<scheme>`, `<step>`): import maps fragment/graphic ids (following `SupersededBy`) onto `Molecule.schemes`, export emits them back, project/autosave persist them, and the info panel lists them read-only (selecting a whole reaction)
 - [ ] S-Groups import/export for polymers/mixtures (`sgroups` has no producer in the app yet, so this is deferred until there is something to round-trip)
 - [ ] Font/color-table fidelity verification against real ChemDraw output
@@ -194,7 +194,7 @@ Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbo
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 3 polysaccharide repeating units, 10 steroids/bile acids, 7 terpenes, 5 fused heteroaromatics, 36 ring templates (including chair/boat cyclohexane, cis/trans-decalin, and norbornane); bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, reaction-scheme grouping, and a complete color table; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
-- **Main remaining work:** CDXML page setup; S-groups (no producer yet); optional CML/SKC.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 3 polysaccharide repeating units, 10 steroids/bile acids, 7 terpenes, 5 fused heteroaromatics, 36 ring templates (including chair/boat cyclohexane, cis/trans-decalin, and norbornane); bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, reaction-scheme grouping, page setup, and a complete color table; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
+- **Main remaining work:** S-groups (no producer yet); optional CML/SKC.
 - **Type checking:** `npx tsc -b` passes cleanly.
 - **Lint:** `oxlint` is clean on the touched files.

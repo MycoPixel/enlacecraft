@@ -20,9 +20,11 @@ import type {
   BondQueryProps,
   ReactionScheme,
   ReactionStep,
+  PageSetup,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
 import { PERIODIC_TABLE } from "../model/constants";
+import { DEFAULT_BOND_LENGTH, DEFAULT_MARGIN_WIDTH } from "../model/pageSetup";
 import { nextId } from "../model/id";
 import { sanitizeAnnotationHtml } from "./sanitizeHtml";
 
@@ -65,6 +67,9 @@ export const LIMITS = {
   maxAnnotations: 5_000,
   maxReactionSchemes: 500,
   maxReactionSteps: 5_000,
+  /** Largest page dimension or page origin accepted in a project file, in
+   * CDXML points (about 278 inches — far past any real paper size). */
+  maxPageDimension: 20_000,
   maxTemplates: 500,
   maxTitleChars: 200,
   maxIdChars: 128,
@@ -725,6 +730,46 @@ export function sanitizeView(raw: unknown): ViewTransform {
     if (scale !== BAD && tx !== BAD && ty !== BAD) return { scale, tx, ty };
   }
   return { scale: 1, tx: 0, ty: 0 };
+}
+
+/**
+ * Validates a tab's PageSetup from a project file or autosave snapshot.
+ *
+ * A missing page is normal (every save before page setup existed) and returns
+ * undefined so the caller can substitute its own default. A malformed *page
+ * box* is dropped as a unit — without a usable width/height the box means
+ * nothing — while an out-of-range bond length or margin falls back to
+ * ChemDraw's default rather than discarding an otherwise good page.
+ */
+export function sanitizePageSetup(raw: unknown, report: RepairReport = newRepairReport()): PageSetup | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isPlainObject(raw)) {
+    report.droppedOther++;
+    return undefined;
+  }
+
+  const origin = finite(-LIMITS.maxPageDimension, LIMITS.maxPageDimension);
+  const dimension = finite(50, LIMITS.maxPageDimension);
+  const x = raw.x === undefined ? 0 : origin(raw.x);
+  const y = raw.y === undefined ? 0 : origin(raw.y);
+  const width = dimension(raw.width);
+  const height = dimension(raw.height);
+  if (x === BAD || y === BAD || width === BAD || height === BAD) {
+    report.droppedOther++;
+    return undefined;
+  }
+
+  const bondLength = raw.bondLength === undefined ? DEFAULT_BOND_LENGTH : finite(1, 1_000)(raw.bondLength);
+  const marginWidth = raw.marginWidth === undefined ? DEFAULT_MARGIN_WIDTH : finite(0, 1_000)(raw.marginWidth);
+
+  return {
+    x,
+    y,
+    width,
+    height,
+    bondLength: bondLength === BAD ? DEFAULT_BOND_LENGTH : bondLength,
+    marginWidth: marginWidth === BAD ? DEFAULT_MARGIN_WIDTH : marginWidth,
+  };
 }
 
 export function sanitizeFragment(raw: unknown, report: RepairReport = newRepairReport()): { molecule: Molecule; annotations: Annotation[] } {

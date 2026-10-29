@@ -316,3 +316,62 @@ describe("reaction scheme grouping in projects", () => {
     expect(project.tabs[0].molecule.schemes).toBeUndefined();
   });
 });
+
+describe("project page setup persistence", () => {
+  const page = { x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 36, marginWidth: 3 };
+
+  test("round-trips a tab's page setup", () => {
+    const json = exportProject({
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "A4",
+          molecule: { atoms: {}, bonds: {}, hapticBonds: {}, aromaticRingDisplays: {} },
+          annotations: {},
+          view: { scale: 1, tx: 0, ty: 0 },
+          page,
+        },
+      ],
+    });
+
+    expect(importProject(json).tabs[0].page).toEqual(page);
+  });
+
+  test("an older save without a page still imports (the store supplies its default)", () => {
+    const saved = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Old",
+          molecule: { atoms: {}, bonds: {}, hapticBonds: {} },
+          annotations: {},
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    expect(importProject(saved).tabs[0].page).toBeUndefined();
+  });
+
+  test("a malformed page box is dropped rather than rejecting the whole project", () => {
+    const saved = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Broken page",
+          molecule: { atoms: {}, bonds: {}, hapticBonds: {} },
+          annotations: {},
+          view: { scale: 1, tx: 0, ty: 0 },
+          page: { x: 0, y: 0, width: 0, height: 0 },
+        },
+      ],
+    });
+
+    expect(importProject(saved).tabs[0].page).toBeUndefined();
+  });
+});

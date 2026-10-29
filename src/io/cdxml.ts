@@ -9,6 +9,7 @@ import type {
   Element as ChemElement,
   Molecule,
   OrbitalAnnotation,
+  PageSetup,
   ReactionScheme,
   ReactionStep,
   ShapeAnnotation,
@@ -22,7 +23,14 @@ import { ABBREVIATED_GROUPS, BOND_LEN, PERIODIC_TABLE } from "../model/constants
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { calibrateImportScale } from "./importScale";
 import { nextId } from "../model/id";
-import { LIMITS, finalizeImportedMolecule } from "./validate";
+import { LIMITS, finalizeImportedMolecule, sanitizePageSetup } from "./validate";
+import {
+  A4_PAGE_HEIGHT,
+  A4_PAGE_WIDTH,
+  DEFAULT_BOND_LENGTH,
+  DEFAULT_MARGIN_WIDTH,
+  defaultPageSetup,
+} from "../model/pageSetup";
 import { sanitizeAnnotationList } from "./sanitizeHtml";
 
 /**
@@ -376,16 +384,25 @@ function colorPaletteIndex(cssColor: string): number {
   return exportPalette.length + 1;
 }
 
-export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], name = "molecule"): string {
+export function exportCdxmlDocument(
+  mol: Molecule,
+  annotations: Annotation[],
+  name = "molecule",
+  page?: PageSetup,
+): string {
   const atomIds = Object.keys(mol.atoms);
   const bondList = Object.values(mol.bonds);
 
-  // ChemDraw's conventional default bond length is 30 drawing units;
-  // scaling our pixel-based canvas onto that convention keeps the geometry
-  // (and text/bond proportions ChemDraw derives from BondLength) sane.
+  // CDXML's drawing units are points, and a default ChemDraw bond is 30 of
+  // them; scaling our pixel-based canvas by the page's own BondLength keeps
+  // the geometry (and text/bond proportions ChemDraw derives from
+  // BondLength) sane. A caller that has no page setup gets an A4 page sized
+  // to its content, which keeps the file's paper size sensible too.
   // Unlike MDL molfiles, CDXML's Y axis already increases downward — the
   // same convention this app's canvas uses — so no sign flip is needed here.
-  const scale = 30 / BOND_LEN;
+  const bondLength = page?.bondLength ?? DEFAULT_BOND_LENGTH;
+  const scale = bondLength / BOND_LEN;
+  const pageSetup = page ?? autoPageSetup(mol, annotations, scale);
   const u = (v: number): string => (v * scale).toFixed(4);
 
   // Pre-scan every annotation color — caption text runs and TLC spot dots —
@@ -409,7 +426,7 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
 
   let out = `<?xml version="1.0" encoding="UTF-8" ?>\n`;
   out += `<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n`;
-  out += `<CDXML CreationProgram="EnlaceCraft" Name="${escapeXml(name)}" BondLength="30" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10" FractionalWidths="yes" InterpretChemically="yes">\n`;
+  out += `<CDXML CreationProgram="EnlaceCraft" Name="${escapeXml(name)}" BondLength="${formatNumber(pageSetup.bondLength)}" MarginWidth="${formatNumber(pageSetup.marginWidth)}" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10" FractionalWidths="yes" InterpretChemically="yes">\n`;
   out += `<colortable>${exportPalette.map((c) => `<color r="${hexToCdxR(c, "r")}" g="${hexToCdxR(c, "g")}" b="${hexToCdxR(c, "b")}"/>`).join("")}</colortable>\n`;
   out += `<fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable>\n`;
 
@@ -437,7 +454,11 @@ export function exportCdxmlDocument(mol: Molecule, annotations: Annotation[], na
     return id;
   };
 
-  out += `<page>\n`;
+  // The page box is in the same points as every coordinate above. ChemDraw
+  // writes the header/footer positions and trim marks here too; these are
+  // its own defaults (0.5 in from each edge, marks on, one page each way),
+  // so a file we write opens looking like a plain ChemDraw document.
+  out += `<page BoundingBox="${f4(pageSetup.x)} ${f4(pageSetup.y)} ${f4(pageSetup.x + pageSetup.width)} ${f4(pageSetup.y + pageSetup.height)}" HeaderPosition="36" FooterPosition="36" PrintTrimMarks="yes" HeightPages="1" WidthPages="1">\n`;
   for (const component of components) {
     const inComponent = new Set(component);
     const fragmentId = nextId();
@@ -871,6 +892,110 @@ function cdxDisplayToStereo(raw: string | null): { stereo: BondStereo; swapped: 
 export interface CdxmlDocument {
   molecule: Molecule;
   annotations: Annotation[];
+  /** The file's paper/drawing setup, when it had a usable page box. */
+  page?: PageSetup;
+}
+
+/** ChemDraw's default header/footer inset, reused as the breathing room an
+ * auto-sized page leaves around its content. */
+const AUTO_PAGE_MARGIN = 36;
+
+/** The bounding box an annotation occupies, in app canvas units. */
+function annotationBounds(ann: Annotation): { left: number; top: number; right: number; bottom: number } {
+  if (ann.kind === "arrow") {
+    return {
+      left: Math.min(ann.x1, ann.x2),
+      top: Math.min(ann.y1, ann.y2),
+      right: Math.max(ann.x1, ann.x2),
+      bottom: Math.max(ann.y1, ann.y2),
+    };
+  }
+  if (ann.kind === "orbital") {
+    return { left: ann.x, top: ann.y, right: ann.x + ann.size, bottom: ann.y + ann.size };
+  }
+  return { left: ann.x, top: ann.y, right: ann.x + ann.width, bottom: ann.y + ann.height };
+}
+
+/**
+ * Page setup for callers that have none: A4 portrait, enlarged only if the
+ * drawing would otherwise fall within AUTO_PAGE_MARGIN of (or past) an edge.
+ * Keeping A4 as the floor means an ordinary drawing still opens as an A4
+ * ChemDraw page rather than a tiny box cropped to its own bounds.
+ */
+function autoPageSetup(mol: Molecule, annotations: Annotation[], scale: number): PageSetup {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  const include = (l: number, t: number, r: number, b: number): void => {
+    if (![l, t, r, b].every(Number.isFinite)) return;
+    left = Math.min(left, l);
+    top = Math.min(top, t);
+    right = Math.max(right, r);
+    bottom = Math.max(bottom, b);
+  };
+
+  for (const atom of Object.values(mol.atoms)) include(atom.x, atom.y, atom.x, atom.y);
+  for (const ann of annotations) {
+    const b = annotationBounds(ann);
+    include(b.left, b.top, b.right, b.bottom);
+  }
+
+  if (!Number.isFinite(left)) return defaultPageSetup();
+
+  // Content that already sits inside an A4 page keeps the page at the origin;
+  // only content running off the left/top edge pulls the page out to include
+  // it (plus the margin). Right/bottom grow whenever content would otherwise
+  // come closer than the margin to the edge.
+  const x = left * scale < 0 ? left * scale - AUTO_PAGE_MARGIN : 0;
+  const y = top * scale < 0 ? top * scale - AUTO_PAGE_MARGIN : 0;
+  const rightEdge = Math.max(A4_PAGE_WIDTH, right * scale + AUTO_PAGE_MARGIN);
+  const bottomEdge = Math.max(A4_PAGE_HEIGHT, bottom * scale + AUTO_PAGE_MARGIN);
+  return {
+    x,
+    y,
+    width: rightEdge - x,
+    height: bottomEdge - y,
+    bondLength: DEFAULT_BOND_LENGTH,
+    marginWidth: DEFAULT_MARGIN_WIDTH,
+  };
+}
+
+/** Reads a CDXML file's page box and drawing defaults. Absent/malformed
+ * values are dropped by sanitizePageSetup, which returns undefined for a
+ * page without a usable box — the same "no page info" the caller's default
+ * then fills in. */
+function importPageSetup(doc: Document): PageSetup | undefined {
+  const pageEl = doc.querySelector("page");
+  if (!pageEl) return undefined;
+  const bbox = parseBBox(pageEl);
+  if (!bbox) return undefined;
+  const [x1, y1, x2, y2] = bbox;
+
+  const root = doc.documentElement;
+  const readNumber = (attr: string): number | undefined => {
+    const raw = pageEl.getAttribute(attr) ?? root.getAttribute(attr);
+    if (raw === null) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const bondLength = readNumber("BondLength");
+  const marginWidth = readNumber("MarginWidth");
+
+  return sanitizePageSetup({
+    x: Math.min(x1, x2),
+    y: Math.min(y1, y2),
+    width: Math.abs(x2 - x1),
+    height: Math.abs(y2 - y1),
+    ...(bondLength !== undefined ? { bondLength } : {}),
+    ...(marginWidth !== undefined ? { marginWidth } : {}),
+  });
+}
+
+/** Writes a number without a trailing ".0000" when it is whole, so the
+ * common defaults stay readable ("30", not "30.0000"). */
+function formatNumber(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4)));
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -1922,10 +2047,12 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
   const { annotations, annotationIdByGraphicId } = importAnnotations(doc, scale);
   const molecule = finalizeImportedMolecule(mol);
   const schemes = importReactionSchemes(doc, atomIdsByFragmentId, annotationIdByGraphicId);
+  const page = importPageSetup(doc);
 
   return {
     molecule: schemes.length > 0 ? { ...molecule, schemes } : molecule,
     annotations,
+    ...(page ? { page } : {}),
   };
 }
 

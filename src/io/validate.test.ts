@@ -10,6 +10,7 @@ import {
   sanitizeAnnotationRecord,
   sanitizeFragment,
   sanitizeMolecule,
+  sanitizePageSetup,
   sanitizeUserTemplates,
   sanitizeView,
   totalDropped,
@@ -225,6 +226,38 @@ describe("sanitizeView", () => {
     expect(sanitizeView({ scale: "2", tx: 0, ty: 0 })).toEqual(dflt);
     expect(sanitizeView(null)).toEqual(dflt);
     expect(sanitizeView({ scale: 2, tx: 5, ty: -5 })).toEqual({ scale: 2, tx: 5, ty: -5 });
+  });
+});
+
+describe("sanitizePageSetup", () => {
+  test("returns undefined for a missing or non-object page", () => {
+    expect(sanitizePageSetup(undefined)).toBeUndefined();
+    expect(sanitizePageSetup(null)).toBeUndefined();
+    expect(sanitizePageSetup("A4")).toBeUndefined();
+    expect(sanitizePageSetup([])).toBeUndefined();
+  });
+
+  test("keeps a complete page box", () => {
+    expect(sanitizePageSetup({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 36, marginWidth: 3 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 595.28,
+      height: 841.89,
+      bondLength: 36,
+      marginWidth: 3,
+    });
+  });
+
+  test("drops a page whose box is invalid instead of inventing a size", () => {
+    expect(sanitizePageSetup({ x: 0, y: 0, width: 0, height: 841.89 })).toBeUndefined();
+    expect(sanitizePageSetup({ x: 0, y: 0, width: Number.NaN, height: 841.89 })).toBeUndefined();
+    expect(sanitizePageSetup({ x: 0, y: 0, width: 595.28 })).toBeUndefined();
+    expect(sanitizePageSetup({ x: "0", y: 0, width: 595.28, height: 841.89 })).toBeUndefined();
+  });
+
+  test("defaults an out-of-range bond length or margin without losing the page", () => {
+    const page = sanitizePageSetup({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 0, marginWidth: -1 });
+    expect(page).toEqual({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 30, marginWidth: 2 });
   });
 });
 

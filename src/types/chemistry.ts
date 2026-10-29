@@ -437,6 +437,29 @@ export interface ViewTransform {
   ty: number;
 }
 
+/**
+ * A tab's page/drawing setup, mirroring the parts of ChemDraw's CDXML header
+ * that decide how the drawing sits on paper. Every value is in CDXML drawing
+ * units, which are points (1/72 inch): ChemDraw's default fixed bond is
+ * 30 pt (0.4167 in), and an A4 page is 595.28 x 841.89 pt.
+ *
+ * Stored per tab rather than per molecule because it describes the page a
+ * drawing is printed/exported on, not the chemistry itself. Absent in project
+ * files written before this field existed; loaders substitute
+ * model/pageSetup.ts's defaultPageSetup().
+ */
+export interface PageSetup {
+  /** Top-left corner of the page box, in drawing units. Normally (0, 0). */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Fixed bond length (CDXML BondLength). Default 30 pt. */
+  bondLength: number;
+  /** Atom-label margin (CDXML MarginWidth). Default 2 pt. */
+  marginWidth: number;
+}
+
 export type ToolId =
   | "select"
   | "lasso"

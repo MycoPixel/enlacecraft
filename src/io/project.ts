@@ -1,4 +1,4 @@
-import type { Annotation, Molecule, ViewTransform } from "../types/chemistry";
+import type { Annotation, Molecule, PageSetup, ViewTransform } from "../types/chemistry";
 import { nextId } from "../model/id";
 import { pruneSchemeArrowIds } from "../model/reactionSchemes";
 import {
@@ -7,6 +7,7 @@ import {
   newRepairReport,
   sanitizeAnnotationRecord,
   sanitizeMolecule,
+  sanitizePageSetup,
   sanitizeView,
   type RepairReport,
 } from "./validate";
@@ -33,6 +34,8 @@ export interface ProjectTab {
   molecule: Molecule;
   annotations: Record<string, Annotation>;
   view: ViewTransform;
+  /** Optional for files written before page setup existed. */
+  page?: PageSetup;
 }
 
 export interface ProjectFile {
@@ -105,6 +108,7 @@ function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, re
   const title = typeof tab.title === "string" ? tab.title.slice(0, LIMITS.maxTitleChars) : fallbackTitle;
   const molecule = sanitizeMolecule(tab.molecule, report);
   const annotations = sanitizeAnnotationRecord(tab.annotations, report);
+  const page = sanitizePageSetup(tab.page, report);
   // Scheme arrow references point into the annotation map, so they can only
   // be checked once both halves of the tab are clean.
   const schemes = pruneSchemeArrowIds(molecule.schemes, annotations);
@@ -120,6 +124,7 @@ function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, re
     molecule: cleanedMolecule,
     annotations,
     view: sanitizeView(tab.view),
+    ...(page ? { page } : {}),
   };
 }
 

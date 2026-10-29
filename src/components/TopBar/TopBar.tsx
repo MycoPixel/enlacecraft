@@ -41,6 +41,7 @@ interface TopBarProps {
 export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBarProps) {
   const molecule = useMoleculeStore((s) => s.molecule);
   const annotations = useMoleculeStore((s) => s.annotations);
+  const page = useMoleculeStore((s) => s.page);
   const theme = useMoleculeStore((s) => s.theme);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const toggleCanvasBackground = useMoleculeStore((s) => s.toggleCanvasBackground);
@@ -145,7 +146,11 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   // ChemDraw with its reaction arrows and labels intact (and re-imports
   // here losslessly — see io/cdxml.ts for what round-trips and what is
   // deliberately dropped, e.g. curved mechanism arrows).
-  const doExportCdxml = () => downloadBlob(new Blob([exportCdxmlDocument(molecule, Object.values(annotations))], { type: "chemical/x-cdxml" }), "molecule.cdxml");
+  const doExportCdxml = () =>
+    downloadBlob(
+      new Blob([exportCdxmlDocument(molecule, Object.values(annotations), "molecule", page)], { type: "chemical/x-cdxml" }),
+      "molecule.cdxml",
+    );
   const doExportSmiles = async () => {
     const smiles = exportSmiles(molecule);
     try {

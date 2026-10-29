@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import { addAtom, addBond, emptyMolecule, setAtomCustomGroup } from "../model/molecule";
 import { exportCdxml, exportCdxmlDocument, importCdxml, importCdxmlDocument } from "./cdxml";
 import chemdrawScheme from "./fixtures/chemdraw-scheme.cdxml?raw";
+import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from "../model/pageSetup";
 import type { ArrowAnnotation, BracketAnnotation, Molecule, OrbitalAnnotation, ShapeAnnotation, TextAnnotation, TlcPlateAnnotation } from "../types/chemistry";
 
 function dist(mol: Molecule, id1: string, id2: string): number {
@@ -983,5 +984,53 @@ describe("reaction scheme grouping", () => {
     expect(round.molecule.schemes).toHaveLength(1);
     expect(round.molecule.schemes![0].steps[0].reactantAtomIds).toHaveLength(1);
     expect(round.molecule.schemes![0].steps[0].arrowIds).toEqual([]);
+  });
+});
+
+describe("CDXML page setup", () => {
+  test("imports the page box and drawing defaults from a real ChemDraw file", () => {
+    const doc = importCdxmlDocument(chemdrawScheme);
+    expect(doc.page).toEqual({
+      x: 0,
+      y: 0,
+      width: 523.32,
+      height: 769.92,
+      bondLength: 30,
+      marginWidth: 2,
+    });
+  });
+
+  test("writes a supplied page and reads it back unchanged", () => {
+    const page = { x: 0, y: 0, width: 523.32, height: 769.92, bondLength: 36, marginWidth: 3 };
+    const xml = exportCdxmlDocument(emptyMolecule(), [], "page", page);
+    expect(xml).toContain('BondLength="36"');
+    expect(xml).toContain('MarginWidth="3"');
+    expect(xml).toContain('BoundingBox="0.0000 0.0000 523.3200 769.9200"');
+    expect(importCdxmlDocument(xml).page).toEqual(page);
+  });
+
+  test("without a page, export falls back to A4 portrait", () => {
+    const page = importCdxmlDocument(exportCdxml(emptyMolecule())).page;
+    expect(page).toEqual({
+      x: 0,
+      y: 0,
+      width: A4_PAGE_WIDTH,
+      height: A4_PAGE_HEIGHT,
+      bondLength: 30,
+      marginWidth: 2,
+    });
+  });
+
+  test("without a page, export grows the page to keep content inside it", () => {
+    const mol = addAtom(emptyMolecule(), "a", { x: 2000, y: 0 }, "C");
+    const page = importCdxmlDocument(exportCdxml(mol)).page!;
+    // 2000 canvas px at the default 30/42 scale, plus a 36 pt margin.
+    expect(page.width).toBeCloseTo(2000 * (30 / 42) + 36, 3);
+    expect(page.height).toBeCloseTo(A4_PAGE_HEIGHT, 3);
+  });
+
+  test("a page without a usable box is ignored rather than inventing one", () => {
+    const doc = importCdxmlDocument(`<CDXML BondLength="30"><page BoundingBox="0 0 0 0"><fragment id="1"/></page></CDXML>`);
+    expect(doc.page).toBeUndefined();
   });
 });

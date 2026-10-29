@@ -130,7 +130,9 @@ export function useFileImport() {
       setProjectFileName(null);
       const annotations: Record<string, Annotation> = {};
       for (const ann of parsed.annotations) annotations[ann.id] = ann;
-      importMoleculeAsNewTab(parsed.molecule, title, annotations);
+      // CDXML also carries the file's paper/bond-length setup; MOL/SMILES
+      // have no equivalent, so those tabs keep the default page.
+      importMoleculeAsNewTab(parsed.molecule, title, annotations, "page" in parsed ? parsed.page : undefined);
       // CDXML coordinates are absolute page coordinates (a ChemDraw page
       // starts at the page's top-left, typically hundreds of units from
       // the drawing), so without framing the whole scheme can open partly
