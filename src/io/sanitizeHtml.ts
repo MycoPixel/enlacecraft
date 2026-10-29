@@ -5,7 +5,7 @@ import type { Annotation } from "../types/chemistry";
  * Restricts a TextAnnotation's `html` to the small subset the annotation
  * toolbar actually produces (see AnnotationToolbar.tsx and TextAnnotation's
  * own doc comment in types/chemistry.ts): bold/italic/underline, sub/
- * superscript, line breaks, and inline font-size/color spans.
+ * superscript, line breaks, and inline font-size/color/font-family spans.
  *
  * MUST run on any `html` that didn't just come straight out of this app's
  * own contentEditable `onInput` handler in the current session — imported
@@ -22,9 +22,10 @@ import type { Annotation } from "../types/chemistry";
  * a typed Enter in a `<div>` by default (no `defaultParagraphSeparator`
  * override is set anywhere in this app) — without it, multi-line
  * annotations imported from an old save would visually collapse onto one
- * line. `style` is the only attribute kept (and only ever holds
- * `font-size` in practice, from the toolbar's size stepper); DOMPurify
- * still sanitizes the attribute's contents against CSS-based injection
+ * line. `style` is the only attribute kept (and in practice only ever holds
+ * `font-size` from the toolbar's size stepper, plus `color`/`font-family`
+ * carried over from imported CDXML captions); DOMPurify still sanitizes the
+ * attribute's contents against CSS-based injection
  * (`url(...)`, `expression(...)`, etc.) even though the attribute name
  * itself is allowed.
  */
@@ -32,18 +33,25 @@ const ALLOWED_TAGS = ["b", "i", "u", "sub", "sup", "span", "br", "div"];
 const ALLOWED_ATTR = ["style"];
 
 /**
- * The only two CSS properties the annotation toolbar (or this type's own
- * intended use — see the "font-size/color" mention in TextAnnotation's doc
- * comment in types/chemistry.ts) ever needs on a `style` attribute, each
- * with a value pattern narrow enough to rule out anything else smuggled in
- * alongside it. Matched one declaration at a time (see sanitizeStyleValue)
- * rather than trusting DOMPurify's general-purpose CSS sanitization alone:
- * a `background: url(javascript:...)` or `behavior: url(...)` payload on
- * an otherwise-allowed `style` attribute isn't reliably executable in a
- * modern browser, but there's no reason to depend on that staying true
- * rather than just not letting arbitrary CSS through in the first place.
+ * The only three CSS properties the annotation toolbar (or this type's own
+ * intended use — see the "font-size/color/font-family" mention in
+ * TextAnnotation's doc comment in types/chemistry.ts) ever needs on a
+ * `style` attribute, each with a value pattern narrow enough to rule out
+ * anything else smuggled in alongside it. Matched one declaration at a time
+ * (see sanitizeStyleValue) rather than trusting DOMPurify's general-purpose
+ * CSS sanitization alone: a `background: url(javascript:...)` or
+ * `behavior: url(...)` payload on an otherwise-allowed `style` attribute
+ * isn't reliably executable in a modern browser, but there's no reason to
+ * depend on that staying true rather than just not letting arbitrary CSS
+ * through in the first place.
+ *
+ * `font-family` only accepts a plain family name (letters, digits, spaces,
+ * dots, hyphens, underscores) — no quotes, commas, parentheses or urls. That
+ * is enough for the names ChemDraw writes ("Arial", "Times New Roman",
+ * "Helvetica") while keeping the value from carrying a second declaration.
  */
-const SAFE_STYLE_DECLARATION = /^(font-size:\s*\d+(\.\d+)?(px|pt|em|rem)|color:\s*(#[0-9a-fA-F]{3,8}|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)|[a-zA-Z]+))$/;
+const SAFE_STYLE_DECLARATION =
+  /^(font-size:\s*\d+(\.\d+)?(px|pt|em|rem)|color:\s*(#[0-9a-fA-F]{3,8}|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)|[a-zA-Z]+)|font-family:\s*[A-Za-z0-9][A-Za-z0-9 _.-]{0,63})$/;
 
 function sanitizeStyleValue(value: string): string {
   return value

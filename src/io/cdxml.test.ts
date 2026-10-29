@@ -676,6 +676,20 @@ describe("exportCdxmlDocument / importCdxmlDocument round-trip", () => {
     expect(doc.annotations.map((a) => (a as BracketAnnotation).facing)).toEqual(["open", "close"]);
   });
 
+  test("a bracket pair writes once even when the close glyph comes first", () => {
+    // A real ChemDraw import can list the close glyph before its open
+    // partner. Keying the pair only open -> close used to write the close as
+    // a lone bracket and then the open as a spanning pair, doubling it.
+    const open: BracketAnnotation = { id: "b1", kind: "bracket", x: 200, y: 20, width: 16, height: 90, variant: "square", facing: "open" };
+    const close: BracketAnnotation = { id: "b2", kind: "bracket", x: 320, y: 20, width: 16, height: 90, variant: "square", facing: "close" };
+    const xml = exportCdxmlDocument(emptyMolecule(), [close, open]);
+    expect(xml.match(/GraphicType="Bracket"/g)).toHaveLength(1);
+
+    const doc = importCdxmlDocument(xml);
+    expect(doc.annotations).toHaveLength(2);
+    expect(doc.annotations.map((a) => (a as BracketAnnotation).facing).sort()).toEqual(["close", "open"]);
+  });
+
   test("a retrosynthetic arrow exports with CDX's RetroSynthetic head and re-imports as retrosynthetic", () => {
     const retro: ArrowAnnotation = { id: "a9", kind: "arrow", x1: 0, y1: 0, x2: 90, y2: 0, variant: "retrosynthetic" };
     const xml = exportCdxmlDocument(emptyMolecule(), [retro]);
@@ -1032,5 +1046,98 @@ describe("CDXML page setup", () => {
   test("a page without a usable box is ignored rather than inventing one", () => {
     const doc = importCdxmlDocument(`<CDXML BondLength="30"><page BoundingBox="0 0 0 0"><fragment id="1"/></page></CDXML>`);
     expect(doc.page).toBeUndefined();
+  });
+});
+
+describe("CDXML font-table fidelity", () => {
+  test("imports a non-default caption font as a font-family span", () => {
+    const doc = importCdxmlDocument(
+      `<CDXML CaptionFont="3"><fonttable><font id="3" name="Arial"/><font id="4" name="Times New Roman"/></fonttable>` +
+        `<page><t id="1" p="10 10"><s font="4" size="12">Styled</s></t></page></CDXML>`,
+    );
+    const text = doc.annotations[0] as TextAnnotation;
+    expect(text.html).toContain("font-family:Times New Roman");
+    expect(text.html).toContain("Styled");
+  });
+
+  test("a caption in the document's own CaptionFont stays unadorned", () => {
+    const doc = importCdxmlDocument(
+      `<CDXML CaptionFont="4"><fonttable><font id="4" name="Helvetica"/></fonttable>` +
+        `<page><t id="1" p="10 10"><s font="4" size="12">Plain</s></t></page></CDXML>`,
+    );
+    expect((doc.annotations[0] as TextAnnotation).html).toBe("Plain");
+  });
+
+  test("export writes a fonttable entry and a matching run font id", () => {
+    const text: TextAnnotation = {
+      id: "t1",
+      kind: "text",
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 24,
+      html: '<span style="font-family:Times New Roman">Styled</span>',
+      fontSize: 14,
+    };
+    const xml = exportCdxmlDocument(emptyMolecule(), [text]);
+    expect(xml).toContain('<font id="4" charset="iso-8859-1" name="Times New Roman"/>');
+    expect(xml).toContain('<s font="4"');
+    expect(xml).toContain('<font id="3" charset="iso-8859-1" name="Arial"/>');
+  });
+
+  test("Arial captions reuse the default font id and do not duplicate the table entry", () => {
+    const text: TextAnnotation = {
+      id: "t1",
+      kind: "text",
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 24,
+      html: '<span style="font-family:Arial">Plain</span>',
+      fontSize: 14,
+    };
+    const xml = exportCdxmlDocument(emptyMolecule(), [text]);
+    expect(xml.match(/name="Arial"/g)).toHaveLength(1);
+    expect(xml).toContain('<s font="3"');
+  });
+
+  test("font family survives an export/import round trip", () => {
+    const text: TextAnnotation = {
+      id: "t1",
+      kind: "text",
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 24,
+      html: '<span style="font-family:Helvetica">Styled</span>',
+      fontSize: 14,
+    };
+    const back = importCdxmlDocument(exportCdxmlDocument(emptyMolecule(), [text]));
+    const imported = back.annotations[0] as TextAnnotation;
+    expect(imported.html).toContain("font-family:Helvetica");
+  });
+});
+
+describe("real ChemDraw fixture round trip", () => {
+  test("the scheme fixture survives import → export → import", () => {
+    const first = importCdxmlDocument(chemdrawScheme);
+    const xml = exportCdxmlDocument(first.molecule, first.annotations, "scheme", first.page);
+    const second = importCdxmlDocument(xml);
+
+    expect(Object.keys(second.molecule.atoms)).toHaveLength(Object.keys(first.molecule.atoms).length);
+    expect(Object.keys(second.molecule.bonds)).toHaveLength(Object.keys(first.molecule.bonds).length);
+    expect(second.annotations.map((a) => a.kind).sort()).toEqual(first.annotations.map((a) => a.kind).sort());
+    expect(second.page).toEqual(first.page);
+
+    expect(second.molecule.schemes).toHaveLength(1);
+    expect(first.molecule.schemes).toHaveLength(1);
+    const firstStep = first.molecule.schemes![0].steps[0];
+    const secondStep = second.molecule.schemes![0].steps[0];
+    expect(secondStep.reactantAtomIds).toHaveLength(firstStep.reactantAtomIds.length);
+    expect(secondStep.productAtomIds).toHaveLength(firstStep.productAtomIds.length);
+    expect(secondStep.arrowIds).toHaveLength(firstStep.arrowIds.length);
+    for (const id of secondStep.arrowIds) {
+      expect(second.annotations.some((a) => a.id === id && a.kind === "arrow")).toBe(true);
+    }
   });
 });

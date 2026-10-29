@@ -48,6 +48,15 @@ describe("sanitizeAnnotationHtml", () => {
     expect(out).not.toContain("javascript:");
   });
 
+  test("keeps a plain imported font-family but drops anything appended to it", () => {
+    expect(sanitizeAnnotationHtml('<span style="font-family:Times New Roman">x</span>')).toBe(
+      '<span style="font-family:Times New Roman">x</span>',
+    );
+    const out = sanitizeAnnotationHtml('<span style="font-family:Times New Roman; background:url(javascript:alert(1))">x</span>');
+    expect(out).toContain("font-family:Times New Roman");
+    expect(out).not.toContain("javascript:");
+  });
+
   test("non-string input never throws", () => {
     // @ts-expect-error deliberately testing malformed input from an
     // untrusted file (e.g. html: 123 or html: null in a hand-edited JSON)

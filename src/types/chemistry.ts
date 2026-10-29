@@ -786,8 +786,9 @@ export interface BracketAnnotation {
 /**
  * A draggable, richly-formatted text box for reaction conditions, labels,
  * etc. `html` holds a small safe subset of inline markup (b, i, u, sub, sup,
- * span with inline font-size/color) produced by the annotation format
- * toolbar. `height` is kept in sync with the rendered content (see
+ * span with inline font-size/color/font-family) produced by the annotation
+ * format toolbar, or carried over from an imported CDXML caption's font
+ * table. `height` is kept in sync with the rendered content (see
  * TextAnnotationView) purely so the surrounding <foreignObject> is sized
  * correctly and so hit-testing/selection outlines match the visible box.
  */

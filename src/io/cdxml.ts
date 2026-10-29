@@ -212,6 +212,9 @@ interface CdxTextRun {
   /** CDX color index: 0 = black (the default), 1 = white, 2+ = the file's
    * colortable entries in order. */
   colorIdx: number | null;
+  /** Font family name carried by a `font-family` span, or null for the
+   * document's default caption font (Arial on export). */
+  fontFamily: string | null;
 }
 
 /** Face bit values of the <s> style runs of a <t> caption, as CDX defines
@@ -246,6 +249,7 @@ function htmlToTextRuns(html: string, baseFontSizePx: number, scale: number): Cd
     face: number;
     sizePx: number | null;
     color: string | null;
+    fontFamily: string | null;
   }
 
   const pushText = (text: string, style: Style) => {
@@ -258,11 +262,18 @@ function htmlToTextRuns(html: string, baseFontSizePx: number, scale: number): Cd
     const last = runs[runs.length - 1];
     // Merge with the previous run when the style is identical — toolbar
     // markup often nests (b > span) without changing the effective style.
-    if (last && last.face === style.face && last.sizePt != null && Math.abs(last.sizePt - sizePt) < 0.05 && last.colorIdx === colorIdx) {
+    if (
+      last &&
+      last.face === style.face &&
+      last.sizePt != null &&
+      Math.abs(last.sizePt - sizePt) < 0.05 &&
+      last.colorIdx === colorIdx &&
+      (last.fontFamily ?? "").toLowerCase() === (style.fontFamily ?? "").toLowerCase()
+    ) {
       last.text += text;
       return;
     }
-    runs.push({ text, face: style.face, sizePt, colorIdx });
+    runs.push({ text, face: style.face, sizePt, colorIdx, fontFamily: style.fontFamily });
   };
 
   const walk = (node: Node, style: Style, isFirstInParent: boolean) => {
@@ -304,8 +315,11 @@ function htmlToTextRuns(html: string, baseFontSizePx: number, scale: number): Cd
         const next: Style = { ...style };
         const fontSize = parseCssLength(el.getAttribute("style"), "font-size");
         if (fontSize != null) next.sizePx = fontSize;
-        const color = parseCssColor(el.getAttribute("style"));
+        const styleAttr = el.getAttribute("style");
+        const color = parseCssColor(styleAttr);
         if (color) next.color = color;
+        const fontFamily = parseCssFontFamily(styleAttr);
+        if (fontFamily) next.fontFamily = fontFamily;
         el.childNodes.forEach((child, i) => walk(child, next, i === 0));
         return;
       }
@@ -317,7 +331,7 @@ function htmlToTextRuns(html: string, baseFontSizePx: number, scale: number): Cd
   };
 
   const body = doc.body;
-  body.childNodes.forEach((child, i) => walk(child, { face: 0, sizePx: null, color: null }, i === 0));
+  body.childNodes.forEach((child, i) => walk(child, { face: 0, sizePx: null, color: null, fontFamily: null }, i === 0));
   return runs;
 }
 
@@ -363,6 +377,26 @@ function parseCssColor(styleAttr: string | null): string | null {
   return null;
 }
 
+/** A font family name safe to place in a style attribute or CDXML
+ * attribute: plain letters/digits/spaces/dots/hyphens/underscores, the same
+ * set sanitizeHtml.ts allows. ChemDraw's own names ("Arial", "Times New
+ * Roman", "Helvetica") all fit; anything stranger is dropped rather than
+ * passed through. */
+function safeFontFamilyName(name: string): string | null {
+  const family = name.trim().replace(/^['"]|['"]$/g, "").trim();
+  return /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$/.test(family) ? family : null;
+}
+
+/** Extracts a plain font family from a style attribute, or null. Only the
+ * first family in a list is used and quotes are stripped; names with
+ * punctuation outside sanitizeHtml's allow-list are ignored. */
+function parseCssFontFamily(styleAttr: string | null): string | null {
+  if (!styleAttr) return null;
+  const m = styleAttr.match(/font-family\s*:\s*([^;]+)/i);
+  if (!m) return null;
+  return safeFontFamilyName(m[1].split(",")[0]);
+}
+
 function to2(v: number): string {
   return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
 }
@@ -382,6 +416,22 @@ function colorPaletteIndex(cssColor: string): number {
   if (idx >= 0) return idx + 2;
   exportPalette.push(color);
   return exportPalette.length + 1;
+}
+
+/** The fonttable shared by one exported document. Id 3 is the conventional
+ * Arial slot ChemDraw itself uses for default captions; every other family
+ * a caption names gets the next id. */
+const DEFAULT_CDX_FONT_ID = 3;
+const DEFAULT_CDX_FONT_NAME = "Arial";
+let exportFonts: string[] = [];
+
+function fontPaletteIndex(fontFamily: string): number {
+  const family = fontFamily.trim();
+  if (!family || family.toLowerCase() === DEFAULT_CDX_FONT_NAME.toLowerCase()) return DEFAULT_CDX_FONT_ID;
+  const idx = exportFonts.findIndex((f) => f.toLowerCase() === family.toLowerCase());
+  if (idx >= 0) return DEFAULT_CDX_FONT_ID + 1 + idx;
+  exportFonts.push(family);
+  return DEFAULT_CDX_FONT_ID + exportFonts.length;
 }
 
 export function exportCdxmlDocument(
@@ -405,17 +455,22 @@ export function exportCdxmlDocument(
   const pageSetup = page ?? autoPageSetup(mol, annotations, scale);
   const u = (v: number): string => (v * scale).toFixed(4);
 
-  // Pre-scan every annotation color — caption text runs and TLC spot dots —
-  // so the colortable is complete before the header is written. Indexes are
-  // assigned in first-use order, so a color first seen while writing the
-  // body would otherwise point past the end of the already-emitted table.
+  // Pre-scan every annotation color and caption font — text runs and TLC
+  // spot dots — so the colortable and fonttable are complete before the
+  // header is written. Indexes are assigned in first-use order, so a color
+  // or font first seen while writing the body would otherwise point past
+  // the end of the already-emitted table.
   exportPalette = ["#ffffff", "#000000"];
+  exportFonts = [];
   for (const ann of annotations) {
     if (ann.kind === "text") {
       const doc = new DOMParser().parseFromString(ann.html, "text/html");
       for (const span of Array.from(doc.querySelectorAll("span"))) {
-        const color = parseCssColor(span.getAttribute("style"));
+        const style = span.getAttribute("style");
+        const color = parseCssColor(style);
         if (color) colorPaletteIndex(color);
+        const family = parseCssFontFamily(style);
+        if (family) fontPaletteIndex(family);
       }
     } else if (ann.kind === "tlc") {
       for (const spot of ann.spots) {
@@ -428,7 +483,9 @@ export function exportCdxmlDocument(
   out += `<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n`;
   out += `<CDXML CreationProgram="EnlaceCraft" Name="${escapeXml(name)}" BondLength="${formatNumber(pageSetup.bondLength)}" MarginWidth="${formatNumber(pageSetup.marginWidth)}" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10" FractionalWidths="yes" InterpretChemically="yes">\n`;
   out += `<colortable>${exportPalette.map((c) => `<color r="${hexToCdxR(c, "r")}" g="${hexToCdxR(c, "g")}" b="${hexToCdxR(c, "b")}"/>`).join("")}</colortable>\n`;
-  out += `<fonttable><font id="3" charset="iso-8859-1" name="Arial"/></fonttable>\n`;
+  out += `<fonttable><font id="${DEFAULT_CDX_FONT_ID}" charset="iso-8859-1" name="${DEFAULT_CDX_FONT_NAME}"/>${exportFonts
+    .map((family, i) => `<font id="${DEFAULT_CDX_FONT_ID + 1 + i}" charset="iso-8859-1" name="${escapeXml(family)}"/>`)
+    .join("")}</fonttable>\n`;
 
   // One <fragment> per connected component, which is how ChemDraw itself
   // lays out separate structures on a page. Import merges every <n>/<b>
@@ -564,7 +621,11 @@ export function exportCdxmlDocument(
   // and re-imports open-facing, the common case for a lone bracket.
   const bracketList = annotations.filter((a): a is BracketAnnotation => a.kind === "bracket");
   const bracketWritten = new Set<string>();
-  const closePartnerOf = new Map<string, BracketAnnotation>();
+  // Both directions, so a pair writes exactly once regardless of which glyph
+  // happens to come first in the annotation array. (A real ChemDraw import
+  // can put the close glyph first; keying only open -> close used to write
+  // that pair as a lone close PLUS a spanning pair, doubling it on re-import.)
+  const bracketPartnerOf = new Map<string, BracketAnnotation>();
   for (const open of bracketList) {
     if (open.facing !== "open") continue;
     const close = bracketList.find(
@@ -573,7 +634,10 @@ export function exportCdxmlDocument(
         c.x >= open.x + open.width &&
         (Math.min(open.y + open.height, c.y + c.height) - Math.max(open.y, c.y)) >= 0.5 * Math.min(open.height, c.height),
     );
-    if (close) closePartnerOf.set(open.id, close);
+    if (close) {
+      bracketPartnerOf.set(open.id, close);
+      bracketPartnerOf.set(close.id, open);
+    }
   }
 
   for (const ann of annotations) {
@@ -648,18 +712,20 @@ export function exportCdxmlDocument(
       }
     } else if (ann.kind === "bracket") {
       if (bracketWritten.has(ann.id)) continue;
-      const partner = closePartnerOf.get(ann.id);
+      const partner = bracketPartnerOf.get(ann.id);
       if (partner) {
-        bracketWritten.add(ann.id);
-        bracketWritten.add(partner.id);
-        const top = Math.min(ann.y, partner.y);
-        const bottom = Math.max(ann.y + ann.height, partner.y + partner.height);
+        const open = ann.facing === "open" ? ann : partner;
+        const close = ann.facing === "open" ? partner : ann;
+        bracketWritten.add(open.id);
+        bracketWritten.add(close.id);
+        const top = Math.min(open.y, close.y);
+        const bottom = Math.max(open.y + open.height, close.y + close.height);
         // CDX has exactly two bracket graphic types: Bracket (square) and
         // Brace. Both curved glyphs — parens and curly braces — write as
         // Brace, the same way they both import from it; a paren drawn here
         // re-opens in ChemDraw as ChemDraw's brace/paren glyph.
-        const variant = ann.variant === "square" ? "Bracket" : "Brace";
-        out += `<graphic id="${nextId()}" BoundingBox="${u(ann.x)} ${u(top)} ${u(partner.x + partner.width)} ${u(bottom)}" GraphicType="${variant}"/>\n`;
+        const variant = open.variant === "square" ? "Bracket" : "Brace";
+        out += `<graphic id="${nextId()}" BoundingBox="${u(open.x)} ${u(top)} ${u(close.x + close.width)} ${u(bottom)}" GraphicType="${variant}"/>\n`;
       } else {
         // One bracket glyph = one narrow CDX bracket graphic.
         const variant = ann.variant === "square" ? "Bracket" : "Brace";
@@ -765,7 +831,7 @@ export function exportCdxmlDocument(
       out += `<t id="${nextId()}" p="${u(ann.x)} ${u(ann.y)}" Justification="Left">`;
       for (const run of runs) {
         if (!run.text) continue;
-        let attrs = ` font="3"`;
+        let attrs = ` font="${run.fontFamily ? fontPaletteIndex(run.fontFamily) : DEFAULT_CDX_FONT_ID}"`;
         if (run.sizePt != null) attrs += ` size="${run.sizePt.toFixed(2)}"`;
         else if (sizePt != null) attrs += ` size="${sizePt}"`;
         if (run.face) attrs += ` face="${run.face}"`;
@@ -1267,6 +1333,18 @@ function importAnnotations(
     const b = Math.round(parseFloat(c.getAttribute("b") ?? "0") * 255);
     return `#${to2(r)}${to2(g)}${to2(b)}`;
   });
+
+  // Font ids are document-local, like color indexes. Caption text usually
+  // uses the document's CaptionFont; a run that names a different family is
+  // carried into the annotation HTML as a font-family span, so it survives
+  // both this app's own save/load and the next CDXML export.
+  const fontTable = new Map<number, string>();
+  for (const f of Array.from(doc.querySelectorAll("fonttable font"))) {
+    const id = parseInt(f.getAttribute("id") ?? "", 10);
+    const family = safeFontFamilyName(f.getAttribute("name") ?? "");
+    if (Number.isFinite(id) && family) fontTable.set(id, family);
+  }
+  const defaultCaptionFontId = parseInt(doc.documentElement.getAttribute("CaptionFont") ?? "", 10);
   const isBlack = (css: string): boolean => {
     const r = parseInt(css.slice(1, 3), 16), g = parseInt(css.slice(3, 5), 16), b = parseInt(css.slice(5, 7), 16);
     return r + g + b < 30;
@@ -1785,6 +1863,11 @@ function importAnnotations(
       if (face & FACE_SUPERSCRIPT) inner = `<sup>${inner}</sup>`;
       else if (face & FACE_SUBSCRIPT) inner = `<sub>${inner}</sub>`;
       const styles: string[] = [];
+      const fontId = parseInt(s.getAttribute("font") ?? "", 10);
+      const fontFamily = Number.isFinite(fontId) ? fontTable.get(fontId) : undefined;
+      if (fontFamily && fontId !== defaultCaptionFontId) {
+        styles.push(`font-family:${fontFamily}`);
+      }
       const sizePt = parseFloat(s.getAttribute("size") ?? "");
       if (Number.isFinite(sizePt) && sizePt > 0 && Math.abs(sizePt - baseSizePt) > 0.25) {
         styles.push(`font-size:${(sizePt * UNITS_PER_POINT * scale).toFixed(1)}px`);
