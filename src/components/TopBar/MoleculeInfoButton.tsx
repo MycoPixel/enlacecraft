@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Info, Copy, Check, AlertTriangle, Loader2 } from "lucide-react";
+import { Info, Copy, Check, AlertTriangle, Loader2, Trash2, Plus, Minus } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
 import { useMoleculeDescriptors } from "../../hooks/useMoleculeDescriptors";
 import { useAdvancedMoleculeDescriptors } from "../../hooks/useAdvancedMoleculeDescriptors";
 import { useStereoAnalysis } from "../../hooks/useStereoAnalysis";
-import type { Molecule } from "../../types/chemistry";
+import type { Molecule, SGroup, SGroupType } from "../../types/chemistry";
+import { DEFAULT_SGROUP_SUBSCRIPT, SGROUP_TYPES } from "../../model/sgroups";
 import { MIN_HEAVY_ATOMS_FOR_ADVANCED_DESCRIPTORS } from "../../io/moleculeDescriptors";
 import { hasPlaceholderLabels } from "../../model/valence";
 import { schemeArrowIds, schemeAtomIds, summarizeScheme } from "../../model/reactionSchemes";
@@ -262,6 +263,7 @@ export function MoleculeInfoButton() {
             )}
             {hasAnyAtoms && <StereoSection molecule={molecule} />}
             <SchemeSection molecule={molecule} />
+            <SGroupSection molecule={molecule} />
             <div className="molecule-info__divider" />
             <div className="molecule-info__label">{t("moleculeInfo.smiles")}</div>
             <div className="molecule-info__smiles-row">
@@ -594,5 +596,156 @@ export function SchemeSection({ molecule }: { molecule: Molecule }) {
       </div>
       <p className="align-menu__hint">{t("moleculeInfo.schemeHint")}</p>
     </>
+  );
+}
+
+/**
+ * Editable list of ChemDraw S-groups (polymer/mixture brackets) on the
+ * active molecule. Unlike the reaction-scheme section above, this is an
+ * authoring surface: type, repeat count and label can be changed here, the
+ * current selection can be added to / removed from a group, and the group
+ * can be deleted. Creating one happens from the canvas context menu's
+ * "Group as S-group" submenu, which is where a selection exists.
+ */
+export function SGroupSection({ molecule }: { molecule: Molecule }) {
+  const t = useT();
+  const groups = Object.values(molecule.sgroups ?? {});
+  if (groups.length === 0) return null;
+
+  return (
+    <>
+      <div className="molecule-info__divider" />
+      <div className="molecule-info__label">{t("moleculeInfo.sgroups")}</div>
+      <div className="molecule-info__sgroup-list">
+        {groups.map((group, i) => (
+          <SGroupRow key={group.id} group={group} index={i} />
+        ))}
+      </div>
+      <p className="align-menu__hint">{t("moleculeInfo.sgroupHint")}</p>
+    </>
+  );
+}
+
+function SGroupRow({ group, index }: { group: SGroup; index: number }) {
+  const t = useT();
+  const setSelected = useMoleculeStore((s) => s.setSelected);
+  const setSelectedAnnotationIds = useMoleculeStore((s) => s.setSelectedAnnotationIds);
+  const updateSGroup = useMoleculeStore((s) => s.updateSGroup);
+  const deleteSGroup = useMoleculeStore((s) => s.deleteSGroup);
+  const addSelectionToSGroup = useMoleculeStore((s) => s.addSelectionToSGroup);
+  const removeSelectionFromSGroup = useMoleculeStore((s) => s.removeSelectionFromSGroup);
+  const selected = useMoleculeStore((s) => s.selected);
+
+  const selectGroup = () => {
+    setSelected(new Set(group.atomIds));
+    setSelectedAnnotationIds(new Set(group.bracketAnnotationIds ?? []));
+  };
+
+  // Text fields are committed on blur/Enter rather than per keystroke so one
+  // edit doesn't flood the undo stack with a checkpoint per character. The
+  // inputs are uncontrolled and keyed by the stored value, so an undo or a
+  // type-driven default remounts them with the new text.
+  const commitRepeat = (raw: string) => {
+    const value = raw.trim();
+    if (value !== (group.subscript ?? "")) updateSGroup(group.id, { subscript: value });
+  };
+
+  const commitLabel = (raw: string) => {
+    const value = raw.trim();
+    if (value !== (group.label ?? "")) updateSGroup(group.id, { label: value });
+  };
+
+  const changeType = (type: SGroupType) => {
+    const oldDefault = DEFAULT_SGROUP_SUBSCRIPT[group.type] ?? "";
+    const newDefault = DEFAULT_SGROUP_SUBSCRIPT[type] ?? "";
+    const patch: { type: SGroupType; subscript?: string } = { type };
+    // Only follow the new type's default when the old value was still that
+    // type's default — a hand-typed "m" is the person's choice, not ours.
+    if ((group.subscript ?? "") === oldDefault) patch.subscript = newDefault;
+    updateSGroup(group.id, patch);
+  };
+
+  const canRemove = group.atomIds.some((id) => selected.has(id));
+
+  return (
+    <div className="molecule-info__sgroup">
+      <button
+        type="button"
+        className="molecule-info__sgroup-head"
+        onClick={selectGroup}
+        title={t("moleculeInfo.sgroupClickHint")}
+      >
+        <span>{t("moleculeInfo.sgroupName", { n: index + 1 })}</span>
+        <span className="molecule-info__sgroup-meta">
+          {group.type} · {t("moleculeInfo.sgroupAtoms", { count: String(group.atomIds.length) })}
+        </span>
+      </button>
+      <div className="molecule-info__sgroup-fields">
+        <label className="molecule-info__sgroup-field">
+          <span>{t("moleculeInfo.sgroupType")}</span>
+          <select
+            value={group.type}
+            onChange={(e) => changeType(e.target.value as SGroupType)}
+          >
+            {SGROUP_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(`sgroup.type.${type}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="molecule-info__sgroup-field molecule-info__sgroup-field--short">
+          <span>{t("moleculeInfo.sgroupRepeat")}</span>
+          <input
+            key={group.subscript ?? ""}
+            defaultValue={group.subscript ?? ""}
+            placeholder="n"
+            onBlur={(e) => commitRepeat(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+          />
+        </label>
+        <label className="molecule-info__sgroup-field molecule-info__sgroup-field--short">
+          <span>{t("moleculeInfo.sgroupLabel")}</span>
+          <input
+            key={group.label ?? ""}
+            defaultValue={group.label ?? ""}
+            onBlur={(e) => commitLabel(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+          />
+        </label>
+      </div>
+      <div className="molecule-info__sgroup-actions">
+        <button
+          type="button"
+          className="molecule-info__sgroup-action"
+          disabled={selected.size === 0}
+          onClick={() => addSelectionToSGroup(group.id)}
+          title={t("moleculeInfo.sgroupAddSelection")}
+        >
+          <Plus size={13} />
+        </button>
+        <button
+          type="button"
+          className="molecule-info__sgroup-action"
+          disabled={!canRemove}
+          onClick={() => removeSelectionFromSGroup(group.id)}
+          title={t("moleculeInfo.sgroupRemoveSelection")}
+        >
+          <Minus size={13} />
+        </button>
+        <button
+          type="button"
+          className="molecule-info__sgroup-action molecule-info__sgroup-action--danger"
+          onClick={() => deleteSGroup(group.id)}
+          title={t("moleculeInfo.sgroupDelete")}
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
   );
 }

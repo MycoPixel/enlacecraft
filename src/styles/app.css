@@ -3534,6 +3534,114 @@
   font-family: var(--font, inherit);
 }
 
+.molecule-info__sgroup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.molecule-info__sgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+}
+
+.molecule-info__sgroup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.molecule-info__sgroup-head:hover {
+  background: var(--accent-soft);
+}
+
+.molecule-info__sgroup-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.molecule-info__sgroup-fields {
+  display: flex;
+  gap: 6px;
+}
+
+.molecule-info__sgroup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.molecule-info__sgroup-field--short {
+  flex: 0 0 62px;
+}
+
+.molecule-info__sgroup-field select,
+.molecule-info__sgroup-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.molecule-info__sgroup-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.molecule-info__sgroup-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.molecule-info__sgroup-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.molecule-info__sgroup-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.molecule-info__sgroup-action--danger:hover:not(:disabled) {
+  color: var(--danger, #D33);
+}
+
 .export-bg-picker {
   display: flex;
   gap: 8px;

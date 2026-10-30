@@ -10,6 +10,7 @@ import { BracketAnnotationView, bracketPath } from "./BracketAnnotationView";
 import { ShapeAnnotationView } from "./ShapeAnnotationView";
 import { OrbitalAnnotationView, lobePath as orbitalLobePath } from "./OrbitalAnnotationView";
 import { TlcPlateAnnotationView } from "./TlcPlateAnnotationView";
+import { SGroupOverlay } from "./SGroupOverlay";
 import { AnnotationToolbar } from "./AnnotationToolbar";
 import { DragReadout } from "./DragReadout";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
@@ -757,6 +758,7 @@ const MoleculeContent = memo(function MoleculeContent({
           />
         )
       )}
+      <SGroupOverlay molecule={molecule} annotations={annotations} />
     </g>
   );
 });

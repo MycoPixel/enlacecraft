@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, RingAttachment, RingTemplate, RotationSession, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, RingAttachment, RingTemplate, RotationSession, SGroup, SGroupType, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import { translate } from "../i18n/translate";
@@ -15,6 +15,7 @@ import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTempla
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { collapseToGroup, findCollapsibleGroups } from "../model/groupCollapse";
 import { pruneSchemeArrowIds } from "../model/reactionSchemes";
+import { DEFAULT_SGROUP_SUBSCRIPT, pruneSGroupAnnotationIds, sgroupBondIds, sgroupBondsTouching } from "../model/sgroups";
 import { defaultPageSetup } from "../model/pageSetup";
 import type { Embed3DMethod } from "../io/embed3d";
 import {
@@ -685,6 +686,33 @@ interface MoleculeStore {
    * implementation for why this needed its own action rather than just
    * composing addBracketPair + addTextAnnotation from a caller. */
   addChargeBracket: (atomIds: Iterable<string>) => { openId: string; closeId: string; labelId: string } | null;
+  /**
+   * Creates an S-group (ChemDraw polymer/mixture bracket) around `atomIds`.
+   * Unless `bracketAnnotationIds` names existing bracket glyphs, a square
+   * open+close pair is placed around the selection's bounding box in the
+   * same undo step. Returns the new group's id, or null if no atom survived.
+   */
+  createSGroup: (
+    atomIds: Iterable<string>,
+    type: SGroupType,
+    opts?: {
+      subscript?: string;
+      label?: string;
+      bracketAnnotationIds?: string[];
+      bracketVariant?: BracketVariant;
+    },
+  ) => string | null;
+  /** Edits the fields the info panel exposes. Empty strings clear optional
+   * fields (repeat count / label). */
+  updateSGroup: (id: string, patch: { type?: SGroupType; subscript?: string; label?: string }) => void;
+  /** Removes the group metadata only; its brackets stay on the drawing as
+   * ordinary annotations. */
+  deleteSGroup: (id: string) => void;
+  /** Adds the current atom selection to an existing group. */
+  addSelectionToSGroup: (id: string) => void;
+  /** Removes the current atom selection from a group; an empty group is
+   * deleted. */
+  removeSelectionFromSGroup: (id: string) => void;
   /** Adds a haptic (\u03b7) bond if the selection resolves to one metal atom +
    * \u22652 ligand atoms and none exists between them yet, or removes it if one
    * already does \u2014 see model/molecule.ts's resolveHapticSelection and
@@ -972,12 +1000,16 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       // A scheme's arrow ids point into this map, so deleting an arrow has
       // to drop the reference in the same undo step — otherwise a later
       // save writes a step pointing at an annotation that no longer exists.
+      // S-groups name their bracket glyphs the same way.
       const schemes = pruneSchemeArrowIds(s.molecule.schemes, next);
+      const sgroups = pruneSGroupAnnotationIds(s.molecule.sgroups, next);
       let molecule = s.molecule;
-      if (schemes !== s.molecule.schemes) {
+      if (schemes !== s.molecule.schemes || sgroups !== s.molecule.sgroups) {
         molecule = { ...s.molecule };
         if (schemes) molecule.schemes = schemes;
         else delete molecule.schemes;
+        if (sgroups) molecule.sgroups = sgroups;
+        else delete molecule.sgroups;
       }
       return {
         ...(molecule === s.molecule ? {} : { molecule }),
@@ -2226,6 +2258,142 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       commitAnnotations((anns) => ({ ...anns, [openId]: open, [closeId]: close, [labelId]: label }));
       set({ selectedAnnotationIds: new Set([labelId]), editingTextId: labelId });
       return { openId, closeId, labelId };
+    },
+
+    createSGroup: (atomIds, type, opts) => {
+      const { molecule, annotations } = get();
+      const ids = [...new Set(atomIds)].filter((id) => !!molecule.atoms[id]);
+      if (ids.length === 0) return null;
+      const atomSet = new Set(ids);
+      const bondIds = sgroupBondIds(molecule, atomSet);
+
+      let nextAnnotations = annotations;
+      let bracketIds = (opts?.bracketAnnotationIds ?? []).filter(
+        (id) => annotations[id]?.kind === "bracket",
+      );
+      if (bracketIds.length === 0) {
+        const atoms = ids.map((id) => molecule.atoms[id]);
+        const minX = Math.min(...atoms.map((a) => a.x));
+        const maxX = Math.max(...atoms.map((a) => a.x));
+        const minY = Math.min(...atoms.map((a) => a.y));
+        const maxY = Math.max(...atoms.map((a) => a.y));
+        const padding = 24;
+        const { left, right, top, height } = bracketPairLayout(
+          { x: minX - padding, y: minY - padding },
+          { x: maxX + padding, y: maxY + padding },
+        );
+        const variant = opts?.bracketVariant ?? "square";
+        const openId = nextId();
+        const closeId = nextId();
+        const open: BracketAnnotation = {
+          id: openId, kind: "bracket",
+          x: left - DEFAULT_BRACKET_WIDTH, y: top, width: DEFAULT_BRACKET_WIDTH, height,
+          variant, facing: "open",
+        };
+        const close: BracketAnnotation = {
+          id: closeId, kind: "bracket",
+          x: right, y: top, width: DEFAULT_BRACKET_WIDTH, height,
+          variant, facing: "close",
+        };
+        nextAnnotations = { ...annotations, [openId]: open, [closeId]: close };
+        bracketIds = [openId, closeId];
+      }
+
+      const id = nextId();
+      const variant = opts?.bracketVariant ?? "square";
+      const group: SGroup = {
+        id,
+        type,
+        atomIds: ids,
+        bracketStyle: variant === "paren" ? "round" : variant === "curly" ? "curly" : "square",
+        bracketAnnotationIds: bracketIds,
+      };
+      if (bondIds.length > 0) group.bondIds = bondIds;
+      const subscript = opts?.subscript ?? DEFAULT_SGROUP_SUBSCRIPT[type];
+      if (subscript) group.subscript = subscript;
+      if (opts?.label) group.label = opts.label;
+
+      set((s) => ({
+        molecule: { ...s.molecule, sgroups: { ...s.molecule.sgroups, [id]: group } },
+        annotations: nextAnnotations,
+        past: [...s.past, { molecule: s.molecule, annotations: s.annotations }].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+        selected: atomSet,
+        selectedAnnotationIds: new Set(bracketIds),
+      }));
+      return id;
+    },
+
+    updateSGroup: (id, patch) => {
+      commit((mol) => {
+        const sg = mol.sgroups?.[id];
+        if (!sg) return mol;
+        const next: SGroup = { ...sg };
+        if (patch.type !== undefined) next.type = patch.type;
+        if (patch.subscript !== undefined) {
+          if (patch.subscript) next.subscript = patch.subscript;
+          else delete next.subscript;
+        }
+        if (patch.label !== undefined) {
+          if (patch.label) next.label = patch.label;
+          else delete next.label;
+        }
+        if (next.type === sg.type && next.subscript === sg.subscript && next.label === sg.label) return mol;
+        return { ...mol, sgroups: { ...mol.sgroups, [id]: next } };
+      });
+    },
+
+    deleteSGroup: (id) => {
+      commit((mol) => {
+        if (!mol.sgroups?.[id]) return mol;
+        const sgroups = { ...mol.sgroups };
+        delete sgroups[id];
+        if (Object.keys(sgroups).length > 0) return { ...mol, sgroups };
+        const next = { ...mol };
+        delete next.sgroups;
+        return next;
+      });
+    },
+
+    addSelectionToSGroup: (id) => {
+      const { selected } = get();
+      if (selected.size === 0) return;
+      commit((mol) => {
+        const sg = mol.sgroups?.[id];
+        if (!sg) return mol;
+        const atomIds = [...new Set([...sg.atomIds, ...selected])].filter((atomId) => !!mol.atoms[atomId]);
+        if (atomIds.length === sg.atomIds.length) return mol;
+        const bondIds = sgroupBondsTouching(mol, atomIds, sg.bondIds ?? []);
+        const next: SGroup = { ...sg, atomIds };
+        if (bondIds.length > 0) next.bondIds = bondIds;
+        else delete next.bondIds;
+        return { ...mol, sgroups: { ...mol.sgroups, [id]: next } };
+      });
+    },
+
+    removeSelectionFromSGroup: (id) => {
+      const { selected } = get();
+      if (selected.size === 0) return;
+      commit((mol) => {
+        const sg = mol.sgroups?.[id];
+        if (!sg) return mol;
+        const atomIds = sg.atomIds.filter((atomId) => !selected.has(atomId));
+        if (atomIds.length === sg.atomIds.length) return mol;
+        if (atomIds.length === 0) {
+          const sgroups = { ...mol.sgroups };
+          delete sgroups[id];
+          if (Object.keys(sgroups).length > 0) return { ...mol, sgroups };
+          const next = { ...mol };
+          delete next.sgroups;
+          return next;
+        }
+        const bondIds = sgroupBondsTouching(mol, atomIds, sg.bondIds ?? []);
+        const next: SGroup = { ...sg, atomIds };
+        if (bondIds.length > 0) next.bondIds = bondIds;
+        else delete next.bondIds;
+        return { ...mol, sgroups: { ...mol.sgroups, [id]: next } };
+      });
     },
 
     toggleHapticBond: (atomIds) => {

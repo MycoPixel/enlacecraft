@@ -4,6 +4,7 @@ import { BOND_LEN } from "./constants";
 import { angleDelta, angleOf, dist, polar, snapAngle } from "./geometry";
 import { isMetalLike } from "./valence";
 import { pruneSchemesForAtoms } from "./reactionSchemes";
+import { pruneSgroups } from "./sgroups";
 
 export function emptyMolecule(): Molecule {
   return { atoms: {}, bonds: {}, hapticBonds: {}, aromaticRingDisplays: {} };
@@ -16,6 +17,7 @@ export function cloneMolecule(mol: Molecule): Molecule {
     hapticBonds: { ...mol.hapticBonds },
     aromaticRingDisplays: { ...mol.aromaticRingDisplays },
     ...(mol.schemes ? { schemes: mol.schemes } : {}),
+    ...(mol.sgroups ? { sgroups: mol.sgroups } : {}),
   };
 }
 
@@ -395,13 +397,25 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
   const hapticBonds = survivingHapticBonds(mol.hapticBonds, (aid) => aid !== id);
   const aromaticRingDisplays = survivingAromaticRingDisplays(mol.aromaticRingDisplays, (aid) => aid !== id);
   const schemes = pruneSchemesForAtoms(mol.schemes, new Set(Object.keys(atoms)));
-  return { atoms, bonds, hapticBonds, aromaticRingDisplays, ...(schemes ? { schemes } : {}) };
+  const sgroups = pruneSgroups(mol.sgroups, new Set(Object.keys(atoms)), new Set(Object.keys(bonds)));
+  return {
+    atoms,
+    bonds,
+    hapticBonds,
+    aromaticRingDisplays,
+    ...(schemes ? { schemes } : {}),
+    ...(sgroups ? { sgroups } : {}),
+  };
 }
 
 export function deleteBond(mol: Molecule, id: string): Molecule {
   const bonds = { ...mol.bonds };
   delete bonds[id];
-  return { ...mol, bonds };
+  const sgroups = pruneSgroups(mol.sgroups, new Set(Object.keys(mol.atoms)), new Set(Object.keys(bonds)));
+  if (sgroups) return { ...mol, bonds, sgroups };
+  const rest = { ...mol };
+  delete rest.sgroups;
+  return { ...rest, bonds };
 }
 
 /**
@@ -517,12 +531,14 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
   }
 
   const schemes = pruneSchemesForAtoms(mol.schemes, atoms);
+  const sgroups = pruneSgroups(mol.sgroups, new Set(Object.keys(atoms)), new Set(Object.keys(bonds)));
   return {
     atoms,
     bonds,
     hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => id in atoms),
     aromaticRingDisplays: survivingAromaticRingDisplays(mol.aromaticRingDisplays, (id) => id in atoms),
     ...(schemes ? { schemes } : {}),
+    ...(sgroups ? { sgroups } : {}),
   };
 }
 

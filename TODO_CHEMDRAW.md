@@ -158,7 +158,7 @@ Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbo
 - [x] Color-table fidelity: TLC spot colors are pre-scanned, so every emitted `color` index exists in the header table
 - [x] Page setup parsing/serialization (`<page>` BoundingBox, root `BondLength`/`MarginWidth`): stored per tab, persisted in projects, and used to scale export coordinates; files without a page get an A4-or-content page
 - [x] Scheme/reaction-step grouping (`<scheme>`, `<step>`): import maps fragment/graphic ids (following `SupersededBy`) onto `Molecule.schemes`, export emits them back, project/autosave persist them, and the info panel lists them read-only (selecting a whole reaction)
-- [x] S-Groups import/export for polymers/mixtures: `<bracketedgroup>` maps onto `Molecule.sgroups` (BracketUsage→type, BracketedObjectIDs→atoms/bonds, RepeatCount→subscript, `<bracketattachment>`/`<crossingbond>`→bracket annotations and crossing bonds), export writes them back, and project/autosave persist them. There is still no in-app producer/editor, so this is import/export/project fidelity only.
+- [x] S-Groups import/export for polymers/mixtures: `<bracketedgroup>` maps onto `Molecule.sgroups` (BracketUsage→type, BracketedObjectIDs→atoms/bonds, RepeatCount→subscript, `<bracketattachment>`/`<crossingbond>`→bracket annotations and crossing bonds), export writes them back, and project/autosave persist them. In-app authoring now exists too: the selection context menu's "Group as S-group" submenu creates one (auto-placing a square bracket pair in the same undo step), the info panel edits type/repeat/label and adds/removes selected atoms, and the canvas overlay draws the repeat count.
 - [x] Font/color-table fidelity: TLC/text colors already round-trip through the color table; caption font families now round-trip through the font table (`font-family` spans, non-default fonts emitted with their own `<font>` entry)
 - [ ] Real ChemDraw-file round-trip suite (the existing `chemdraw-scheme.cdxml` fixture now round-trips import → export → import, including page, schemes, brackets and annotations; still needs more real files)
 
@@ -166,7 +166,7 @@ Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbo
 
 ## Phase 9: UI/UX Integration — Partial
 - [x] Keyboard shortcuts overlay (`ShortcutsOverlay.tsx`, opened with `?`)
-- [x] Context menu (atom/bond/selection/canvas actions, charge, radical, stereo, highlight, cleanup, collapse-to-group, IUPAC)
+- [x] Context menu (atom/bond/selection/canvas actions, charge, radical, stereo, highlight, cleanup, collapse-to-group, S-group creation, IUPAC)
 - [x] 3D viewer surfaces: VDW/SAS/SES, opacity slider, coloring sync, persistence, tests
 - [x] Template palette redesign (unified tabs, grid, search, My Templates)
 - [ ] Arrow tool refinement (full ChemDraw-style arrow editing)

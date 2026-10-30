@@ -11,6 +11,7 @@ import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import type { BondOrder, BondStereo } from "../../types/chemistry";
 import { resolveHapticSelection, findHapticBond, findAromaticRingDisplay, extractFragment } from "../../model/molecule";
 import { resolveEligibleRingForBond } from "../../engine/aromaticRings";
+import { SGROUP_TYPES } from "../../model/sgroups";
 import { hasIgnoredValenceAtoms, hasOrganometallicContent } from "../../model/valence";
 import { lookupIupacName, iupacErrorMessage } from "../../io/iupacLookup";
 
@@ -70,6 +71,7 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const rotationSession = useMoleculeStore((s) => s.rotationSession);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
   const addChargeBracket = useMoleculeStore((s) => s.addChargeBracket);
+  const createSGroup = useMoleculeStore((s) => s.createSGroup);
   const toggleHapticBond = useMoleculeStore((s) => s.toggleHapticBond);
   const toggleAromaticRingDisplay = useMoleculeStore((s) => s.toggleAromaticRingDisplay);
   const selectAll = useMoleculeStore((s) => s.selectAll);
@@ -78,7 +80,7 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const setStatus = useMoleculeStore((s) => s.setStatus);
 
   const menuRef = useRef<HTMLDivElement>(null);
-  const [submenu, setSubmenu] = useState<"atom-highlight" | "bond-highlight" | "selection-highlight" | null>(null);
+  const [submenu, setSubmenu] = useState<"atom-highlight" | "bond-highlight" | "selection-highlight" | "sgroup" | null>(null);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
 
   const close = () => setContextMenu(null);
@@ -216,6 +218,27 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
           <HighlightColorPicker disabled={!hasSelection} onChoose={(c) => { highlightSelection(c); close(); }} />
         </>
       )}
+      {submenu === "sgroup" && (
+        <>
+          <button className="context-menu__item" onClick={() => setSubmenu(null)}>
+            <ChevronLeft size={15} /> {t("contextMenu.back")}
+          </button>
+          <div className="context-menu__label">{t("contextMenu.sgroupType")}</div>
+          {SGROUP_TYPES.map((type) => (
+            <button
+              key={type}
+              className="context-menu__item"
+              onClick={() => {
+                const id = createSGroup(selected, type);
+                if (id) setStatus(t("contextMenu.sgroupCreated", { type: t(`sgroup.type.${type}`) }));
+                close();
+              }}
+            >
+              <Brackets size={15} /> {t(`sgroup.type.${type}`)}
+            </button>
+          ))}
+        </>
+      )}
 
       {submenu === null && (
         <>
@@ -311,6 +334,9 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
               </button>
               <button className="context-menu__item" onClick={() => { addChargeBracket(selected); close(); }}>
                 <Brackets size={15} /> {t("contextMenu.addChargeBracket")}
+              </button>
+              <button className="context-menu__item" onClick={() => setSubmenu("sgroup")}>
+                <Brackets size={15} /> {t("contextMenu.groupAsSGroup")} &rsaquo;
               </button>
               {hapticSelection && (
                 <button className="context-menu__item" onClick={() => { toggleHapticBond(selected); close(); }}>
