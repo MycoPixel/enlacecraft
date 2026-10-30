@@ -371,6 +371,94 @@ export function rotateAtoms(mol: Molecule, atomIds: string[], center: Point, ang
   return { ...mol, atoms };
 }
 
+export type MirrorAxis = "horizontal" | "vertical";
+
+/**
+ * Mirrors the given atoms across the bounding-box centre of that same set
+ * — horizontal flips left/right (the y axis), vertical flips top/bottom.
+ *
+ * Label offsets are mirrored with their atom so a charge/lone-pair/radical/
+ * stereo/map label stays on the outside of the structure instead of
+ * swapping sides. Manual double-bond side placement is also swapped for
+ * bonds whose two ends are both in the mirrored set: reflecting the drawing
+ * reverses left/right relative to the bond's a1 -> a2 direction, so keeping
+ * "left" would put the second line on the opposite visual side from where
+ * it was before the flip. Wedge/dash stereo is deliberately left alone —
+ * a mirror image of a chiral centre *is* its enantiomer, which is what
+ * flipping the drawing should produce.
+ *
+ * Returns the original molecule when nothing actually moved, so a flip of a
+ * selection already centred on the axis doesn't create an empty undo step.
+ */
+export function mirrorAtoms(mol: Molecule, atomIds: string[], axis: MirrorAxis): Molecule {
+  const ids = [...new Set(atomIds)].filter((id) => !!mol.atoms[id]);
+  if (ids.length === 0) return mol;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const id of ids) {
+    const a = mol.atoms[id];
+    if (a.x < minX) minX = a.x;
+    if (a.x > maxX) maxX = a.x;
+    if (a.y < minY) minY = a.y;
+    if (a.y > maxY) maxY = a.y;
+  }
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  const atoms = { ...mol.atoms };
+  let changed = false;
+  for (const id of ids) {
+    const a = mol.atoms[id];
+    const x = axis === "horizontal" ? 2 * cx - a.x : a.x;
+    const y = axis === "vertical" ? 2 * cy - a.y : a.y;
+    let next: Atom = a;
+    if (x !== a.x || y !== a.y) {
+      next = { ...next, x, y };
+      changed = true;
+    }
+
+    if (axis === "horizontal") {
+      if (a.chargeOffsetX) { next = { ...next, chargeOffsetX: -a.chargeOffsetX }; changed = true; }
+      if (a.radicalOffsetX) { next = { ...next, radicalOffsetX: -a.radicalOffsetX }; changed = true; }
+      if (a.stereoLabelOffsetX) { next = { ...next, stereoLabelOffsetX: -a.stereoLabelOffsetX }; changed = true; }
+      if (a.mapNumberOffsetX) { next = { ...next, mapNumberOffsetX: -a.mapNumberOffsetX }; changed = true; }
+      if (a.lonePairOffsets?.some((o) => o && o.x !== 0)) {
+        next = {
+          ...next,
+          lonePairOffsets: a.lonePairOffsets.map((o) => (o ? { ...o, x: -o.x } : o)),
+        };
+        changed = true;
+      }
+    } else {
+      if (a.chargeOffsetY) { next = { ...next, chargeOffsetY: -a.chargeOffsetY }; changed = true; }
+      if (a.radicalOffsetY) { next = { ...next, radicalOffsetY: -a.radicalOffsetY }; changed = true; }
+      if (a.stereoLabelOffsetY) { next = { ...next, stereoLabelOffsetY: -a.stereoLabelOffsetY }; changed = true; }
+      if (a.mapNumberOffsetY) { next = { ...next, mapNumberOffsetY: -a.mapNumberOffsetY }; changed = true; }
+      if (a.lonePairOffsets?.some((o) => o && o.y !== 0)) {
+        next = {
+          ...next,
+          lonePairOffsets: a.lonePairOffsets.map((o) => (o ? { ...o, y: -o.y } : o)),
+        };
+        changed = true;
+      }
+    }
+    atoms[id] = next;
+  }
+  if (!changed) return mol;
+
+  const idSet = new Set(ids);
+  const bonds = { ...mol.bonds };
+  let bondsChanged = false;
+  for (const b of Object.values(mol.bonds)) {
+    if (!idSet.has(b.a1) || !idSet.has(b.a2)) continue;
+    if (b.doubleSide === "left" || b.doubleSide === "right") {
+      bonds[b.id] = { ...b, doubleSide: b.doubleSide === "left" ? "right" : "left" };
+      bondsChanged = true;
+    }
+  }
+  return bondsChanged ? { ...mol, atoms, bonds } : { ...mol, atoms };
+}
+
 /**
  * Cycles a double bond's second-line placement: auto -> left -> right ->
  * center -> auto. Clicking the double-bond tool repeatedly on an existing

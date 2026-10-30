@@ -879,6 +879,10 @@ interface MoleculeStore {
    * (fresh ids per addImportedUserTemplates), never overwrites. */
   importUserTemplates: (templates: UserTemplate[]) => void;
   rotateSelection: (deltaDeg: number) => void;
+  /** Mirrors the current selection — or the whole molecule when nothing is
+   * selected, matching rotateSelection's fallback — across the bounding-box
+   * centre of that set. */
+  mirrorSelection: (axis: M.MirrorAxis) => void;
   alignSelection: (mode: M.AlignMode) => void;
   distributeSelection: (axis: M.DistributeAxis) => void;
   cleanUpSelection: () => void;
@@ -1941,6 +1945,13 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       }
       const center = { x: sx / ids.length, y: sy / ids.length };
       commit((mol) => M.rotateAtoms(mol, ids, center, (deltaDeg * Math.PI) / 180));
+    },
+
+    mirrorSelection: (axis) => {
+      const { molecule, selected } = get();
+      const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+      if (ids.length === 0) return;
+      commit((mol) => M.mirrorAtoms(mol, ids, axis));
     },
 
     // Align/distribute, unlike rotate, don't fall back to "the whole

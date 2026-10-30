@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Trash2, Copy, ClipboardPaste, CopyPlus, Combine, Plus, Minus, Zap, Palette,
   RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit, Circle, Tag,
+  FlipHorizontal2, FlipVertical2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { findCollapsibleGroups } from "../../model/groupCollapse";
@@ -67,6 +68,7 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
     s.selected.size > 0 && findCollapsibleGroups(s.molecule, { candidateIds: [...s.selected] }).length > 0
   );
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
+  const mirrorSelection = useMoleculeStore((s) => s.mirrorSelection);
   const resetRotation = useMoleculeStore((s) => s.resetRotation);
   const rotationSession = useMoleculeStore((s) => s.rotationSession);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
@@ -313,6 +315,12 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
                 </button>
                 <button className="context-menu__chip" title={t("tool.rotateCW")} onClick={() => { rotateSelection(30); close(); }}>
                   <RotateCw size={14} />
+                </button>
+                <button className="context-menu__chip" title={t("tool.flipHorizontal")} onClick={() => { mirrorSelection("horizontal"); close(); }}>
+                  <FlipHorizontal2 size={14} />
+                </button>
+                <button className="context-menu__chip" title={t("tool.flipVertical")} onClick={() => { mirrorSelection("vertical"); close(); }}>
+                  <FlipVertical2 size={14} />
                 </button>
                 <button className="context-menu__chip" title={t("tool.resetRotation")} disabled={!canResetRotation} onClick={() => { resetRotation(); close(); }}>
                   <Undo2 size={14} />

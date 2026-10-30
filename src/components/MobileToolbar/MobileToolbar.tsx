@@ -4,6 +4,7 @@ import {
   MoreHorizontal, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler, ShieldOff,
+  FlipHorizontal2, FlipVertical2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "../Sidebar/ToolButton";
@@ -41,6 +42,7 @@ export function MobileToolbar() {
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
+  const mirrorSelection = useMoleculeStore((s) => s.mirrorSelection);
   const resetRotation = useMoleculeStore((s) => s.resetRotation);
   const rotationSession = useMoleculeStore((s) => s.rotationSession);
   const arrowVariant = useMoleculeStore((s) => s.arrowVariant);
@@ -368,6 +370,12 @@ export function MobileToolbar() {
                 </ToolButton>
                 <ToolButton big title={t("tool.distributeVertical")} disabled={selectedFragmentCount < 3} onClick={() => { distributeSelection("vertical"); setPanel(null); }}>
                   <AlignVerticalDistributeCenter size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.flipHorizontal")} onClick={() => { mirrorSelection("horizontal"); setPanel(null); }}>
+                  <FlipHorizontal2 size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.flipVertical")} onClick={() => { mirrorSelection("vertical"); setPanel(null); }}>
+                  <FlipVertical2 size={18} />
                 </ToolButton>
                 <ToolButton big title={t("tool.resetRotation")} disabled={!canResetRotation} onClick={() => { resetRotation(); setPanel(null); }}>
                   <Undo2 size={18} />
