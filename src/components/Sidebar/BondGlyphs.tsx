@@ -86,6 +86,21 @@ export const BondGlyph = {
       <line x1="2" y1="8" x2="26" y2="8" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeDasharray="4.5 3.5" />
     </svg>
   ),
+  /** Dative/coordinate bond: a plain line ending in an arrowhead, the
+   *  M←L donor convention (see Bond.dative's doc comment). */
+  dative: (
+    <svg viewBox="0 0 28 16" width="22" height="14">
+      <line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <polygon points="26,8 19,4.5 19,11.5" fill="currentColor" />
+    </svg>
+  ),
+  /** Hollow wedge: the same isosceles wedge as `wedge`, but outline-only —
+   *  "toward the viewer" without committing to a filled face. */
+  hollowWedge: (
+    <svg viewBox="0 0 28 16" width="22" height="14">
+      <polygon points="2,8 26,2.5 26,13.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  ),
   /** Five-node zigzag with miter joins, so the vertices stay sharp points
    *  instead of rounding off at this size. */
   chain: (

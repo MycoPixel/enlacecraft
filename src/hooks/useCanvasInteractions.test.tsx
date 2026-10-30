@@ -324,3 +324,57 @@ describe("freeAngle bypasses the 30-degree snap", () => {
     expect(useMoleculeStore.getState().selected.has("a1")).toBe(true);
   });
 });
+
+describe("dative and hollow-wedge bond tools", () => {
+  test("clicking an existing bond with the dative tool toggles it", () => {
+    useMoleculeStore.setState({ tool: "dative" });
+    act(() => {
+      handlers.onPointerDown(pointerEvent(100, 0));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(100, 0));
+    });
+    expect(Object.values(useMoleculeStore.getState().molecule.bonds)[0].dative).toBe(true);
+
+    // A second click turns it back into a plain single bond rather than
+    // doing nothing.
+    act(() => {
+      handlers.onPointerDown(pointerEvent(100, 0));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(100, 0));
+    });
+    expect(Object.values(useMoleculeStore.getState().molecule.bonds)[0].dative).toBe(false);
+  });
+
+  test("dragging with the hollow-wedge tool creates a hollowWedge bond", () => {
+    useMoleculeStore.setState({ tool: "hollow-wedge" });
+    act(() => {
+      handlers.onPointerDown(pointerEvent(0, 0)); // on a1
+    });
+    act(() => {
+      handlers.onPointerMove(pointerEvent(0, 120));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(0, 120));
+    });
+    const bonds = Object.values(useMoleculeStore.getState().molecule.bonds);
+    const created = bonds.find((b) => b.a1 === "a1" && b.a2 !== "a2") ?? bonds[bonds.length - 1];
+    expect(created.stereo).toBe("hollowWedge");
+  });
+
+  test("dragging with the dative tool creates a dative bond", () => {
+    useMoleculeStore.setState({ tool: "dative" });
+    act(() => {
+      handlers.onPointerDown(pointerEvent(0, 0)); // on a1
+    });
+    act(() => {
+      handlers.onPointerMove(pointerEvent(0, 120));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(0, 120));
+    });
+    const bonds = Object.values(useMoleculeStore.getState().molecule.bonds);
+    expect(bonds.some((b) => b.dative)).toBe(true);
+  });
+});

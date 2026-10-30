@@ -24,6 +24,7 @@ import { connectedComponents, emptyMolecule } from "../model/molecule";
 import { ABBREVIATED_GROUPS, BOND_LEN, PERIODIC_TABLE } from "../model/constants";
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { calibrateImportScale } from "./importScale";
+import { defaultArrowHead, defaultArrowShaft, defaultArrowTail } from "../model/arrowStyle";
 import { nextId } from "../model/id";
 import { LIMITS, finalizeImportedMolecule, sanitizePageSetup } from "./validate";
 import {
@@ -69,14 +70,13 @@ import { sanitizeAnnotationList } from "./sanitizeHtml";
  *
  * Does not support: CDX's stereo/query bond types beyond the Display values
  * mapped above (the bold wedged hash has no distinct CDX Display and
- * degrades to the ordinary wedged hash on export), dashed arrow shafts (no
- * portable CDX representation this writer can verify — app-only), CDX's
- * scheme/reaction-step *bookkeeping* (the arrows themselves import fine;
- * the grouping metadata around them is dropped), and multi-center/
+ * degrades to the ordinary wedged hash on export), and multi-center/
  * variable-attachment nodes (a ChemDraw ferrocene imports as the bare metal
  * plus its rings, rather than gaining a bogus carbon per attachment node;
- * haptic bonds stay an app-only concept). S-groups have a model in
- * types/chemistry.ts but no producer or CDXML mapping yet.
+ * haptic bonds stay an app-only concept). Dative bonds round-trip through
+ * CDX's Order="dative" value (ChemDraw 21+), S-groups map to/from
+ * <bracketedgroup>, reaction schemes map to/from <scheme>/<step>, and arrow
+ * shaft/head/tail styles map onto LineStyle/ArrowheadType/ArrowheadTailType.
  */
 
 /** Atomic number <-> element symbol, derived from the full PERIODIC_TABLE
@@ -566,24 +566,18 @@ export function exportCdxmlDocument(
       }
     }
 
-    // Dative bonds (see Bond.dative's doc comment) and haptic bonds (see
-    // HapticBond's doc comment) are both dropped here rather than written —
-    // same choice molfile.ts makes and for the same reason: CDXML's plain
-    // Order/Display attributes have no distinct dative-bond representation
-    // this writer implements, so writing one out as a normal Order="1" bond
-    // would silently relabel an M<-L donor bond as an ordinary covalent
-    // bond, which is worse than omitting it. Chemically incomplete on
-    // export, but not silently wrong — this app's own project format is
-    // still the lossless round-trip for these.
+    // Dative bonds are CDX's Order="dative" (ChemDraw 21+), so they write
+    // back as the same arrow-style donor bond instead of being dropped.
+    // Haptic bonds (see HapticBond's doc comment) are still app-only and
+    // have no portable CDX representation this writer implements.
     for (const b of bondList) {
-      if (b.dative) continue;
       if (!inComponent.has(b.a1) || !inComponent.has(b.a2)) continue;
       const bId = cdxIdOf[b.a1];
       const eId = cdxIdOf[b.a2];
       if (!bId || !eId) continue;
       const bondCdxId = nextId();
       bondCdxIdOf[b.id] = bondCdxId;
-      let attrs = `id="${bondCdxId}" B="${bId}" E="${eId}" Order="${b.order}"`;
+      let attrs = `id="${bondCdxId}" B="${bId}" E="${eId}" Order="${b.dative ? "dative" : b.order}"`;
       // "Begin"/"End" in CDX's Display value names which node (B or E) is the
       // narrow/pointed end — our model always treats a1 (here, B) as that
       // narrow end (see BondView), so "...Begin" variants match directly.
@@ -592,7 +586,10 @@ export function exportCdxmlDocument(
       // bold wedged hash has no distinct CDX Display of its own and degrades
       // to the ordinary wedged hash, the same way it degrades in molfile
       // export (molfile.ts) — visible geometry survives, weight doesn't.
-      if (b.stereo === "wedge") {
+      if (b.dative) {
+        // A dative bond is its own Order value; Display would only add a
+        // contradictory stereo hint.
+      } else if (b.stereo === "wedge") {
         attrs += b.hollow ? ` Display="HollowWedgeBegin"` : ` Display="WedgeBegin"`;
       } else if (b.stereo === "dash") {
         attrs += ` Display="WedgedHashBegin"`;
@@ -654,13 +651,10 @@ export function exportCdxmlDocument(
   for (const ann of annotations) {
     if (ann.kind === "arrow") {
       const x1 = u(ann.x1), y1 = u(ann.y1), x2 = u(ann.x2), y2 = u(ann.y2);
-      // Map head style to CDX head class
-      const headStyle = ann.headStyle ?? (
-        ann.variant === "openHead" ? "open" :
-        ann.variant === "circleHead" ? "circle" :
-        ann.variant === "diamondHead" ? "diamond" :
-        ann.barb === "single" ? "half" : "full"
-      );
+      // Map head style to CDX head class. The variant-derived defaults live
+      // in model/arrowStyle.ts so the canvas renderer and this writer agree
+      // on what a given arrow looks like.
+      const headStyle = ann.headStyle ?? defaultArrowHead(ann);
       const headMap: Record<string, string> = {
         "full": "FullHalfHead",
         "half": "HalfHead",
@@ -669,19 +663,14 @@ export function exportCdxmlDocument(
         "diamond": "Diamond",
         "retro": "RetroSynthetic",
       };
-      const tailStyle = ann.tailStyle ?? "none";
+      const tailStyle = ann.tailStyle ?? defaultArrowTail(ann);
       const tailMap: Record<string, string> = {
         "none": "None",
         "full": "FullHalfHead",
         "half": "HalfHead",
         "open": "OpenHead",
       };
-      const shaftStyle = ann.shaftStyle ?? (
-        ann.variant === "dashed" ? "dashed" :
-        ann.variant === "bold" ? "bold" :
-        ann.variant === "double" ? "double" :
-        ann.dashed ? "dashed" : "solid"
-      );
+      const shaftStyle = ann.shaftStyle ?? defaultArrowShaft(ann);
       const lineStyleMap: Record<string, string> = {
         "solid": "",
         "dashed": "Dashed",
@@ -2309,7 +2298,7 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     };
   }
 
-  const bondPairs: { cdxId?: string; a1: string; a2: string; order: BondOrder; stereo: BondStereo; hollow?: boolean }[] = [];
+  const bondPairs: { cdxId?: string; a1: string; a2: string; order: BondOrder; stereo: BondStereo; hollow?: boolean; dative?: boolean }[] = [];
   for (const b of Array.from(doc.querySelectorAll("b"))) {
     // Bonds inside a nickname's definition fragment reference that
     // definition's own nodes, not the page's atoms.
@@ -2320,14 +2309,19 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     const beginId = idByCdxId.get(bCdx);
     const endId = idByCdxId.get(eCdx);
     if (!beginId || !endId) continue;
-    const order = cdxOrderToOrder(b.getAttribute("Order"));
+    // ChemDraw 21+ writes a coordinate/donor bond as Order="dative" rather
+    // than a numeric order. It is not a numeric order this app can express,
+    // so it maps onto Bond.dative instead of being silently read as a
+    // single bond.
+    const dative = (b.getAttribute("Order") ?? "").trim().toLowerCase() === "dative";
+    const order = dative ? 1 : cdxOrderToOrder(b.getAttribute("Order"));
     const { stereo, swapped, hollow } = cdxDisplayToStereo(b.getAttribute("Display"));
     // Our model always has a1 as the wedge/hash's narrow end; if CDX marked
     // the *other* node as narrow ("...End"), swap so a1 stays narrow.
     bondPairs.push(
       swapped
-        ? { cdxId: b.getAttribute("id") ?? undefined, a1: endId, a2: beginId, order, stereo, hollow }
-        : { cdxId: b.getAttribute("id") ?? undefined, a1: beginId, a2: endId, order, stereo, hollow },
+        ? { cdxId: b.getAttribute("id") ?? undefined, a1: endId, a2: beginId, order, stereo, hollow, dative }
+        : { cdxId: b.getAttribute("id") ?? undefined, a1: beginId, a2: endId, order, stereo, hollow, dative },
     );
   }
 
@@ -2360,10 +2354,13 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
   }
 
   const bondIdByCdxId = new Map<string, string>();
-  for (const { cdxId, a1, a2, order, stereo, hollow } of bondPairs) {
+  for (const { cdxId, a1, a2, order, stereo, hollow, dative } of bondPairs) {
     const id = nextId();
     if (cdxId) bondIdByCdxId.set(cdxId, id);
-    mol.bonds[id] = { id, a1, a2, order: stereo === "none" || stereo === "boldDouble" || stereo === "dashedDouble" ? order : 1, stereo, doubleSide: "auto", hollow };
+    mol.bonds[id] = {
+      id, a1, a2, order: stereo === "none" || stereo === "boldDouble" || stereo === "dashedDouble" ? order : 1, stereo, doubleSide: "auto", hollow,
+      ...(dative ? { dative: true } : {}),
+    };
   }
 
   const { annotations, annotationIdByGraphicId, bracketAnnotationIdsByGraphicId } = importAnnotations(doc, scale);

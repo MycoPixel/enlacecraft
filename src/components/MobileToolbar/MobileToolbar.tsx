@@ -26,6 +26,7 @@ import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon, TlcIcon } 
 import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import { useT } from "../../i18n/useT";
 import type { ArrowHeadSize, ArrowVariant, ToolId } from "../../types/chemistry";
+import type { ArrowHeadChoice, ArrowShaftChoice, ArrowTailChoice } from "../../model/arrowStyle";
 
 type MobilePanel = "bonds" | "atoms" | "rings" | "arrowsFull" | "arrowsFishhook" | "brackets" | "shapes" | "orbitals" | "more" | null;
 
@@ -54,6 +55,9 @@ export function MobileToolbar() {
   const setArrowVariantOf = useMoleculeStore((s) => s.setArrowVariantOf);
   const setArrowBarbOf = useMoleculeStore((s) => s.setArrowBarbOf);
   const setArrowHeadSizeOf = useMoleculeStore((s) => s.setArrowHeadSizeOf);
+  const setArrowHeadStyleOf = useMoleculeStore((s) => s.setArrowHeadStyleOf);
+  const setArrowTailStyleOf = useMoleculeStore((s) => s.setArrowTailStyleOf);
+  const setArrowShaftStyleOf = useMoleculeStore((s) => s.setArrowShaftStyleOf);
   const annotations = useMoleculeStore((s) => s.annotations);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const singleSelectedAnnotationId = selectedAnnotationIds.size === 1 ? [...selectedAnnotationIds][0] : null;
@@ -61,9 +65,12 @@ export function MobileToolbar() {
     singleSelectedAnnotationId && annotations[singleSelectedAnnotationId]?.kind === "arrow" ? singleSelectedAnnotationId : null;
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const setBracketVariant = useMoleculeStore((s) => s.setBracketVariant);
-  const arrowDashed = useMoleculeStore((s) => s.arrowDashed);
-  const setArrowDashed = useMoleculeStore((s) => s.setArrowDashed);
-  const setArrowDashedOf = useMoleculeStore((s) => s.setArrowDashedOf);
+  const arrowHeadStyle = useMoleculeStore((s) => s.arrowHeadStyle);
+  const setArrowHeadStyle = useMoleculeStore((s) => s.setArrowHeadStyle);
+  const arrowTailStyle = useMoleculeStore((s) => s.arrowTailStyle);
+  const setArrowTailStyle = useMoleculeStore((s) => s.setArrowTailStyle);
+  const arrowShaftStyle = useMoleculeStore((s) => s.arrowShaftStyle);
+  const setArrowShaftStyle = useMoleculeStore((s) => s.setArrowShaftStyle);
   const shapeVariant = useMoleculeStore((s) => s.shapeVariant);
   const setShapeVariant = useMoleculeStore((s) => s.setShapeVariant);
   const shapeFilled = useMoleculeStore((s) => s.shapeFilled);
@@ -166,6 +173,21 @@ export function MobileToolbar() {
     }
   };
 
+  // Head/tail/shaft overrides mirror the sidebar's helpers: the chosen
+  // value arms the next arrow and restyles a selected one.
+  const chooseArrowHeadStyle = (style: ArrowHeadChoice) => {
+    setArrowHeadStyle(style);
+    if (selectedArrowId) setArrowHeadStyleOf(selectedArrowId, style);
+  };
+  const chooseArrowTailStyle = (style: ArrowTailChoice) => {
+    setArrowTailStyle(style);
+    if (selectedArrowId) setArrowTailStyleOf(selectedArrowId, style);
+  };
+  const chooseArrowShaftStyle = (style: ArrowShaftChoice) => {
+    setArrowShaftStyle(style);
+    if (selectedArrowId) setArrowShaftStyleOf(selectedArrowId, style);
+  };
+
   // Same dual behavior as the sidebar's identical helpers: the picked
   // style arms the next placement AND restyles the selected shape/orbital.
   const chooseShape = (variant: Parameters<typeof setShapeVariant>[0]) => {
@@ -203,8 +225,12 @@ export function MobileToolbar() {
                 value={arrowBarb === "full" ? arrowVariant : "curved"}
                 barb="full"
                 headSize={arrowHeadSize}
-                dashed={arrowDashed}
-                onDashedChange={(d) => { setArrowDashed(d); if (selectedArrowId) setArrowDashedOf(selectedArrowId, d); }}
+                headStyle={arrowHeadStyle}
+                onHeadStyleChange={chooseArrowHeadStyle}
+                tailStyle={arrowTailStyle}
+                onTailStyleChange={chooseArrowTailStyle}
+                shaftStyle={arrowShaftStyle}
+                onShaftStyleChange={chooseArrowShaftStyle}
                 active
                 onChange={(v) => chooseArrow(v, "full")}
               />
@@ -250,11 +276,13 @@ export function MobileToolbar() {
               <ToolButton big title={t("mobile.double")} active={tool === "bond-2"} onClick={() => choose("bond-2")}>{BondGlyph.double}</ToolButton>
               <ToolButton big title={t("mobile.triple")} active={tool === "bond-3"} onClick={() => choose("bond-3")}>{BondGlyph.triple}</ToolButton>
               <ToolButton big title={t("mobile.wedge")} active={tool === "wedge"} onClick={() => choose("wedge")}>{BondGlyph.wedge}</ToolButton>
+              <ToolButton big title={t("tool.hollowWedge")} active={tool === "hollow-wedge"} onClick={() => choose("hollow-wedge")}>{BondGlyph.hollowWedge}</ToolButton>
               <ToolButton big title={t("mobile.dash")} active={tool === "dash"} onClick={() => choose("dash")}>{BondGlyph.dash}</ToolButton>
               <ToolButton big title={t("mobile.wavy")} active={tool === "wavy"} onClick={() => choose("wavy")}>{BondGlyph.wavy}</ToolButton>
               <ToolButton big title={t("tool.bold")} active={tool === "bold"} onClick={() => choose("bold")}>{BondGlyph.bold}</ToolButton>
               <ToolButton big title={t("tool.boldHash")} active={tool === "bold-hash"} onClick={() => choose("bold-hash")}>{BondGlyph.boldHash}</ToolButton>
               <ToolButton big title={t("tool.dashed")} active={tool === "dashed"} onClick={() => choose("dashed")}>{BondGlyph.dashed}</ToolButton>
+              <ToolButton big title={t("tool.dative")} active={tool === "dative"} onClick={() => choose("dative")}>{BondGlyph.dative}</ToolButton>
               <ToolButton big title={t("tool.chain")} active={tool === "chain"} onClick={() => choose("chain")}>{BondGlyph.chain}</ToolButton>
             </div>
           )}
@@ -469,7 +497,14 @@ export function MobileToolbar() {
           active={(panel === "arrowsFull") || (tool === "arrow" && arrowBarb === "full")}
           onClick={() => setPanel(panel === "arrowsFull" ? null : "arrowsFull")}
         >
-          <MiniArrow variant={arrowBarb === "full" ? arrowVariant : "curved"} barb="full" headSize={arrowHeadSize} />
+          <MiniArrow
+            variant={arrowBarb === "full" ? arrowVariant : "curved"}
+            barb="full"
+            headSize={arrowHeadSize}
+            headStyle={arrowHeadStyle === "auto" ? undefined : arrowHeadStyle}
+            tailStyle={arrowTailStyle === "auto" ? undefined : arrowTailStyle}
+            shaftStyle={arrowShaftStyle === "auto" ? undefined : arrowShaftStyle}
+          />
         </ToolButton>
         <ToolButton
           big

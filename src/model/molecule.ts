@@ -88,7 +88,8 @@ export function addBond(
   a1: string,
   a2: string,
   order: BondOrder = 1,
-  stereo: BondStereo = "none"
+  stereo: BondStereo = "none",
+  dative = false
 ): Molecule {
   if (a1 === a2) return mol;
   const duplicate = Object.values(mol.bonds).find(
@@ -96,6 +97,7 @@ export function addBond(
   );
   if (duplicate) return mol;
   const bond: Bond = { id, a1, a2, order, stereo, doubleSide: "auto" };
+  if (dative) bond.dative = true;
   return { ...mol, bonds: { ...mol.bonds, [id]: bond } };
 }
 

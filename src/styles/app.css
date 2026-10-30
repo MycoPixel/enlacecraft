@@ -2128,6 +2128,33 @@
   border-top: 1px solid var(--panel-border);
 }
 
+/* Head/tail/shaft override rows under the arrow-variant grid. Each row is
+   a compact icon grid so the whole picker stays the same width as before. */
+.arrow-style-section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.arrow-style-label {
+  margin-bottom: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.arrow-style-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+}
+
+.arrow-style-btn {
+  padding: 2px 1px;
+}
+
 .arrow-variant-btn {
   display: flex;
   align-items: center;

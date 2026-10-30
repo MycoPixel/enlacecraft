@@ -1,6 +1,6 @@
 # ChemDraw Compatibility — Status & Remaining Work
 
-> **Verified against the code on 2026-10-28** (app version 1.17.0).
+> **Verified against the code on 2026-10-30** (app version 1.17.0).
 > Earlier revisions of this file overstated progress in Phase 1: several items
 > were checked off before they were actually added (notably the fused
 > heteroaromatics and the chair/boat/decalin/norbornane templates). Both are
@@ -144,7 +144,7 @@ Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbo
 
 ---
 
-## Phase 8: CDXML Fidelity — Partial
+## Phase 8: CDXML Fidelity ✅
 - [x] `SGroup` type and `sgroups` field on `Molecule`
 - [x] Bond stereo types, arrow variants, orbital types, shape primitives, TLC enhancements
 - [x] 3D coordinate preservation (`Atom.z`)
@@ -160,17 +160,18 @@ Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbo
 - [x] Scheme/reaction-step grouping (`<scheme>`, `<step>`): import maps fragment/graphic ids (following `SupersededBy`) onto `Molecule.schemes`, export emits them back, project/autosave persist them, and the info panel lists them read-only (selecting a whole reaction)
 - [x] S-Groups import/export for polymers/mixtures: `<bracketedgroup>` maps onto `Molecule.sgroups` (BracketUsage→type, BracketedObjectIDs→atoms/bonds, RepeatCount→subscript, `<bracketattachment>`/`<crossingbond>`→bracket annotations and crossing bonds), export writes them back, and project/autosave persist them. In-app authoring now exists too: the selection context menu's "Group as S-group" submenu creates one (auto-placing a square bracket pair in the same undo step), the info panel edits type/repeat/label and adds/removes selected atoms, and the canvas overlay draws the repeat count.
 - [x] Font/color-table fidelity: TLC/text colors already round-trip through the color table; caption font families now round-trip through the font table (`font-family` spans, non-default fonts emitted with their own `<font>` entry)
-- [ ] Real ChemDraw-file round-trip suite (the existing `chemdraw-scheme.cdxml` fixture now round-trips import → export → import, including page, schemes, brackets and annotations; still needs more real files)
+- [x] Dative/coordinate bonds: ChemDraw's `Order="dative"` imports into `Bond.dative` and exports back as the same value instead of being dropped (or silently written as a plain single bond)
+- [x] Real ChemDraw-file round-trip suite: `fixtures/` now includes RDKit's ChemDraw-written dative, wavy, aromatic and reaction/Boc documents alongside `chemdraw-scheme.cdxml`, and `cdxmlRealFixtures.test.ts` runs import → export → import invariants over each. Provenance/licensing is documented in `fixtures/README.md`; the corpus can keep growing without changing the test shape.
 
 ---
 
-## Phase 9: UI/UX Integration — Partial
+## Phase 9: UI/UX Integration ✅
 - [x] Keyboard shortcuts overlay (`ShortcutsOverlay.tsx`, opened with `?`)
 - [x] Context menu (atom/bond/selection/canvas actions, charge, radical, stereo, highlight, cleanup, collapse-to-group, S-group creation, IUPAC)
 - [x] 3D viewer surfaces: VDW/SAS/SES, opacity slider, coloring sync, persistence, tests
 - [x] Template palette redesign (unified tabs, grid, search, My Templates)
-- [ ] Arrow tool refinement (full ChemDraw-style arrow editing)
-- [ ] Bond tool refinement (ChemDraw-compatible bond palette/behavior)
+- [x] Arrow tool refinement: the picker exposes all 13 `ArrowVariant` values, plus head/tail/shaft override rows (with an "auto" choice that follows the variant). The canvas renderer and CDXML writer now share the effective-style helpers in `model/arrowStyle.ts`, so overrides visibly change the drawing and survive export. The stored dashed default is applied to newly drawn arrows as well.
+- [x] Bond tool refinement: `dative` and `hollow-wedge` are first-class tools in the sidebar and mobile bond palette. Clicking an existing bond with either restyles it in place (dative toggles back off on a second click; hollow-wedge flips direction like the solid wedge), and dragging creates the bond in the same undo step.
 
 ---
 
@@ -194,7 +195,7 @@ Total built-in structure templates: **71** (1 ligand + 20 amino acids + 12 carbo
 
 ## Progress Summary
 
-- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 3 polysaccharide repeating units, 10 steroids/bile acids, 7 terpenes, 5 fused heteroaromatics, 36 ring templates (including chair/boat cyclohexane, cis/trans-decalin, and norbornane); bond types, computed stereochemistry, arrows, orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, reaction-scheme grouping, page setup, S-groups, a complete color table, and caption font families; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
-- **Main remaining work:** optional CML/SKC.
+- **Done:** all 20 amino acids, all 8 nucleotides, 5 nucleobases, 12 carbohydrates, 3 polysaccharide repeating units, 10 steroids/bile acids, 7 terpenes, 5 fused heteroaromatics, 36 ring templates (including chair/boat cyclohexane, cis/trans-decalin, and norbornane); bond types, computed stereochemistry, arrows (all 13 variants with head/tail/shaft overrides), orbitals, shapes, TLC (including per-spot deletion); CDXML round-trip with multi-fragment layout, abbreviated-group nicknames, isotopes, radicals, reaction-scheme grouping, page setup, S-groups, dative bonds, a complete color table, caption font families, and a real ChemDraw/RDKit fixture suite; shortcuts overlay; context menu; 3D surfaces; unified searchable template palette with user templates.
+- **Main remaining work:** optional CML/SKC; BioDraw elements are deferred; one component test for the 3D surface toggle/opacity path.
 - **Type checking:** `npx tsc -b` passes cleanly.
 - **Lint:** `oxlint` is clean on the touched files.

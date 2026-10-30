@@ -546,18 +546,24 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
-    if (tool.startsWith("bond") || tool === "wedge" || tool === "dash" || tool === "wavy" || tool === "bold" || tool === "bold-hash" || tool === "dashed") {
+    if (tool.startsWith("bond") || tool === "wedge" || tool === "dash" || tool === "wavy" || tool === "bold" || tool === "bold-hash" || tool === "dashed" || tool === "dative" || tool === "hollow-wedge") {
       if (hitBond) {
-        if (tool === "wedge" || tool === "dash") {
+        if (tool === "wedge" || tool === "dash" || tool === "hollow-wedge") {
           // Clicking the wedge/dash tool again on a bond that's already
           // that stereo has nothing new to set, so instead flip which atom
           // is the narrow/wide end — the only other thing repeat-clicking
           // could usefully mean here.
-          if (molecule.bonds[hitBond].stereo === tool) {
+          const stereo: BondStereo = tool === "hollow-wedge" ? "hollowWedge" : tool;
+          if (molecule.bonds[hitBond].stereo === stereo) {
             store.flipBondDirection(hitBond);
           } else {
-            store.setBondStereo(hitBond, tool);
+            store.setBondStereo(hitBond, stereo);
           }
+        } else if (tool === "dative") {
+          // Toggle, matching the context menu's dative-bond action: a
+          // second click on the same bond turns it back into a plain single
+          // bond instead of doing nothing.
+          store.setBondDative(hitBond, !molecule.bonds[hitBond].dative);
         } else if (tool === "wavy") {
           store.setBondStereo(hitBond, "wavy");
         } else if (tool === "bold") {
@@ -991,13 +997,14 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
 
       const order = (tool === "bond-2" ? 2 : tool === "bond-3" ? 3 : 1) as BondOrder;
       const stereo: BondStereo = tool === "wedge" ? "wedge"
+        : tool === "hollow-wedge" ? "hollowWedge"
         : tool === "dash" ? "dash"
         : tool === "wavy" ? "wavy"
         : tool === "bold" ? "bold"
         : tool === "bold-hash" ? "boldHash"
         : tool === "dashed" ? "dashed"
         : "none";
-      store.addBond(from, toAtom, stereo === "none" ? order : 1, stereo);
+      store.addBond(from, toAtom, stereo === "none" ? order : 1, stereo, tool === "dative");
       store.setStatus("status.ready");
       return;
     }
@@ -1060,7 +1067,17 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       } else {
         end = polar(drag.start.x, drag.start.y, dist(drag.start, pt), snapAngle(angleOf(drag.start, pt), snapStep()));
       }
-      const id = store.addArrowAnnotation(drag.start, end, store.arrowVariant, store.arrowBarb, store.arrowHeadSize);
+      const id = store.addArrowAnnotation(
+        drag.start,
+        end,
+        store.arrowVariant,
+        store.arrowBarb,
+        store.arrowHeadSize,
+        store.arrowDashed,
+        store.arrowHeadStyle === "auto" ? undefined : store.arrowHeadStyle,
+        store.arrowTailStyle === "auto" ? undefined : store.arrowTailStyle,
+        store.arrowShaftStyle === "auto" ? undefined : store.arrowShaftStyle,
+      );
       store.setSelectedAnnotationIds(new Set([id]));
       store.setTool("select");
       return;

@@ -478,6 +478,8 @@ export type ToolId =
   | "bold"
   | "bold-hash"
   | "dashed"
+  | "dative"
+  | "hollow-wedge"
   | "atom"
   | "chain"
   | "ring"

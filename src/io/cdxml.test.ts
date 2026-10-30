@@ -169,7 +169,7 @@ describe("exportCdxml / importCdxml round-trip", () => {
     expect(dist(roundTripped, id1, id2)).toBeCloseTo(dist(mol, "a0", "a1"), 1);
   });
 
-  test("a dative bond is omitted rather than exported as a plain covalent bond", () => {
+  test("a dative bond round-trips through CDX's Order=\"dative\"", () => {
     let mol = emptyMolecule();
     mol = addAtom(mol, "a0", { x: 0, y: 0 }, "N");
     mol = addAtom(mol, "a1", { x: 42, y: 0 }, "Fe");
@@ -177,11 +177,14 @@ describe("exportCdxml / importCdxml round-trip", () => {
     mol.bonds["b0"] = { ...mol.bonds["b0"], dative: true };
 
     const xml = exportCdxml(mol);
-    expect(xml).not.toContain("<b ");
+    expect(xml).toContain('Order="dative"');
+    expect(xml).not.toContain('Order="1"');
 
     const roundTripped = importCdxml(xml);
-    expect(Object.keys(roundTripped.bonds)).toHaveLength(0);
-    expect(Object.keys(roundTripped.atoms)).toHaveLength(2);
+    expect(Object.keys(roundTripped.bonds)).toHaveLength(1);
+    const bond = Object.values(roundTripped.bonds)[0];
+    expect(bond.dative).toBe(true);
+    expect(bond.order).toBe(1);
   });
 
   test("boldDouble bond stereo round-trips", () => {

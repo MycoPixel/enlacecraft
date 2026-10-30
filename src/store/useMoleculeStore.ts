@@ -17,6 +17,7 @@ import { collapseToGroup, findCollapsibleGroups } from "../model/groupCollapse";
 import { pruneSchemeArrowIds } from "../model/reactionSchemes";
 import { DEFAULT_SGROUP_SUBSCRIPT, pruneSGroupAnnotationIds, sgroupBondIds, sgroupBondsTouching } from "../model/sgroups";
 import { defaultPageSetup } from "../model/pageSetup";
+import type { ArrowHeadChoice, ArrowShaftChoice, ArrowTailChoice } from "../model/arrowStyle";
 import type { Embed3DMethod } from "../io/embed3d";
 import {
   STRUCTURE3D_STYLES,
@@ -345,6 +346,12 @@ interface MoleculeStore {
   arrowHeadSize: ArrowHeadSize;
   /** Dashed-shaft flag for newly-drawn arrows; see ArrowAnnotation.dashed. */
   arrowDashed: boolean;
+  /** Explicit style overrides for newly-drawn arrows. "auto" follows the
+   * chosen variant (see model/arrowStyle.ts), so the picker's default rows
+   * keep working exactly as before until the user overrides one. */
+  arrowHeadStyle: ArrowHeadChoice;
+  arrowTailStyle: ArrowTailChoice;
+  arrowShaftStyle: ArrowShaftChoice;
   arrowPreview: ArrowPreview | null;
   /** Live drag-to-place preview for the paired open/close bracket tool (see addBracketPair). */
   bracketPairPreview: ArrowPreview | null;
@@ -640,6 +647,9 @@ interface MoleculeStore {
   setArrowBarb: (b: "full" | "single") => void;
   setArrowHeadSize: (s: ArrowHeadSize) => void;
   setArrowDashed: (d: boolean) => void;
+  setArrowHeadStyle: (s: ArrowHeadChoice) => void;
+  setArrowTailStyle: (s: ArrowTailChoice) => void;
+  setArrowShaftStyle: (s: ArrowShaftChoice) => void;
   setArrowPreview: (p: ArrowPreview | null) => void;
   setBracketPairPreview: (p: ArrowPreview | null) => void;
   setShapePreview: (p: ArrowPreview | null) => void;
@@ -652,7 +662,7 @@ interface MoleculeStore {
   setOrbitalVariant: (v: OrbitalVariant) => void;
   setOrbitalFilled: (f: boolean) => void;
   addTextAnnotation: (p: Point) => string;
-  addArrowAnnotation: (p1: Point, p2: Point, variant: ArrowVariant, barb?: "full" | "single", headSize?: ArrowHeadSize) => string;
+  addArrowAnnotation: (p1: Point, p2: Point, variant: ArrowVariant, barb?: "full" | "single", headSize?: ArrowHeadSize, dashed?: boolean, headStyle?: ArrowAnnotation["headStyle"], tailStyle?: ArrowAnnotation["tailStyle"], shaftStyle?: ArrowAnnotation["shaftStyle"]) => string;
   addBracketAnnotation: (p: Point, variant: BracketVariant, facing: BracketFacing) => string;
   addBracketPair: (corner1: Point, corner2: Point, variant: BracketVariant) => { openId: string; closeId: string };
   /** Places a graphics-primitive shape (rectangle/ellipse/line) from the
@@ -749,6 +759,9 @@ interface MoleculeStore {
   setArrowBarbOf: (id: string, barb: "full" | "single") => void;
   setArrowHeadSizeOf: (id: string, headSize: ArrowHeadSize) => void;
   setArrowDashedOf: (id: string, dashed: boolean) => void;
+  setArrowHeadStyleOf: (id: string, style: ArrowHeadChoice) => void;
+  setArrowTailStyleOf: (id: string, style: ArrowTailChoice) => void;
+  setArrowShaftStyleOf: (id: string, style: ArrowShaftChoice) => void;
   deleteAnnotation: (id: string) => void;
   deleteAnnotations: (ids: Set<string>) => void;
   snapshotBefore: () => Snapshot;
@@ -758,7 +771,7 @@ interface MoleculeStore {
   /** Places a new atom with a whole REACTIVE_SITE_PRESETS entry applied
    * (label, charge, lone pairs) in one commit/undo step. */
   addReactiveSiteAtom: (p: Point, presetId: string) => string | null;
-  addBond: (a1: string, a2: string, order?: BondOrder, stereo?: BondStereo) => void;
+  addBond: (a1: string, a2: string, order?: BondOrder, stereo?: BondStereo, dative?: boolean) => void;
   /**
    * Adds a whole carbon chain in one undo step. If `fromAtomId` is null, a
    * fresh unbonded carbon is first created at `anchor` (this alone is what
@@ -1086,6 +1099,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     arrowBarb: "full",
     arrowHeadSize: "medium",
     arrowDashed: false,
+    arrowHeadStyle: "auto",
+    arrowTailStyle: "auto",
+    arrowShaftStyle: "auto",
     arrowPreview: null,
     bracketPairPreview: null,
     shapePreview: null,
@@ -1381,6 +1397,9 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setArrowBarb: (b) => set({ arrowBarb: b }),
     setArrowHeadSize: (s) => set({ arrowHeadSize: s }),
     setArrowDashed: (d) => set({ arrowDashed: d }),
+    setArrowHeadStyle: (s) => set({ arrowHeadStyle: s }),
+    setArrowTailStyle: (s) => set({ arrowTailStyle: s }),
+    setArrowShaftStyle: (s) => set({ arrowShaftStyle: s }),
     setArrowPreview: (p) => set({ arrowPreview: p }),
     setBracketPairPreview: (p) => set({ bracketPairPreview: p }),
     setShapePreview: (p) => set({ shapePreview: p }),
@@ -1412,8 +1431,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       return id;
     },
 
-    addBond: (a1, a2, order = 1, stereo = "none") => {
-      commit((mol) => M.addBond(mol, nextId(), a1, a2, order, stereo));
+    addBond: (a1, a2, order = 1, stereo = "none", dative = false) => {
+      commit((mol) => M.addBond(mol, nextId(), a1, a2, order, stereo, dative));
     },
 
     addChain: (fromAtomId, anchor, points) => {
@@ -2009,10 +2028,14 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       return id;
     },
 
-    addArrowAnnotation: (p1, p2, variant, barb, headSize) => {
+    addArrowAnnotation: (p1, p2, variant, barb, headSize, dashed, headStyle, tailStyle, shaftStyle) => {
       const id = nextId();
       const curvature = Math.hypot(p2.x - p1.x, p2.y - p1.y) * 0.22;
       const ann: ArrowAnnotation = { id, kind: "arrow", x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, variant, curvature, barb, headSize };
+      if (dashed) ann.dashed = true;
+      if (headStyle) ann.headStyle = headStyle;
+      if (tailStyle) ann.tailStyle = tailStyle;
+      if (shaftStyle) ann.shaftStyle = shaftStyle;
       commitAnnotations((anns) => ({ ...anns, [id]: ann }));
       return id;
     },
@@ -2723,6 +2746,30 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         const ann = anns[id];
         if (!ann || ann.kind !== "arrow") return anns;
         return { ...anns, [id]: { ...ann, dashed } };
+      });
+    },
+
+    setArrowHeadStyleOf: (id, style) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "arrow") return anns;
+        return { ...anns, [id]: { ...ann, headStyle: style === "auto" ? undefined : style } };
+      });
+    },
+
+    setArrowTailStyleOf: (id, style) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "arrow") return anns;
+        return { ...anns, [id]: { ...ann, tailStyle: style === "auto" ? undefined : style } };
+      });
+    },
+
+    setArrowShaftStyleOf: (id, style) => {
+      commitAnnotations((anns) => {
+        const ann = anns[id];
+        if (!ann || ann.kind !== "arrow") return anns;
+        return { ...anns, [id]: { ...ann, shaftStyle: style === "auto" ? undefined : style } };
       });
     },
 
