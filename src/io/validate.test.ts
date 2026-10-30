@@ -509,3 +509,66 @@ describe("reaction scheme sanitization", () => {
     expect(() => sanitizeMolecule({ atoms, bonds: {}, schemes })).toThrow(ImportValidationError);
   });
 });
+
+describe("S-group sanitization", () => {
+  const atoms = { a0: atom("a0"), a1: atom("a1", 60), a2: atom("a2", 120) };
+  const bonds = { b0: bond("b0", "a0", "a1"), b1: bond("b1", "a1", "a2") };
+
+  test("keeps a valid group and prunes stale atom/bond references", () => {
+    const mol = sanitizeMolecule({
+      atoms,
+      bonds,
+      sgroups: {
+        sg1: {
+          id: "sg1",
+          type: "SRU",
+          atomIds: ["a0", "ghost", "a0"],
+          bondIds: ["b0", "ghost"],
+          bracketAnnotationIds: ["br1", "br1"],
+          subscript: "n",
+        },
+      },
+    });
+    expect(mol.sgroups).toEqual({
+      sg1: {
+        id: "sg1",
+        type: "SRU",
+        atomIds: ["a0"],
+        bondIds: ["b0"],
+        bracketAnnotationIds: ["br1"],
+        subscript: "n",
+      },
+    });
+  });
+
+  test("drops a group with no surviving atoms", () => {
+    const report = newRepairReport();
+    const mol = sanitizeMolecule({ atoms, bonds, sgroups: { sg1: { id: "sg1", type: "SRU", atomIds: ["ghost"] } } }, report);
+    expect(mol.sgroups).toBeUndefined();
+    expect(report.droppedOther).toBe(1);
+  });
+
+  test("drops a group with an unknown type", () => {
+    const mol = sanitizeMolecule({ atoms, bonds, sgroups: { sg1: { id: "sg1", type: "NOPE", atomIds: ["a0"] } } });
+    expect(mol.sgroups).toBeUndefined();
+  });
+
+  test("clears a parentId whose parent did not survive", () => {
+    const mol = sanitizeMolecule({
+      atoms,
+      bonds,
+      sgroups: { sg1: { id: "sg1", type: "SRU", atomIds: ["a0"], parentId: "gone" } },
+    });
+    expect(mol.sgroups!.sg1.parentId).toBeUndefined();
+  });
+
+  test("refuses an oversized S-group list rather than truncating it", () => {
+    const sgroups = Object.fromEntries(
+      Array.from({ length: LIMITS.maxSgroups + 1 }, (_, i) => [
+        `sg${i}`,
+        { id: `sg${i}`, type: "SRU", atomIds: ["a0"] },
+      ]),
+    );
+    expect(() => sanitizeMolecule({ atoms, bonds, sgroups })).toThrow(ImportValidationError);
+  });
+});

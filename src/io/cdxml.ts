@@ -12,6 +12,8 @@ import type {
   PageSetup,
   ReactionScheme,
   ReactionStep,
+  SGroup,
+  SGroupType,
   ShapeAnnotation,
   ShapeVariant,
   TextAnnotation,
@@ -496,6 +498,9 @@ export function exportCdxmlDocument(
 
   const cdxIdOf: Record<string, string> = {};
   for (const id of atomIds) cdxIdOf[id] = nextId();
+  // Bond ids need the same translation for S-group BracketedObjectIDs and
+  // crossingbond references.
+  const bondCdxIdOf: Record<string, string> = {};
 
   // Scheme bookkeeping needs to translate this app's atom/annotation ids
   // back into the CDX ids just handed out. Fragments are recorded per atom
@@ -503,6 +508,10 @@ export function exportCdxmlDocument(
   // arrow writes two graphics, so one annotation can own several ids).
   const fragmentIdByAtomId: Record<string, string> = {};
   const arrowGraphicIdsByAnnotationId = new Map<string, string[]>();
+  // S-groups attach to the bracket graphics drawn by these annotations, so
+  // both halves of a spanning pair map back to the one CDX graphic id.
+  const bracketGraphicIdByAnnotationId = new Map<string, string>();
+  const bracketGraphicXById = new Map<string, number>();
   const arrowGraphicId = (annId: string): string => {
     const id = nextId();
     const ids = arrowGraphicIdsByAnnotationId.get(annId);
@@ -572,7 +581,9 @@ export function exportCdxmlDocument(
       const bId = cdxIdOf[b.a1];
       const eId = cdxIdOf[b.a2];
       if (!bId || !eId) continue;
-      let attrs = `id="${nextId()}" B="${bId}" E="${eId}" Order="${b.order}"`;
+      const bondCdxId = nextId();
+      bondCdxIdOf[b.id] = bondCdxId;
+      let attrs = `id="${bondCdxId}" B="${bId}" E="${eId}" Order="${b.order}"`;
       // "Begin"/"End" in CDX's Display value names which node (B or E) is the
       // narrow/pointed end — our model always treats a1 (here, B) as that
       // narrow end (see BondView), so "...Begin" variants match directly.
@@ -725,11 +736,18 @@ export function exportCdxmlDocument(
         // Brace, the same way they both import from it; a paren drawn here
         // re-opens in ChemDraw as ChemDraw's brace/paren glyph.
         const variant = open.variant === "square" ? "Bracket" : "Brace";
-        out += `<graphic id="${nextId()}" BoundingBox="${u(open.x)} ${u(top)} ${u(close.x + close.width)} ${u(bottom)}" GraphicType="${variant}"/>\n`;
+        const graphicId = nextId();
+        bracketGraphicIdByAnnotationId.set(open.id, graphicId);
+        bracketGraphicIdByAnnotationId.set(close.id, graphicId);
+        bracketGraphicXById.set(graphicId, open.x);
+        out += `<graphic id="${graphicId}" BoundingBox="${u(open.x)} ${u(top)} ${u(close.x + close.width)} ${u(bottom)}" GraphicType="${variant}"/>\n`;
       } else {
         // One bracket glyph = one narrow CDX bracket graphic.
         const variant = ann.variant === "square" ? "Bracket" : "Brace";
-        out += `<graphic id="${nextId()}" BoundingBox="${u(ann.x)} ${u(ann.y)} ${u(ann.x + ann.width)} ${u(ann.y + ann.height)}" GraphicType="${variant}"/>\n`;
+        const graphicId = nextId();
+        bracketGraphicIdByAnnotationId.set(ann.id, graphicId);
+        bracketGraphicXById.set(graphicId, ann.x);
+        out += `<graphic id="${graphicId}" BoundingBox="${u(ann.x)} ${u(ann.y)} ${u(ann.x + ann.width)} ${u(ann.y + ann.height)}" GraphicType="${variant}"/>\n`;
       }
     } else if (ann.kind === "shape") {
       // Graphics primitives write back as their CDX graphic types — the
@@ -868,6 +886,73 @@ export function exportCdxmlDocument(
       stepXml.push(`<step ${attrs}/>`);
     }
     if (stepXml.length > 0) out += `<scheme id="${nextId()}">${stepXml.join("")}</scheme>\n`;
+  }
+
+  // S-groups are page-level objects like schemes: they name the atoms and
+  // bonds they enclose and the bracket graphics that draw them. A group
+  // whose atoms or brackets didn't survive is skipped rather than written
+  // with dangling references.
+  for (const sg of Object.values(mol.sgroups ?? {})) {
+    const atomCdxIds = [...new Set(sg.atomIds.map((id) => cdxIdOf[id]).filter((id): id is string => !!id))];
+    if (atomCdxIds.length === 0) continue;
+    const bracketGraphicIds = [
+      ...new Set(
+        (sg.bracketAnnotationIds ?? [])
+          .map((id) => bracketGraphicIdByAnnotationId.get(id))
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    if (bracketGraphicIds.length === 0) continue;
+    const bondCdxIds = [...new Set((sg.bondIds ?? []).map((id) => bondCdxIdOf[id]).filter((id): id is string => !!id))];
+
+    // A crossing bond has exactly one endpoint inside the group; its inside
+    // endpoint is what <crossingbond InnerAtomID> records.
+    const inside = new Set(sg.atomIds);
+    const crossingBonds: { cdxBond: string; cdxInner: string; innerX: number }[] = [];
+    for (const bondId of sg.bondIds ?? []) {
+      const bond = mol.bonds[bondId];
+      if (!bond) continue;
+      const a1Inside = inside.has(bond.a1);
+      const a2Inside = inside.has(bond.a2);
+      if (a1Inside === a2Inside) continue;
+      const innerId = a1Inside ? bond.a1 : bond.a2;
+      const cdxBond = bondCdxIdOf[bondId];
+      const cdxInner = cdxIdOf[innerId];
+      if (cdxBond && cdxInner) crossingBonds.push({ cdxBond, cdxInner, innerX: mol.atoms[innerId]?.x ?? 0 });
+    }
+
+    const attachments = bracketGraphicIds.map((graphicId) => ({
+      graphicId,
+      x: bracketGraphicXById.get(graphicId) ?? 0,
+      crossing: [] as typeof crossingBonds,
+    }));
+    // ChemDraw associates each crossing bond with the bracket it crosses;
+    // with only a flat list stored here, assign each to the nearest glyph.
+    for (const cb of crossingBonds) {
+      let nearest = attachments[0];
+      for (const a of attachments) {
+        if (Math.abs(cb.innerX - a.x) < Math.abs(cb.innerX - nearest.x)) nearest = a;
+      }
+      nearest.crossing.push(cb);
+    }
+
+    const attachmentXml = attachments
+      .map(({ graphicId, crossing }) => {
+        const bonds = crossing
+          .map((cb) => `<crossingbond id="${nextId()}" BondID="${cb.cdxBond}" InnerAtomID="${cb.cdxInner}"/>`)
+          .join("");
+        return `<bracketattachment id="${nextId()}" GraphicID="${graphicId}">${bonds}</bracketattachment>`;
+      })
+      .join("");
+    const dataXml = sg.data
+      ? Object.entries(sg.data)
+          .map(([name, value]) => `<objecttag TagType="String" Name="${escapeXml(name)}" Value="${escapeXml(value)}"/>`)
+          .join("")
+      : "";
+    let attrs = `id="${nextId()}" BracketedObjectIDs="${[...atomCdxIds, ...bondCdxIds].join(" ")}" BracketUsage="${BRACKET_USAGE_BY_SGROUP_TYPE[sg.type] ?? "Unspecified"}" PolymerFlipType="NoFlip"`;
+    if (sg.subscript) attrs += ` RepeatCount="${escapeXml(sg.subscript)}"`;
+    if (sg.label) attrs += ` Label="${escapeXml(sg.label)}"`;
+    out += `<bracketedgroup ${attrs}>${attachmentXml}${dataXml}</bracketedgroup>\n`;
   }
 
   out += `</page>\n</CDXML>\n`;
@@ -1315,12 +1400,20 @@ function makeShape(
 function importAnnotations(
   doc: Document,
   scale: number
-): { annotations: Annotation[]; annotationIdByGraphicId: Map<string, string> } {
+): {
+  annotations: Annotation[];
+  annotationIdByGraphicId: Map<string, string>;
+  bracketAnnotationIdsByGraphicId: Map<string, string[]>;
+} {
   const annotations: Annotation[] = [];
   // CDX graphic id -> this app's annotation id. Reaction schemes name their
   // arrows by the former, so importCdxmlDocument needs this to translate
   // ReactionStepArrows into ids that survive in the annotation map.
   const annotationIdByGraphicId = new Map<string, string>();
+  // CDX bracket-graphic id -> the bracket annotation(s) it produced. An
+  // S-group's <bracketattachment> names the graphic, and a spanning bracket
+  // object produces both halves of this app's open+close pair.
+  const bracketAnnotationIdsByGraphicId = new Map<string, string[]>();
   const room = () => {
     if (annotations.length >= LIMITS.maxAnnotations) {
       throw new Error(`CDXML has too many annotations (> ${LIMITS.maxAnnotations})`);
@@ -1569,20 +1662,24 @@ function importAnnotations(
       const left = Math.min(rx1, rx2), right = Math.max(rx1, rx2);
       const top = Math.min(ry1, ry2), bottom = Math.max(ry1, ry2);
       const w = (right - left) * scale;
+      const graphicId = g.getAttribute("id") ?? undefined;
       room();
       if (w > 60) {
         // A bracket graphic whose bounding box spans the enclosed region
         // is ChemDraw's single two-sided bracket object: import both
         // halves so the pair reads the same way it did there.
-        annotations.push(makeBracket(left, top, left + 12 / scale, bottom, variant, "open", scale));
-        annotations.push(makeBracket(right - 12 / scale, top, right, bottom, variant, "close", scale));
+        const open = makeBracket(left, top, left + 12 / scale, bottom, variant, "open", scale);
+        const close = makeBracket(right - 12 / scale, top, right, bottom, variant, "close", scale);
+        annotations.push(open, close);
+        if (graphicId) bracketAnnotationIdsByGraphicId.set(graphicId, [open.id, close.id]);
       } else {
         // A narrow graphic is one glyph. Its facing is only recorded when
         // it belongs to a <bracketedgroup>; otherwise default to open (the
         // common case for a lone bracket, and trivially flippable in-app).
-        const id = g.getAttribute("id");
-        const facing = (id ? bracketFacing.get(id) : undefined) ?? "open";
-        annotations.push(makeBracket(left, top, right, bottom, variant, facing, scale));
+        const facing = (graphicId ? bracketFacing.get(graphicId) : undefined) ?? "open";
+        const bracket = makeBracket(left, top, right, bottom, variant, facing, scale);
+        annotations.push(bracket);
+        if (graphicId) bracketAnnotationIdsByGraphicId.set(graphicId, [bracket.id]);
       }
     } else if (type === "orbital") {
       // ChemDraw's orbital glyphs map onto this app's own orbital tool:
@@ -1918,7 +2015,12 @@ function importAnnotations(
   for (const [graphicId, annotationId] of annotationIdByGraphicId) {
     if (!keptIds.has(annotationId)) annotationIdByGraphicId.delete(graphicId);
   }
-  return { annotations: cleaned, annotationIdByGraphicId };
+  for (const [graphicId, ids] of bracketAnnotationIdsByGraphicId) {
+    const kept = ids.filter((id) => keptIds.has(id));
+    if (kept.length > 0) bracketAnnotationIdsByGraphicId.set(graphicId, kept);
+    else bracketAnnotationIdsByGraphicId.delete(graphicId);
+  }
+  return { annotations: cleaned, annotationIdByGraphicId, bracketAnnotationIdsByGraphicId };
 }
 
 /**
@@ -1991,6 +2093,137 @@ function importReactionSchemes(
     if (steps.length > 0) schemes.push({ id: nextId(), steps });
   }
   return schemes;
+}
+
+/** CDX `BracketUsage` values -> this app's S-group types. ChemDraw writes
+ * "MultipleGroup" for a mixture bracket; "Unspecified" is the catch-all. */
+const SGROUP_TYPE_BY_BRACKET_USAGE: Record<string, SGroupType> = {
+  sru: "SRU",
+  monomer: "MON",
+  mer: "MER",
+  copolymer: "COP",
+  crosslink: "CRO",
+  modification: "MOD",
+  graft: "GRA",
+  component: "COM",
+  superatom: "SUP",
+  mixture: "MUL",
+  multiplegroup: "MUL",
+  data: "DAT",
+  any: "ANY",
+  unspecified: "ANY",
+};
+
+/** The inverse, used when writing a `<bracketedgroup>` back out. */
+const BRACKET_USAGE_BY_SGROUP_TYPE: Record<SGroupType, string> = {
+  SRU: "SRU",
+  MON: "Monomer",
+  MER: "Mer",
+  COP: "Copolymer",
+  CRO: "Crosslink",
+  MOD: "Modification",
+  GRA: "Graft",
+  COM: "Component",
+  SUP: "Superatom",
+  MUL: "MultipleGroup",
+  DAT: "Data",
+  ANY: "Unspecified",
+};
+
+const BRACKET_STYLE_BY_BRACKET_TYPE: Record<string, NonNullable<SGroup["bracketStyle"]>> = {
+  square: "square",
+  bracket: "square",
+  curly: "curly",
+  round: "round",
+  paren: "round",
+  parenthesis: "round",
+  none: "none",
+};
+
+/**
+ * Reads ChemDraw's `<bracketedgroup>` S-groups (polymer repeat units,
+ * mixtures, superatoms...). The object names its contents by CDX id in
+ * `BracketedObjectIDs`, its bracket glyphs by graphic id in
+ * `<bracketattachment>`, and its crossing bonds in `<crossingbond>`; all
+ * three are translated to this app's ids. Anything that lost its atoms on
+ * import is dropped rather than kept as a dangling group.
+ */
+function importSgroups(
+  doc: Document,
+  atomIdByCdxId: Map<string, string>,
+  bondIdByCdxId: Map<string, string>,
+  bracketAnnotationIdsByGraphicId: Map<string, string[]>
+): Record<string, SGroup> | undefined {
+  const elements = Array.from(doc.querySelectorAll("bracketedgroup"));
+  if (elements.length === 0) return undefined;
+
+  const splitIds = (raw: string | null): string[] => (raw ?? "").trim().split(/\s+/).filter(Boolean);
+  const graphicById = new Map<string, Element>();
+  for (const g of Array.from(doc.querySelectorAll("graphic"))) {
+    const id = g.getAttribute("id");
+    if (id) graphicById.set(id, g);
+  }
+
+  const sgroups: Record<string, SGroup> = {};
+  for (const el of elements) {
+    if (Object.keys(sgroups).length >= LIMITS.maxSgroups) break;
+
+    const atomIds: string[] = [];
+    const bondIds: string[] = [];
+    for (const cdxId of splitIds(el.getAttribute("BracketedObjectIDs"))) {
+      const atomId = atomIdByCdxId.get(cdxId);
+      if (atomId) {
+        atomIds.push(atomId);
+        continue;
+      }
+      const bondId = bondIdByCdxId.get(cdxId);
+      if (bondId) bondIds.push(bondId);
+    }
+
+    const bracketAnnotationIds: string[] = [];
+    let bracketStyle: SGroup["bracketStyle"];
+    for (const attachment of Array.from(el.querySelectorAll("bracketattachment"))) {
+      const graphicId = attachment.getAttribute("GraphicID");
+      if (graphicId) {
+        const ids = bracketAnnotationIdsByGraphicId.get(graphicId);
+        if (ids) bracketAnnotationIds.push(...ids);
+        if (!bracketStyle) {
+          const rawType = (graphicById.get(graphicId)?.getAttribute("BracketType") ?? "").trim().toLowerCase();
+          bracketStyle = BRACKET_STYLE_BY_BRACKET_TYPE[rawType];
+        }
+      }
+      for (const crossing of Array.from(attachment.querySelectorAll("crossingbond"))) {
+        const bondId = bondIdByCdxId.get(crossing.getAttribute("BondID") ?? "");
+        if (bondId) bondIds.push(bondId);
+      }
+    }
+
+    const uniqueAtoms = [...new Set(atomIds)];
+    if (uniqueAtoms.length === 0) continue;
+
+    const type = SGROUP_TYPE_BY_BRACKET_USAGE[(el.getAttribute("BracketUsage") ?? "").trim().toLowerCase()] ?? "ANY";
+    const group: SGroup = { id: nextId(), type, atomIds: uniqueAtoms };
+    const uniqueBonds = [...new Set(bondIds)];
+    if (uniqueBonds.length > 0) group.bondIds = uniqueBonds;
+    if (bracketStyle) group.bracketStyle = bracketStyle;
+    const uniqueBrackets = [...new Set(bracketAnnotationIds)];
+    if (uniqueBrackets.length > 0) group.bracketAnnotationIds = uniqueBrackets;
+    const repeatCount = (el.getAttribute("RepeatCount") ?? "").trim();
+    if (repeatCount) group.subscript = repeatCount;
+    const label = (el.getAttribute("Label") ?? "").trim();
+    if (label) group.label = label;
+    const data: Record<string, string> = {};
+    for (const tag of Array.from(el.querySelectorAll("objecttag"))) {
+      const name = tag.getAttribute("Name")?.trim();
+      const value = tag.getAttribute("Value");
+      if (name && value != null) data[name] = value;
+    }
+    if (Object.keys(data).length > 0) group.data = data;
+
+    sgroups[group.id] = group;
+  }
+
+  return Object.keys(sgroups).length > 0 ? sgroups : undefined;
 }
 
 /**
@@ -2076,7 +2309,7 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     };
   }
 
-  const bondPairs: { a1: string; a2: string; order: BondOrder; stereo: BondStereo; hollow?: boolean }[] = [];
+  const bondPairs: { cdxId?: string; a1: string; a2: string; order: BondOrder; stereo: BondStereo; hollow?: boolean }[] = [];
   for (const b of Array.from(doc.querySelectorAll("b"))) {
     // Bonds inside a nickname's definition fragment reference that
     // definition's own nodes, not the page's atoms.
@@ -2091,7 +2324,11 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     const { stereo, swapped, hollow } = cdxDisplayToStereo(b.getAttribute("Display"));
     // Our model always has a1 as the wedge/hash's narrow end; if CDX marked
     // the *other* node as narrow ("...End"), swap so a1 stays narrow.
-    bondPairs.push(swapped ? { a1: endId, a2: beginId, order, stereo, hollow } : { a1: beginId, a2: endId, order, stereo, hollow });
+    bondPairs.push(
+      swapped
+        ? { cdxId: b.getAttribute("id") ?? undefined, a1: endId, a2: beginId, order, stereo, hollow }
+        : { cdxId: b.getAttribute("id") ?? undefined, a1: beginId, a2: endId, order, stereo, hollow },
+    );
   }
 
   // Same self-calibration approach as the MOL/SDF importer: CDXML documents
@@ -2122,18 +2359,26 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
     mol.atoms[id].y = (rawY.get(id) ?? 0) * scale;
   }
 
-  for (const { a1, a2, order, stereo, hollow } of bondPairs) {
+  const bondIdByCdxId = new Map<string, string>();
+  for (const { cdxId, a1, a2, order, stereo, hollow } of bondPairs) {
     const id = nextId();
+    if (cdxId) bondIdByCdxId.set(cdxId, id);
     mol.bonds[id] = { id, a1, a2, order: stereo === "none" || stereo === "boldDouble" || stereo === "dashedDouble" ? order : 1, stereo, doubleSide: "auto", hollow };
   }
 
-  const { annotations, annotationIdByGraphicId } = importAnnotations(doc, scale);
-  const molecule = finalizeImportedMolecule(mol);
+  const { annotations, annotationIdByGraphicId, bracketAnnotationIdsByGraphicId } = importAnnotations(doc, scale);
+  const sgroups = importSgroups(doc, idByCdxId, bondIdByCdxId, bracketAnnotationIdsByGraphicId);
+  // Feed S-groups through the same sanitizer as everything else: it prunes
+  // references to atoms/bonds that didn't survive and enforces the limits.
+  const molecule = finalizeImportedMolecule(sgroups ? { ...mol, sgroups } : mol);
   const schemes = importReactionSchemes(doc, atomIdsByFragmentId, annotationIdByGraphicId);
   const page = importPageSetup(doc);
 
+  let result = molecule;
+  if (schemes.length > 0) result = { ...result, schemes };
+
   return {
-    molecule: schemes.length > 0 ? { ...molecule, schemes } : molecule,
+    molecule: result,
     annotations,
     ...(page ? { page } : {}),
   };

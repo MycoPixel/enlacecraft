@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import { addAtom, addBond, emptyMolecule, setAtomCustomGroup } from "../model/molecule";
 import { exportCdxml, exportCdxmlDocument, importCdxml, importCdxmlDocument } from "./cdxml";
 import chemdrawScheme from "./fixtures/chemdraw-scheme.cdxml?raw";
+import rdkitSgroups from "./fixtures/rdkit-sgroups.cdxml?raw";
 import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from "../model/pageSetup";
 import type { ArrowAnnotation, BracketAnnotation, Molecule, OrbitalAnnotation, ShapeAnnotation, TextAnnotation, TlcPlateAnnotation } from "../types/chemistry";
 
@@ -1139,5 +1140,133 @@ describe("real ChemDraw fixture round trip", () => {
     for (const id of secondStep.arrowIds) {
       expect(second.annotations.some((a) => a.id === id && a.kind === "arrow")).toBe(true);
     }
+  });
+});
+
+describe("CDXML S-groups", () => {
+  const sgroupPage = (body: string): string =>
+    `<CDXML BondLength="30"><page><fragment id="1">` +
+    `<n id="1" p="0 0" Element="6"/><n id="2" p="42 0" Element="6"/><n id="3" p="84 0" Element="6"/>` +
+    `<b id="4" B="1" E="2"/><b id="5" B="2" E="3"/>` +
+    `</fragment>${body}</page></CDXML>`;
+
+  test("imports an RDKit-style MultipleGroup bracketedgroup", () => {
+    // Same shape as RDKit's sgroups_and_remove_atoms_4.cdxml: two narrow
+    // bracket graphics attached to a page-level <bracketedgroup>.
+    const doc = importCdxmlDocument(sgroupPage(
+      `<graphic id="10" BoundingBox="0 -20 0 20" GraphicType="Bracket" BracketType="Square"/>` +
+      `<graphic id="11" BoundingBox="84 -20 84 20" GraphicType="Bracket" BracketType="Square"/>` +
+      `<bracketedgroup id="12" BracketedObjectIDs="1 2 3" BracketUsage="MultipleGroup" PolymerFlipType="NoFlip" RepeatCount="2">` +
+      `<bracketattachment id="13" GraphicID="10"><crossingbond id="14" BondID="5" InnerAtomID="2"/></bracketattachment>` +
+      `<bracketattachment id="15" GraphicID="11"><crossingbond id="16" BondID="4" InnerAtomID="2"/></bracketattachment>` +
+      `</bracketedgroup>`
+    ));
+
+    const groups = Object.values(doc.molecule.sgroups ?? {});
+    expect(groups).toHaveLength(1);
+    const group = groups[0];
+    expect(group.type).toBe("MUL");
+    expect(group.atomIds).toHaveLength(3);
+    expect(group.bondIds).toHaveLength(2);
+    expect(group.bracketAnnotationIds).toHaveLength(2);
+    expect(group.subscript).toBe("2");
+    expect(group.bracketStyle).toBe("square");
+    // Both bracket annotations really exist in the imported annotation layer.
+    const bracketIds = new Set(doc.annotations.filter((a) => a.kind === "bracket").map((a) => a.id));
+    for (const id of group.bracketAnnotationIds!) expect(bracketIds.has(id)).toBe(true);
+  });
+
+  test("BracketUsage maps onto the app's S-group types", () => {
+    const cases: [string, string][] = [
+      ["SRU", "SRU"], ["Monomer", "MON"], ["Mer", "MER"], ["Copolymer", "COP"],
+      ["Crosslink", "CRO"], ["Modification", "MOD"], ["Graft", "GRA"],
+      ["Component", "COM"], ["Superatom", "SUP"], ["Mixture", "MUL"], ["Data", "DAT"],
+    ];
+    for (const [usage, expected] of cases) {
+      const doc = importCdxmlDocument(sgroupPage(
+        `<graphic id="10" BoundingBox="0 -20 0 20" GraphicType="Bracket"/>` +
+        `<bracketedgroup id="12" BracketedObjectIDs="1 2" BracketUsage="${usage}">` +
+        `<bracketattachment id="13" GraphicID="10"/></bracketedgroup>`
+      ));
+      expect(Object.values(doc.molecule.sgroups ?? {})[0]?.type).toBe(expected);
+    }
+  });
+
+  test("a bracketedgroup with no surviving atoms is dropped", () => {
+    const doc = importCdxmlDocument(sgroupPage(
+      `<graphic id="10" BoundingBox="0 -20 0 20" GraphicType="Bracket"/>` +
+      `<bracketedgroup id="12" BracketedObjectIDs="999" BracketUsage="SRU">` +
+      `<bracketattachment id="13" GraphicID="10"/></bracketedgroup>`
+    ));
+    expect(doc.molecule.sgroups).toBeUndefined();
+  });
+
+  test("an S-group round-trips through export and re-import", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 42, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: 84, y: 0 }, "C");
+    mol = addBond(mol, "b0", "a0", "a1");
+    mol = addBond(mol, "b1", "a1", "a2");
+    const open: BracketAnnotation = { id: "br1", kind: "bracket", x: 0, y: -10, width: 14, height: 60, variant: "square", facing: "open" };
+    const close: BracketAnnotation = { id: "br2", kind: "bracket", x: 120, y: -10, width: 14, height: 60, variant: "square", facing: "close" };
+    mol = {
+      ...mol,
+      sgroups: {
+        sg1: {
+          id: "sg1",
+          type: "SRU",
+          atomIds: ["a0", "a1"],
+          bondIds: ["b1"],
+          subscript: "n",
+          bracketAnnotationIds: ["br1", "br2"],
+        },
+      },
+    };
+
+    const xml = exportCdxmlDocument(mol, [open, close]);
+    expect(xml).toContain('<bracketedgroup');
+    expect(xml).toContain('BracketUsage="SRU"');
+    expect(xml).toContain('RepeatCount="n"');
+    expect(xml.match(/<bracketattachment /g)).toHaveLength(1); // one spanning graphic
+    expect(xml).toContain('<crossingbond');
+
+    const back = importCdxmlDocument(xml);
+    const groups = Object.values(back.molecule.sgroups ?? {});
+    expect(groups).toHaveLength(1);
+    expect(groups[0].type).toBe("SRU");
+    expect(groups[0].atomIds).toHaveLength(2);
+    expect(groups[0].subscript).toBe("n");
+    expect(groups[0].bondIds).toHaveLength(1);
+    expect(groups[0].bracketAnnotationIds).toHaveLength(2);
+  });
+
+  test("an S-group with no bracket annotations left is not written dangling", () => {
+    let mol = addAtom(emptyMolecule(), "a0", { x: 0, y: 0 }, "C");
+    mol = { ...mol, sgroups: { sg1: { id: "sg1", type: "SRU", atomIds: ["a0"] } } };
+    expect(exportCdxml(mol)).not.toContain("<bracketedgroup");
+  });
+
+  test("a real ChemDraw S-group file (RDKit fixture) imports and round-trips", () => {
+    const first = importCdxmlDocument(rdkitSgroups);
+    const groups = Object.values(first.molecule.sgroups ?? {});
+    expect(groups).toHaveLength(1);
+    expect(groups[0].type).toBe("MUL");
+    expect(groups[0].atomIds).toHaveLength(3);
+    expect(groups[0].bondIds).toHaveLength(2);
+    expect(groups[0].bracketAnnotationIds).toHaveLength(2);
+    expect(groups[0].subscript).toBe("2");
+
+    const xml = exportCdxmlDocument(first.molecule, first.annotations, "sgroups", first.page);
+    const second = importCdxmlDocument(xml);
+    expect(Object.keys(second.molecule.atoms)).toHaveLength(Object.keys(first.molecule.atoms).length);
+    expect(Object.keys(second.molecule.bonds)).toHaveLength(Object.keys(first.molecule.bonds).length);
+    const back = Object.values(second.molecule.sgroups ?? {});
+    expect(back).toHaveLength(1);
+    expect(back[0].type).toBe("MUL");
+    expect(back[0].atomIds).toHaveLength(3);
+    expect(back[0].bondIds).toHaveLength(2);
+    expect(back[0].bracketAnnotationIds).toHaveLength(2);
+    expect(back[0].subscript).toBe("2");
   });
 });

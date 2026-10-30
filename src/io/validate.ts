@@ -21,6 +21,7 @@ import type {
   ReactionScheme,
   ReactionStep,
   PageSetup,
+  SGroup,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
 import { PERIODIC_TABLE } from "../model/constants";
@@ -67,6 +68,7 @@ export const LIMITS = {
   maxAnnotations: 5_000,
   maxReactionSchemes: 500,
   maxReactionSteps: 5_000,
+  maxSgroups: 500,
   /** Largest page dimension or page origin accepted in a project file, in
    * CDXML points (about 278 inches — far past any real paper size). */
   maxPageDimension: 20_000,
@@ -161,6 +163,13 @@ const idList: Parser<string[]> = (v) => {
   return v.every((e) => typeof e === "string" && e.length > 0 && e.length <= LIMITS.maxIdChars) ? (v as string[]) : BAD;
 };
 
+/** Like idList, but for whole-molecule collections (an S-group can span far
+ * more than 64 atoms in a polymer). */
+const largeIdList: Parser<string[]> = (v) => {
+  if (!Array.isArray(v) || v.length > LIMITS.maxAtoms) return BAD;
+  return v.every((e) => typeof e === "string" && e.length > 0 && e.length <= LIMITS.maxIdChars) ? (v as string[]) : BAD;
+};
+
 const lonePairOffsets: Parser<({ x: number; y: number } | null)[]> = (v) => {
   if (!Array.isArray(v) || v.length > 8) return BAD;
   const out: ({ x: number; y: number } | null)[] = [];
@@ -206,6 +215,31 @@ const bondQueryPropsParser: Parser<BondQueryProps> = (v) => {
 };
 
 const booleanParser: Parser<boolean> = (v) => (v === "true" || v === true ? true : v === "false" || v === false ? false : BAD);
+
+/** A plain string-to-string map (SGroup data fields), bounded so a hostile
+ * project can't smuggle in an unbounded object. */
+const stringRecord: Parser<Record<string, string>> = (v) => {
+  if (!isPlainObject(v)) return BAD;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(v)) {
+    if (key.length === 0 || key.length > 128 || typeof value !== "string" || value.length > 2_000) return BAD;
+    out[key] = value;
+  }
+  return out;
+};
+
+const pointList: Parser<{ x: number; y: number }[]> = (v) => {
+  if (!Array.isArray(v) || v.length > 64) return BAD;
+  const out: { x: number; y: number }[] = [];
+  for (const p of v) {
+    if (!isPlainObject(p)) return BAD;
+    const x = COORD(p.x);
+    const y = COORD(p.y);
+    if (x === BAD || y === BAD) return BAD;
+    out.push({ x, y });
+  }
+  return out;
+};
 
 // ---------------------------------------------------------------------------
 // Field tables (one entry per interface key — enforced by the Spec<T> type)
@@ -261,6 +295,22 @@ const HAPTIC_REQUIRED = ["metalAtomId", "ringAtomIds"] as const;
 
 const RING_DISPLAY_SPEC: Spec<AromaticRingDisplay> = { id: ID, atomIds: idList };
 const RING_DISPLAY_REQUIRED = ["atomIds"] as const;
+
+const SGROUP_SPEC: Spec<SGroup> = {
+  id: ID,
+  type: oneOf("SRU", "MON", "MER", "COP", "CRO", "MOD", "GRA", "COM", "SUP", "MUL", "DAT", "ANY"),
+  atomIds: largeIdList,
+  bondIds: largeIdList,
+  bracketStyle: oneOf("square", "curly", "round", "none"),
+  bracketCoords: pointList,
+  subscript: text(64),
+  label: text(256),
+  data: stringRecord,
+  parentId: ID,
+  componentIds: largeIdList,
+  bracketAnnotationIds: largeIdList,
+};
+const SGROUP_REQUIRED = ["type", "atomIds"] as const;
 
 const ARROW_SPEC: Spec<ArrowAnnotation> = {
   id: ID,
@@ -638,8 +688,44 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
     aromaticRingDisplays[key] = { id: key, atomIds: ids };
   }
 
+  const sgroups: Record<string, SGroup> = {};
+  for (const [key, value] of optionalRecordEntries(raw.sgroups, "sgroups", LIMITS.maxSgroups)) {
+    const parsed = keyOk(key) ? parseFields<SGroup>(value, SGROUP_SPEC, SGROUP_REQUIRED, report) : null;
+    if (!parsed) {
+      report.droppedOther++;
+      continue;
+    }
+    const atomIds = [...new Set(parsed.atomIds)].filter((id) => hasOwn(atoms, id));
+    if (atomIds.length === 0) {
+      report.droppedOther++;
+      continue;
+    }
+    const clean: SGroup = { ...parsed, id: key, type: parsed.type!, atomIds };
+    const bondIds = parsed.bondIds ? [...new Set(parsed.bondIds)].filter((id) => hasOwn(bonds, id)) : [];
+    if (bondIds.length > 0) clean.bondIds = bondIds;
+    else delete clean.bondIds;
+    const componentIds = parsed.componentIds ? [...new Set(parsed.componentIds)] : [];
+    if (componentIds.length > 0) clean.componentIds = componentIds;
+    else delete clean.componentIds;
+    const bracketAnnotationIds = parsed.bracketAnnotationIds ? [...new Set(parsed.bracketAnnotationIds)] : [];
+    if (bracketAnnotationIds.length > 0) clean.bracketAnnotationIds = bracketAnnotationIds;
+    else delete clean.bracketAnnotationIds;
+    sgroups[key] = clean;
+  }
+  // A parent reference is only meaningful while that parent survived.
+  for (const sg of Object.values(sgroups)) {
+    if (sg.parentId && !hasOwn(sgroups, sg.parentId)) delete sg.parentId;
+  }
+
   const schemes = sanitizeReactionSchemes(raw.schemes, atoms, report);
-  return { atoms, bonds, hapticBonds, aromaticRingDisplays, ...(schemes ? { schemes } : {}) };
+  return {
+    atoms,
+    bonds,
+    hapticBonds,
+    aromaticRingDisplays,
+    ...(Object.keys(sgroups).length > 0 ? { sgroups } : {}),
+    ...(schemes ? { schemes } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

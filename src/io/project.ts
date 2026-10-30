@@ -1,6 +1,7 @@
 import type { Annotation, Molecule, PageSetup, ViewTransform } from "../types/chemistry";
 import { nextId } from "../model/id";
 import { pruneSchemeArrowIds } from "../model/reactionSchemes";
+import { pruneSGroupAnnotationIds } from "../model/sgroups";
 import {
   ImportValidationError,
   LIMITS,
@@ -112,11 +113,14 @@ function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, re
   // Scheme arrow references point into the annotation map, so they can only
   // be checked once both halves of the tab are clean.
   const schemes = pruneSchemeArrowIds(molecule.schemes, annotations);
+  const sgroups = pruneSGroupAnnotationIds(molecule.sgroups, annotations);
   let cleanedMolecule = molecule;
-  if (schemes !== molecule.schemes) {
+  if (schemes !== molecule.schemes || sgroups !== molecule.sgroups) {
     cleanedMolecule = { ...molecule };
     if (schemes) cleanedMolecule.schemes = schemes;
     else delete cleanedMolecule.schemes;
+    if (sgroups) cleanedMolecule.sgroups = sgroups;
+    else delete cleanedMolecule.sgroups;
   }
   return {
     id,

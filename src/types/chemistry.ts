@@ -372,6 +372,10 @@ export interface SGroup {
   parentId?: string;
   /** Component S-group: component IDs in a mixture */
   componentIds?: string[];
+  /** This app's bracket-annotation ids that draw the group's brackets. The
+   * annotation map is a sibling of the molecule, so these are pruned when a
+   * bracket is deleted or a project file's annotations are sanitized. */
+  bracketAnnotationIds?: string[];
 }
 
 /**

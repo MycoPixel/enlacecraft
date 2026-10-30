@@ -375,3 +375,85 @@ describe("project page setup persistence", () => {
     expect(importProject(saved).tabs[0].page).toBeUndefined();
   });
 });
+
+// S-groups live on the molecule but name bracket annotations in the sibling
+// annotation map, so they need the same save/open fidelity and stale-reference
+// pruning as reaction schemes.
+describe("S-groups in projects", () => {
+  const baseMolecule: Molecule = {
+    atoms: {
+      a0: { id: "a0", x: 0, y: 0, element: "C", charge: 0 },
+      a1: { id: "a1", x: 60, y: 0, element: "C", charge: 0 },
+    },
+    bonds: { b0: { id: "b0", a1: "a0", a2: "a1", order: 1, stereo: "none", doubleSide: "auto" } },
+    hapticBonds: {},
+    aromaticRingDisplays: {},
+  };
+  const brackets = {
+    br1: { id: "br1", kind: "bracket", x: 0, y: 0, width: 12, height: 60, variant: "square", facing: "open" },
+    br2: { id: "br2", kind: "bracket", x: 80, y: 0, width: 12, height: 60, variant: "square", facing: "close" },
+  } as const;
+
+  test("S-groups and their bracket references survive a save/open cycle", () => {
+    const saved = exportProject({
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Polymer",
+          molecule: {
+            ...baseMolecule,
+            sgroups: {
+              sg1: {
+                id: "sg1",
+                type: "SRU",
+                atomIds: ["a0", "a1"],
+                bondIds: ["b0"],
+                subscript: "n",
+                bracketAnnotationIds: ["br1", "br2"],
+              },
+            },
+          },
+          annotations: { ...brackets },
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const project = importProject(saved);
+    expect(project.tabs[0].molecule.sgroups).toEqual({
+      sg1: {
+        id: "sg1",
+        type: "SRU",
+        atomIds: ["a0", "a1"],
+        bondIds: ["b0"],
+        subscript: "n",
+        bracketAnnotationIds: ["br1", "br2"],
+      },
+    });
+  });
+
+  test("a bracket reference to a missing annotation is pruned on load", () => {
+    const saved = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Polymer",
+          molecule: {
+            ...baseMolecule,
+            sgroups: {
+              sg1: { id: "sg1", type: "SRU", atomIds: ["a0"], bracketAnnotationIds: ["br1", "gone"] },
+            },
+          },
+          annotations: { br1: brackets.br1 },
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const project = importProject(saved);
+    expect(project.tabs[0].molecule.sgroups!.sg1.bracketAnnotationIds).toEqual(["br1"]);
+  });
+});
