@@ -8,11 +8,18 @@ import type { RingTemplateLayout, RingTemplateLayoutAtom, RingTemplateLayoutBond
  * alternating up/down vertices, a decalin's two fused rings plus the
  * bridgehead hydrogens that encode cis/trans, and norbornane's bridge.
  *
- * Coordinates are in world px (BOND_LEN = 42), with each layout's
- * bounding-box centre at the origin. Ring bonds are all ~42 px; norbornane's
- * two "outer" ring bonds are slightly longer, which is how the source
- * depiction lays the bridge out and keeps the drawing readable.
+ * Coordinates are authored y-up, matching the ChemDraw-style source
+ * depictions these layouts came from. The canvas is y-down, so every layout
+ * is passed through yDown() before it is used: that keeps a placed template
+ * in the same orientation as RingPicker's miniature, which draws layout
+ * coordinates directly. Coordinates are in world px (BOND_LEN = 42), with
+ * each layout's bounding-box centre at the origin. Ring bonds are all ~42 px;
+ * norbornane's two "outer" ring bonds are slightly longer, which is how the
+ * source depiction lays the bridge out and keeps the drawing readable.
  */
+function yDown(atoms: RingTemplateLayoutAtom[]): RingTemplateLayoutAtom[] {
+  return atoms.map((a) => ({ ...a, y: -a.y }));
+}
 
 const chairAtoms: RingTemplateLayoutAtom[] = [
   { key: "1", element: "C", x: 51.118, y: -18.224 },
@@ -44,7 +51,7 @@ const sixRingBonds: RingTemplateLayoutBond[] = [
 const sixRingLoop = ["1", "2", "3", "4", "5", "6"];
 
 export const CYCLOHEXANE_CHAIR_LAYOUT: RingTemplateLayout = {
-  atoms: chairAtoms,
+  atoms: yDown(chairAtoms),
   bonds: sixRingBonds,
   loops: [sixRingLoop],
   attachAtom: "1",
@@ -52,7 +59,7 @@ export const CYCLOHEXANE_CHAIR_LAYOUT: RingTemplateLayout = {
 };
 
 export const CYCLOHEXANE_BOAT_LAYOUT: RingTemplateLayout = {
-  atoms: boatAtoms,
+  atoms: yDown(boatAtoms),
   bonds: sixRingBonds,
   loops: [sixRingLoop],
   attachAtom: "1",
@@ -97,7 +104,7 @@ const decalinBonds: RingTemplateLayoutBond[] = [
 
 function decalinLayout(cis: boolean): RingTemplateLayout {
   return {
-    atoms: decalinAtoms,
+    atoms: yDown(decalinAtoms),
     bonds: [
       ...decalinBonds,
       { from: "19", to: "h19", order: 1, stereo: "wedge" },
@@ -137,7 +144,7 @@ const norbornaneBonds: RingTemplateLayoutBond[] = [
 ];
 
 export const NORBORNANE_LAYOUT: RingTemplateLayout = {
-  atoms: norbornaneAtoms,
+  atoms: yDown(norbornaneAtoms),
   bonds: norbornaneBonds,
   // Two five-membered rings sharing the C3-C7-C6 path; drawing both makes
   // the bridge read clearly in the hover preview.

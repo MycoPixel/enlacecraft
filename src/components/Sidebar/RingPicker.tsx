@@ -54,9 +54,13 @@ function MiniLayout({ layout }: { layout: RingTemplateLayout }) {
   const scale = Math.min((24 - pad * 2) / w, (24 - pad * 2) / h);
   const offX = (24 - w * scale) / 2;
   const offY = (24 - h * scale) / 2;
+  // Layout coordinates are already in the canvas's y-down convention (see
+  // ringConformations.ts), so the miniature must not flip y here — doing so
+  // made the chair/boat/decalin/norbornane icons read upside-down compared
+  // with the template that actually got placed.
   const toSvg = (p: { x: number; y: number }) => ({
     x: offX + (p.x - minX) * scale,
-    y: offY + (maxY - p.y) * scale,
+    y: offY + (p.y - minY) * scale,
   });
   const byKey = new Map(layout.atoms.map((a) => [a.key, a]));
 
