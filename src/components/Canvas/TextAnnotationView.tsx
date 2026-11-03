@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { Annotation, Molecule, TextAnnotation, Point } from "../../types/chemistry";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { sanitizeAnnotationHtml } from "../../io/sanitizeHtml";
+import { snapAnnotationMove } from "./annotationSnap";
 
 interface TextAnnotationViewProps {
   annotation: TextAnnotation;
@@ -179,7 +180,10 @@ export function TextAnnotationView({ annotation, selected, editing, viewScale }:
     if (drag.kind === "move") {
       const dx = (e.clientX - drag.startClient.x) / viewScale;
       const dy = (e.clientY - drag.startClient.y) / viewScale;
-      moveAnnotationTransient(annotation.id, { x: drag.origin.x + dx, y: drag.origin.y + dy });
+      moveAnnotationTransient(
+        annotation.id,
+        snapAnnotationMove(annotation.id, { x: drag.origin.x + dx, y: drag.origin.y + dy }, e.shiftKey),
+      );
       return;
     }
     if (drag.kind === "group") {

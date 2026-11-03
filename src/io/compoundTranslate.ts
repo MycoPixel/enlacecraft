@@ -202,8 +202,95 @@ const SUFFIX_SUBS: [RegExp, string][] = [
   [/yl/gi, "il"],
 ];
 
+/**
+ * Chain stems used when a name ends in a bare parent-chain stem without the
+ * final "e" ("heptan", "hexan", "methan", "ethan"). Spanish still needs the
+ * masculine "-o". Spelled the way the stem actually appears before the
+ * elided "e" — "meth"/"eth", not "met"/"et" — so methane and ethane are
+ * covered too, not just the longer chains.
+ */
+const CHAIN_STEMS = [
+  // Both spellings: the digraph rule above turns "th" into "t", so
+  // "methan"/"ethan" reach this point as "metan"/"etan".
+  "meth", "met", "eth", "et", "prop", "but", "pent", "hex", "hept", "oct", "non", "dec",
+  "undec", "dodec", "tridec", "tetradec", "pentadec", "hexadec",
+  "heptadec", "octadec", "nonadec", "eicos",
+].join("|");
+
+/**
+ * One `locant-substituent` descriptor at the start of a name fragment.
+ *
+ * The substituent half deliberately accepts a generic `[a-z]*?yl` (methyl,
+ * ethyl, tert-butyl, phenyl, ...) before the named non-yl groups (chloro,
+ * hydroxy, ...), because a substituent can be almost any word ending in
+ * "-yl". The non-greedy quantifier is what stops "ethylbiphenyl" from being
+ * eaten as one substituent: it takes the earliest complete "-yl" ("ethyl")
+ * and leaves "biphenyl" as the parent.
+ */
+const SUBSTITUENT_RE = new RegExp(
+  `^(\\d+(?:,\\d+)*)-((?:(?:tert|t|sec|s|n|o|m|p)-|(?:iso|neo)-?)?` +
+    `(?:[a-z]*?yl|[a-z]*?oxy|[a-z]*?oyl|` +
+    `(?:di|tri|tetra|penta|hexa|hepta|octa|nona|deca)?` +
+    `(?:fluoro|chloro|bromo|iodo|hydroxy|amino|nitro|cyano|oxo)))`,
+  "i",
+);
+
+/** Prefixes IUPAC ignores when deciding which substituent is cited first.
+ * `iso`/`neo`/`cyclo` are part of the name for this purpose, but `tert-`,
+ * `sec-`, `n-` and the ortho/meta/para locants are not. Multiplicative
+ * prefixes (di-, tri-, tetra-...) never affect alphabetisation either. */
+function substituentSortKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/^(?:tert|t|sec|s|n|o|m|p|ortho|meta|para)-?/, "")
+    .replace(/^(?:di|tri|tetra|penta|hexa|hepta|octa|nona|deca|bis|tris|tetrakis|pentakis|hexakis)(?=[a-z])/, "");
+}
+
+/**
+ * Puts the prefixes of a single-word substituted name in alphabetical order,
+ * which is how IUPAC requires them to be cited. The source tools this app
+ * talks to (notably NISPO, used by the local fallback) can emit them in
+ * locant order instead — the reported "1-ethyl-4-t-butylcyclohexane" should
+ * read "4-t-butyl-1-ethylcyclohexane" because *butyl* starts with b.
+ *
+ * Locants stay attached to their own substituent; this is a best-effort
+ * reordering, not a renumbering. Multi-word names, names with brackets, and
+ * names with fewer than two recognised locant-prefixed substituents are left
+ * exactly as they were, so this can't disturb an ester/acid construction or
+ * an unfamiliar name it doesn't understand.
+ */
+function sortSubstituents(name: string): string {
+  if (/\s|[()[\]{}]/.test(name)) return name;
+
+  const substituents: { locants: string; name: string }[] = [];
+  let rest = name;
+  while (true) {
+    const match = SUBSTITUENT_RE.exec(rest);
+    if (!match) break;
+    substituents.push({ locants: match[1], name: match[2] });
+    rest = rest.slice(match[0].length);
+    if (rest.startsWith("-")) rest = rest.slice(1);
+  }
+
+  // One substituent has nothing to order against; more prefixes than that
+  // need a parent left over to attach them to.
+  if (substituents.length < 2 || !rest) return name;
+
+  const sorted = [...substituents].sort((a, b) => {
+    const byKey = substituentSortKey(a.name).localeCompare(substituentSortKey(b.name), "en");
+    return byKey !== 0 ? byKey : a.name.localeCompare(b.name, "en");
+  });
+  // A parent such as "1,3-cyclopentadiene" starts with a locant and still
+  // needs its hyphen; an ordinary parent ("cyclohexane") is fused directly.
+  const glue = /^[\d(]/.test(rest) ? "-" : "";
+  return `${sorted.map((sub) => `${sub.locants}-${sub.name}`).join("-")}${glue}${rest}`;
+}
+
 function applyChemistryRules(input: string): string {
   let s = input;
+  // Single-word names are the substituted-parent case this can reorder;
+  // multi-word names are ester/acid constructions handled by the caller.
+  if (!/\s/.test(s)) s = sortSubstituents(s);
   for (const [en, es] of IRREGULAR_CHEM_ES) s = s.replace(new RegExp(en, "gi"), es);
   // "cyclo-" and the ph/th/ch digraphs simplify the same way wherever
   // they appear (cyclohexane -> ciclohexano, methyl -> metil, phenyl ->
@@ -221,6 +308,12 @@ function applyChemistryRules(input: string): string {
   // the "r", so \band\b doesn't match there.
   s = s.replace(/\band\b/gi, "y");
   for (const [re, replacement] of SUFFIX_SUBS) s = s.replace(re, replacement);
+  // Some upstream generators end a name in a bare chain stem ("heptan",
+  // "hexan") instead of the full English "-ane". The `ane\\b` rule above
+  // can't see those, but Spanish still needs the final "-o". Only the very
+  // end of the name is touched, so an elided form followed by a suffix
+  // ("heptan-2-ol") and unrelated words ending in "-an" are left alone.
+  s = s.replace(new RegExp(`(?:${CHAIN_STEMS})an$`, "i"), (match) => `${match}o`);
   return s;
 }
 

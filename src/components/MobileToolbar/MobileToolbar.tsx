@@ -3,7 +3,7 @@ import {
   MousePointer2, Lasso, Hand, Eraser, Undo2, Redo2, Type as TypeIcon, Hexagon, RotateCcw, RotateCw, AlignLeft, Brackets, Plus,
   MoreHorizontal, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler, ShieldOff,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler, ShieldOff, LayoutGrid,
   FlipHorizontal2, FlipVertical2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -106,6 +106,7 @@ export function MobileToolbar() {
   );
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
+  const separateOverlappingStructures = useMoleculeStore((s) => s.separateOverlappingStructures);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
   const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
   // Atom-scoped actions that the context menu used to be the only route to.
@@ -123,6 +124,10 @@ export function MobileToolbar() {
   const selectedFragmentCount = useMemo(
     () => connectedComponents(molecule, [...selected]).length,
     [molecule, selected]
+  );
+  const fragmentCount = useMemo(
+    () => connectedComponents(molecule, Object.keys(molecule.atoms)).length,
+    [molecule]
   );
   const userTemplates = useMoleculeStore((s) => s.userTemplates);
   const saveUserTemplate = useMoleculeStore((s) => s.saveUserTemplate);
@@ -410,6 +415,9 @@ export function MobileToolbar() {
                 </ToolButton>
                 <ToolButton big title={t("tool.cleanUpLabel")} onClick={() => { cleanUpSelection(); setPanel(null); }}>
                   <Wand2 size={18} />
+                </ToolButton>
+                <ToolButton big title={t("tool.separateOverlapping")} disabled={fragmentCount < 2} onClick={() => { separateOverlappingStructures(); setPanel(null); }}>
+                  <LayoutGrid size={18} />
                 </ToolButton>
               </div>
 

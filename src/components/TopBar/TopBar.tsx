@@ -14,19 +14,25 @@ import { IupacNameButton } from "./IupacNameButton";
 import { NmrPredictionButton } from "./NmrPredictionButton";
 import { MoleculeInfoButton } from "./MoleculeInfoButton";
 import { MassSpecButton } from "./MassSpecButton";
+import { PropertiesButton } from "./PropertiesButton";
 import { AromaticityButton } from "./AromaticityButton";
 import { IrSpectrumButton } from "./IrSpectrumButton";
 import { DesktopDownloadButton } from "./DesktopDownloadButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
 import { hasExplicitHydrogens } from "../../model/molecule";
-import { exportPNG, exportSVG } from "../../io/exportImage";
+import { exportPNG, exportSVG, downloadBlob, serializeExportSVG } from "../../io/exportImage";
+import { exportPDF } from "../../io/pdfExport";
 import { printMolecule } from "../../io/printExport";
 import { exportMol } from "../../io/molfile";
+import { exportAllReactionSmiles, exportRxn, exportSdf, hasExportableReaction } from "../../io/reactionExport";
+import { buildPropertyRows, propertyRowToSdfFields } from "../../io/propertiesTable";
+import { findPublicationPreset } from "../../model/publicationPresets";
 import { exportCdxmlDocument } from "../../io/cdxml";
 import { exportSmiles } from "../../io/smiles";
 import { runProjectSave } from "../../io/projectSaver";
-import { downloadBlob } from "../../io/exportImage";
+import { ShareLinkError, createEmbedCodeForTab, createShareUrlForTab } from "../../io/shareLink";
+import { buildHtmlViewer } from "../../io/htmlViewer";
 import { useFileImport } from "../../hooks/useFileImport";
 import { useHorizontalStripScroll } from "../../hooks/useHorizontalStripScroll";
 import { LIMITS } from "../../io/validate";
@@ -65,6 +71,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const toggle3DView = useMoleculeStore((s) => s.toggle3DView);
   const tabs = useMoleculeStore((s) => s.tabs);
   const activeTabId = useMoleculeStore((s) => s.activeTabId);
+  const language = useMoleculeStore((s) => s.language);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Paste-to-import dialog (SMILES / MOL / CDXML text) — open state lives
@@ -84,6 +91,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   // — same reasoning as IupacNameButton/NmrPredictionButton's identical
   // check, see Atom.ignoreValence's doc comment.
   const blockedByIgnoredValence = hasIgnoredValenceAtoms(molecule);
+  const reactionExportDisabled = !hasExportableReaction(molecule);
 
   const resolveBackground = (bg: ExportBackground): string | null => {
     if (bg === "transparent") return null;
@@ -100,7 +108,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
    * read, so the export captures the deselected appearance; the previous
    * selection is restored right afterwards.
    */
-  const withDeselected = (action: () => void) => {
+  const withDeselected = <T,>(action: () => T): T => {
     const store = useMoleculeStore.getState();
     const prevSelected = store.selected;
     const prevAnnotationIds = store.selectedAnnotationIds;
@@ -112,7 +120,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       });
     }
     try {
-      action();
+      return action();
     } finally {
       if (hadSelection) {
         flushSync(() => {
@@ -131,16 +139,75 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     if (!svgRef.current) return;
     withDeselected(() => exportSVG(svgRef.current!, resolveBackground(bg)));
   };
-  const doExportPrint = (bg: ExportBackground) => {
+  const doExportPrint = (bg: ExportBackground, presetId: string) => {
     if (!svgRef.current) return;
     // "transparent" has no printed-page equivalent (paper has no
     // transparency) — falls through to resolveBackground's own
     // null-background handling, which prints on plain white the same as
     // an explicit "white" choice.
     const title = tabs.find((tb) => tb.id === activeTabId)?.title ?? "";
-    withDeselected(() => printMolecule(svgRef.current!, resolveBackground(bg), title));
+    withDeselected(() => printMolecule(svgRef.current!, resolveBackground(bg), title, findPublicationPreset(presetId)));
+  };
+  const doExportPDF = async (bg: ExportBackground, presetId: string) => {
+    if (!svgRef.current) return;
+    const title = tabs.find((tb) => tb.id === activeTabId)?.title ?? "molecule";
+    try {
+      // exportPDF clones the SVG synchronously before its lazy import
+      // resolves, so selection can be restored as soon as this call
+      // returns — the export itself continues with the already-taken copy.
+      await withDeselected(() =>
+        exportPDF(svgRef.current!, resolveBackground(bg), findPublicationPreset(presetId), "molecule.pdf", title)
+      );
+      setStatus(t("status.pdfExported"));
+    } catch (err) {
+      setStatus(t("status.pdfExportError", { error: err instanceof Error ? err.message : String(err) }));
+    }
   };
   const doExportMol = () => downloadBlob(new Blob([exportMol(molecule)], { type: "chemical/x-mdl-molfile" }), "molecule.mol");
+  const doExportSdf = () => {
+    const sdf = exportSdf(molecule);
+    if (!sdf) return;
+    downloadBlob(new Blob([sdf], { type: "chemical/x-mdl-sdfile" }), "molecule.sdf");
+    setStatus(t("status.sdfDownloaded"));
+  };
+  // Same records as plain SDF, plus one `> <Field>` block per computed
+  // property. buildPropertyRows and exportSdf both split by
+  // findConnectedFragments, so properties[i] is always the fragment in
+  // record i — no second, potentially reordered fragment walk.
+  const doExportSdfWithProperties = () => {
+    const properties = buildPropertyRows(molecule).map(propertyRowToSdfFields);
+    const sdf = exportSdf(molecule, "molecule", { properties });
+    if (!sdf) return;
+    downloadBlob(
+      new Blob([sdf], { type: "chemical/x-mdl-sdfile" }),
+      "molecule-properties.sdf",
+    );
+    setStatus(t("status.sdfWithPropertiesDownloaded"));
+  };
+  const doExportRxn = () => {
+    const rxn = exportRxn(molecule);
+    if (!rxn) {
+      setStatus(t("status.noReactionScheme"));
+      return;
+    }
+    downloadBlob(new Blob([rxn], { type: "chemical/x-mdl-rxnfile" }), "molecule.rxn");
+    setStatus(t("status.rxnDownloaded"));
+  };
+  const doExportReactionSmiles = async () => {
+    const smiles = exportAllReactionSmiles(molecule);
+    if (!smiles) {
+      setStatus(t("status.noReactionScheme"));
+      return;
+    }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("no clipboard API");
+      await navigator.clipboard.writeText(smiles);
+      setStatus(t("status.reactionSmilesCopied", { smiles }));
+    } catch {
+      downloadBlob(new Blob([smiles], { type: "chemical/x-daylight-smiles" }), "reaction.smi");
+      setStatus(t("status.reactionSmilesDownloaded"));
+    }
+  };
   // Document-level export: arrows, brackets and caption text go into the
   // file alongside the molecule, so a drawing saved as .cdxml opens in
   // ChemDraw with its reaction arrows and labels intact (and re-imports
@@ -169,6 +236,88 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   // drift apart; see projectSaver.ts's doc comment.
   const doSaveProject = () => { void runProjectSave(false); };
   const doSaveProjectAs = () => { void runProjectSave(true); };
+
+  // The active tab's *full* document (molecule, annotations, view, page) as
+  // the project format sees it — the same data Save writes, not just the
+  // in-memory slice the canvas is rendering from.
+  const activeTabForShare = () => {
+    const store = useMoleculeStore.getState();
+    const all = store.getAllTabsForSave();
+    return all.find((tb) => tb.id === store.activeTabId) ?? all[0];
+  };
+
+  const shareFailureMessage = (err: unknown) => {
+    if (err instanceof ShareLinkError) {
+      if (err.code === "too-large") return t("status.shareLinkTooLarge");
+      if (err.code === "not-web") return t("status.shareLinkNotWeb");
+      if (err.code === "unsupported") return t("status.shareLinkUnsupported");
+    }
+    return t("status.shareLinkError", { error: err instanceof Error ? err.message : String(err) });
+  };
+
+  const writeClipboard = async (text: string) => {
+    if (!navigator.clipboard?.writeText) throw new Error("no clipboard API");
+    await navigator.clipboard.writeText(text);
+  };
+
+  const doCopyShareLink = async () => {
+    const tab = activeTabForShare();
+    if (!tab) return;
+    let url: string;
+    try {
+      url = await createShareUrlForTab(tab);
+    } catch (err) {
+      setStatus(shareFailureMessage(err));
+      return;
+    }
+    try {
+      await writeClipboard(url);
+      setStatus(t("status.shareLinkCopied"));
+    } catch {
+      // Clipboard access can be denied (permissions, insecure context,
+      // iframes). The link still works, so hand it over as a text file
+      // rather than losing it — same fallback policy as the SMILES copies.
+      downloadBlob(new Blob([url], { type: "text/plain" }), "share-link.txt");
+      setStatus(t("status.shareLinkDownloaded"));
+    }
+  };
+
+  const doCopyEmbedCode = async () => {
+    const tab = activeTabForShare();
+    if (!tab) return;
+    let code: string;
+    try {
+      code = await createEmbedCodeForTab(tab, undefined, tab.title);
+    } catch (err) {
+      setStatus(shareFailureMessage(err));
+      return;
+    }
+    try {
+      await writeClipboard(code);
+      setStatus(t("status.embedCodeCopied"));
+    } catch {
+      downloadBlob(new Blob([code], { type: "text/html" }), "embed-code.html");
+      setStatus(t("status.embedCodeDownloaded"));
+    }
+  };
+
+  // A single self-contained page wrapping the same SVG the SVG export
+  // writes. The markup comes from our exporter, so it is embedded verbatim;
+  // htmlViewer.ts escapes only the caller-supplied title/background/lang.
+  const doExportHtmlViewer = (bg: ExportBackground) => {
+    if (!svgRef.current) return;
+    try {
+      const title = tabs.find((tb) => tb.id === activeTabId)?.title ?? "EnlaceCraft";
+      const background = resolveBackground(bg) ?? "#ffffff";
+      const svg = withDeselected(() => serializeExportSVG(svgRef.current!, background));
+      const html = buildHtmlViewer(svg, { title, background, lang: language });
+      const safe = title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "molecule";
+      downloadBlob(new Blob([html], { type: "text/html" }), `${safe}.html`);
+      setStatus(t("status.htmlViewerExported"));
+    } catch (err) {
+      setStatus(t("status.htmlViewerError", { error: err instanceof Error ? err.message : String(err) }));
+    }
+  };
 
   const doImportFile = (file: File) => {
     if (file.size > LIMITS.maxFileChars) {
@@ -239,11 +388,31 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
         <ToolButton title={t("tool.pasteStructure")} onClick={() => setPasteOpen(true)}>
           <ClipboardPaste size={18} />
         </ToolButton>
-        <ExportMenu onPNG={doExportPNG} onSVG={doExportSVG} onPrint={doExportPrint} onMOL={doExportMol} onCDXML={doExportCdxml} onSmiles={doExportSmiles} onSaveProject={doSaveProject} onSaveProjectAs={doSaveProjectAs} projectFileName={projectFileName} />
+        <ExportMenu
+          onPNG={doExportPNG}
+          onSVG={doExportSVG}
+          onPDF={doExportPDF}
+          onPrint={doExportPrint}
+          onMOL={doExportMol}
+          onSDF={doExportSdf}
+          onSDFWithProperties={doExportSdfWithProperties}
+          onRXN={doExportRxn}
+          onReactionSmiles={doExportReactionSmiles}
+          onCDXML={doExportCdxml}
+          onSmiles={doExportSmiles}
+          onSaveProject={doSaveProject}
+          onSaveProjectAs={doSaveProjectAs}
+          onCopyShareLink={doCopyShareLink}
+          onCopyEmbedCode={doCopyEmbedCode}
+          onExportHtmlViewer={doExportHtmlViewer}
+          reactionExportDisabled={reactionExportDisabled}
+          projectFileName={projectFileName}
+        />
         <ToolButton title={t("tool.versionHistory")} onClick={onOpenVersionHistory}>
           <History size={18} />
         </ToolButton>
         <MoleculeInfoButton />
+        <PropertiesButton />
         <ToolButton
           title={blockedByIgnoredValence ? t("tool.view3dBlocked") : t("tool.view3d")}
           active={show3DView}

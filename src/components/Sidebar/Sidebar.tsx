@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, Undo2, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
-  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, BookmarkPlus, Highlighter, Hash, Trash2,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, BookmarkPlus, Highlighter, Hash, Trash2, LayoutGrid,
   FlipHorizontal2, FlipVertical2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -63,6 +63,7 @@ export function Sidebar() {
   );
   const alignSelection = useMoleculeStore((s) => s.alignSelection);
   const distributeSelection = useMoleculeStore((s) => s.distributeSelection);
+  const separateOverlappingStructures = useMoleculeStore((s) => s.separateOverlappingStructures);
   const cleanUpSelection = useMoleculeStore((s) => s.cleanUpSelection);
   const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
   // "Align"/"Distribute" operate on whole connected fragments (a fully
@@ -72,6 +73,10 @@ export function Sidebar() {
   const selectedFragmentCount = useMemo(
     () => connectedComponents(molecule, [...selected]).length,
     [molecule, selected]
+  );
+  const fragmentCount = useMemo(
+    () => connectedComponents(molecule, Object.keys(molecule.atoms)).length,
+    [molecule]
   );
   const userTemplates = useMoleculeStore((s) => s.userTemplates);
   const saveUserTemplate = useMoleculeStore((s) => s.saveUserTemplate);
@@ -610,6 +615,17 @@ export function Sidebar() {
                 </ToolButton>
                 <ToolButton title={t("tool.distributeVertical")} disabled={selectedFragmentCount < 3} onClick={() => { distributeSelection("vertical"); close(); }}>
                   <AlignVerticalDistributeCenter size={16} />
+                </ToolButton>
+              </div>
+
+              <SectionLabel>{t("section.cleanUp")}</SectionLabel>
+              <div className="row">
+                <ToolButton
+                  title={t("tool.separateOverlapping")}
+                  disabled={fragmentCount < 2}
+                  onClick={() => { separateOverlappingStructures(); close(); }}
+                >
+                  <LayoutGrid size={16} />
                 </ToolButton>
               </div>
 

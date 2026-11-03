@@ -240,11 +240,20 @@ export function buildExportClone(
 }
 
 export function exportSVG(svg: SVGSVGElement, backgroundColor: string | null, filename = "molecule.svg"): void {
+  const data = serializeExportSVG(svg, backgroundColor);
+  downloadBlob(new Blob([data], { type: "image/svg+xml" }), filename);
+}
+
+/**
+ * Same export-ready SVG that `exportSVG` downloads, returned as text. The
+ * standalone HTML viewer needs the markup inline rather than as a file, and
+ * sharing this path keeps the two exports visually identical.
+ */
+export function serializeExportSVG(svg: SVGSVGElement, backgroundColor: string | null): string {
   const { clone, bounds } = buildExportClone(svg, backgroundColor);
   clone.setAttribute("width", String(Math.round(bounds.width)));
   clone.setAttribute("height", String(Math.round(bounds.height)));
-  const data = new XMLSerializer().serializeToString(clone);
-  downloadBlob(new Blob([data], { type: "image/svg+xml" }), filename);
+  return new XMLSerializer().serializeToString(clone);
 }
 
 /**

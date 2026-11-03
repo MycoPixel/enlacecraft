@@ -13,6 +13,10 @@ interface ToolDropdownProps {
    * request) at the moment it's opened, rather than always being ready to
    * render immediately from static/already-loaded data. */
   onOpen?: () => void;
+  /** Fired once when the dropdown closes, whether by choosing an item, a
+   * click outside, or the trigger itself. Lets a panel drop expensive state
+   * (and cached computed rows) while it isn't visible. */
+  onClose?: () => void;
 }
 
 /**
@@ -24,7 +28,7 @@ interface ToolDropdownProps {
  * (`overflow-y: auto`) and an absolutely-positioned dropdown would get
  * clipped by that same scroll container.
  */
-export function ToolDropdown({ title, active, children, renderContent, onOpen }: ToolDropdownProps) {
+export function ToolDropdown({ title, active, children, renderContent, onOpen, onClose }: ToolDropdownProps) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const btnWrapRef = useRef<HTMLDivElement>(null);
@@ -71,6 +75,7 @@ export function ToolDropdown({ title, active, children, renderContent, onOpen }:
       if (btnWrapRef.current?.contains(target)) return;
       if (dropdownRef.current?.contains(target)) return;
       setOpen(false);
+      onClose?.();
     };
     const onReposition = () => reposition();
     document.addEventListener("pointerdown", onDocPointerDown);
@@ -81,24 +86,32 @@ export function ToolDropdown({ title, active, children, renderContent, onOpen }:
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open]);
+  }, [open, onClose]);
 
   return (
     <div ref={btnWrapRef}>
       <ToolButton
         title={title}
         active={active}
-        onClick={() => setOpen((o) => {
-          if (!o) onOpen?.();
-          return !o;
-        })}
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+            onClose?.();
+          } else {
+            setOpen(true);
+            onOpen?.();
+          }
+        }}
       >
         {children}
       </ToolButton>
       {open && coords &&
         createPortal(
           <div className="tool-dropdown" ref={dropdownRef} style={{ top: coords.top, left: coords.left }}>
-            {renderContent(() => setOpen(false))}
+            {renderContent(() => {
+              setOpen(false);
+              onClose?.();
+            })}
           </div>,
           document.body
         )}

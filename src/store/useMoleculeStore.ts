@@ -3,6 +3,7 @@ import type {
   Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, RingAttachment, RingTemplate, RotationSession, SGroup, SGroupType, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
+import type { AlignmentGuide } from "../model/alignmentGuides";
 import { translate } from "../i18n/translate";
 import * as M from "../model/molecule";
 import { nextId, reserveIds } from "../model/id";
@@ -339,6 +340,9 @@ interface MoleculeStore {
   // --- annotation state (reaction arrows / text boxes) ---
   annotations: Record<string, Annotation>;
   selectedAnnotationIds: Set<string>;
+  /** Transient smart-alignment lines shown only while an annotation is
+   * being dragged; never saved with a document. */
+  alignmentGuides: AlignmentGuide[];
   editingTextId: string | null;
   arrowVariant: ArrowVariant;
   arrowBarb: "full" | "single";
@@ -642,6 +646,7 @@ interface MoleculeStore {
 
   // --- annotation setters / actions ---
   setSelectedAnnotationIds: (ids: Set<string>) => void;
+  setAlignmentGuides: (guides: AlignmentGuide[]) => void;
   setEditingTextId: (id: string | null) => void;
   setArrowVariant: (v: ArrowVariant) => void;
   setArrowBarb: (b: "full" | "single") => void;
@@ -898,6 +903,9 @@ interface MoleculeStore {
   mirrorSelection: (axis: M.MirrorAxis) => void;
   alignSelection: (mode: M.AlignMode) => void;
   distributeSelection: (axis: M.DistributeAxis) => void;
+  /** Pulls apart connected structures whose bounding boxes overlap — the
+   * case a merge/import can create. A no-op when nothing overlaps. */
+  separateOverlappingStructures: () => void;
   cleanUpSelection: () => void;
   clear: () => void;
   /** Resets pan/zoom — to the app's default starting view when the canvas
@@ -1094,6 +1102,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     annotations: {},
     selectedAnnotationIds: new Set(),
+    alignmentGuides: [],
     editingTextId: null,
     arrowVariant: "forward",
     arrowBarb: "full",
@@ -1392,6 +1401,10 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     clearSelection: () => set({ selected: new Set() }),
 
     setSelectedAnnotationIds: (ids) => set({ selectedAnnotationIds: ids }),
+    setAlignmentGuides: (guides) =>
+      set((s) =>
+        guides.length === 0 && s.alignmentGuides.length === 0 ? s : { alignmentGuides: guides },
+      ),
     setEditingTextId: (id) => set({ editingTextId: id }),
     setArrowVariant: (v) => set({ arrowVariant: v }),
     setArrowBarb: (b) => set({ arrowBarb: b }),
@@ -1990,6 +2003,12 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       const { molecule, selected } = get();
       if (M.connectedComponents(molecule, [...selected]).length < 3) return;
       commit((mol) => M.distributeAtoms(mol, [...selected], axis));
+    },
+
+    separateOverlappingStructures: () => {
+      // commit() returns the same molecule (and therefore records no undo
+      // step) when nothing actually overlaps.
+      commit((mol) => M.separateOverlappingFragments(mol));
     },
 
     cleanUpSelection: () => {

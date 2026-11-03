@@ -10,6 +10,11 @@ import {
 /** Canonical bond length in SVG user units at zoom = 1. */
 export const BOND_LEN = 42;
 
+/** Spacing of the visible square grid, in the same SVG user units. Shared
+ * by the canvas renderer and by annotation grid snapping so a dragged
+ * object lands exactly on a line/dot the user can see. */
+export const GRID_STEP = 24;
+
 export type ElementCategory =
   | "nonmetal" | "halogen" | "noble-gas" | "alkali" | "alkaline-earth"
   | "metalloid" | "post-transition" | "transition" | "lanthanide" | "actinide";

@@ -3,6 +3,7 @@ import type { Annotation, Molecule, Point, TlcPlateAnnotation } from "../../type
 import { TLC_SPOT_GRAB_RADIUS, useMoleculeStore } from "../../store/useMoleculeStore";
 import { dist, TLC_BASELINE_FRACTION, TLC_FRONT_FRACTION, tlcSpotPosition } from "../../model/geometry";
 import { useT } from "../../i18n/useT";
+import { snapAnnotationMove } from "./annotationSnap";
 
 interface TlcPlateAnnotationViewProps {
   annotation: TlcPlateAnnotation;
@@ -183,7 +184,10 @@ export function TlcPlateAnnotationView({ annotation, selected, viewScale }: TlcP
     if (drag.kind === "move") {
       const dx = (e.clientX - drag.startClient.x) / viewScale;
       const dy = (e.clientY - drag.startClient.y) / viewScale;
-      moveAnnotationTransient(annotation.id, { x: drag.origin.x + dx, y: drag.origin.y + dy });
+      moveAnnotationTransient(
+        annotation.id,
+        snapAnnotationMove(annotation.id, { x: drag.origin.x + dx, y: drag.origin.y + dy }, e.shiftKey),
+      );
       return;
     }
     if (drag.kind === "group") {

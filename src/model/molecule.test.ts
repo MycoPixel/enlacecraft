@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   addAtom, addBond, addHapticBond, cleanUpAtoms, deleteAtom, emptyMolecule, extractFragment,
-  findHapticBond, insertMolecule, resolveHapticSelection, stripExplicitHydrogens, subMolecule,
+  findHapticBond, insertMolecule, resolveHapticSelection, separateOverlappingFragments,
+  stripExplicitHydrogens, subMolecule,
 } from "./molecule";
 import type { Molecule } from "../types/chemistry";
 import { BOND_LEN } from "./constants";
@@ -322,5 +323,67 @@ describe("cleanUpAtoms", () => {
     expect(bondLen(cleaned, "a", "b")).toBe(BOND_LEN);
     // 50,8 is close to 0° - nearest 30° multiple is 0°.
     expect(bondAngleDeg(cleaned, "a", "b")).toBe(0);
+  });
+});
+
+describe("separateOverlappingFragments", () => {
+  /** Two ethane-shaped fragments (one bond each), at the given left edges. */
+  function twoFragments(x1: number, x2: number): Molecule {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a1", { x: x1, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: x1 + BOND_LEN, y: 0 }, "C");
+    mol = addBond(mol, "ab", "a1", "a2");
+    mol = addAtom(mol, "b1", { x: x2, y: 0 }, "C");
+    mol = addAtom(mol, "b2", { x: x2 + BOND_LEN, y: 0 }, "C");
+    mol = addBond(mol, "bb", "b1", "b2");
+    return mol;
+  }
+
+  function span(mol: Molecule, ids: string[]): { minX: number; maxX: number } {
+    return {
+      minX: Math.min(...ids.map((id) => mol.atoms[id].x)),
+      maxX: Math.max(...ids.map((id) => mol.atoms[id].x)),
+    };
+  }
+
+  test("lays overlapping structures out in a row with a clear gap", () => {
+    const mol = twoFragments(0, 0);
+    const separated = separateOverlappingFragments(mol);
+
+    const first = span(separated, ["a1", "a2"]);
+    const second = span(separated, ["b1", "b2"]);
+    expect(first.minX).toBe(0);
+    expect(second.minX).toBeCloseTo(first.maxX + 1.5 * BOND_LEN, 6);
+    // Internal geometry is untouched: both bonds still standard length.
+    expect(bondLen(separated, "a1", "a2")).toBe(BOND_LEN);
+    expect(bondLen(separated, "b1", "b2")).toBe(BOND_LEN);
+  });
+
+  test("preserves left-to-right reading order", () => {
+    // b starts to the right but overlaps a's right edge.
+    const mol = twoFragments(0, BOND_LEN * 0.5);
+    const separated = separateOverlappingFragments(mol);
+
+    expect(separated.atoms["a1"].x).toBeLessThan(separated.atoms["b1"].x);
+  });
+
+  test("returns the molecule untouched when nothing overlaps", () => {
+    const mol = twoFragments(0, BOND_LEN * 4);
+    expect(separateOverlappingFragments(mol)).toBe(mol);
+  });
+
+  test("is a no-op for a single structure", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a1", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: BOND_LEN, y: 0 }, "C");
+    mol = addBond(mol, "ab", "a1", "a2");
+    expect(separateOverlappingFragments(mol)).toBe(mol);
+  });
+
+  test("treats structures that merely touch as overlapping", () => {
+    // Exactly adjacent bounding boxes: no gap, so not a readable layout.
+    const mol = twoFragments(0, BOND_LEN);
+    const separated = separateOverlappingFragments(mol);
+    expect(span(separated, ["b1", "b2"]).minX).toBeGreaterThan(BOND_LEN);
   });
 });

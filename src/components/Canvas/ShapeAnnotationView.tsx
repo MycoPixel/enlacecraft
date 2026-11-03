@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import type { Annotation, Molecule, Point, ShapeAnnotation } from "../../types/chemistry";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
+import { snapAnnotationMove } from "./annotationSnap";
 
 interface ShapeAnnotationViewProps {
   annotation: ShapeAnnotation;
@@ -92,7 +93,10 @@ export function ShapeAnnotationView({ annotation, selected, viewScale }: ShapeAn
     if (drag.kind === "move") {
       const dx = (e.clientX - drag.startClient.x) / viewScale;
       const dy = (e.clientY - drag.startClient.y) / viewScale;
-      moveAnnotationTransient(annotation.id, { x: drag.origin.x + dx, y: drag.origin.y + dy });
+      moveAnnotationTransient(
+        annotation.id,
+        snapAnnotationMove(annotation.id, { x: drag.origin.x + dx, y: drag.origin.y + dy }, e.shiftKey),
+      );
       return;
     }
     if (drag.kind === "group") {

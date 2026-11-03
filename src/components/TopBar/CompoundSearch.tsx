@@ -1,14 +1,42 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, Loader2, Braces } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { fetchCompoundByName, fetchCompoundBySmiles, fetchCompoundSuggestions, PubChemError } from "../../io/pubchem";
+import {
+  detectIdentifierKind,
+  fetchCompoundByIdentifier,
+  fetchCompoundSuggestions,
+  PubChemError,
+  type CompoundIdentifierKind,
+} from "../../io/pubchem";
 import { useT } from "../../i18n/useT";
 
 const SUGGESTION_DEBOUNCE_MS = 250;
 
+const MODE_OPTIONS: { value: CompoundIdentifierKind; labelKey: string }[] = [
+  { value: "auto", labelKey: "search.modeAuto" },
+  { value: "name", labelKey: "search.modeName" },
+  { value: "smiles", labelKey: "search.modeSmiles" },
+  { value: "inchi", labelKey: "search.modeInchi" },
+  { value: "inchikey", labelKey: "search.modeInchikey" },
+  { value: "cid", labelKey: "search.modeCid" },
+  { value: "cas", labelKey: "search.modeCas" },
+  { value: "formula", labelKey: "search.modeFormula" },
+];
+
+/**
+ * Compound lookup across PubChem's identifier namespaces.
+ *
+ * Auto-detect is the default because the input is usually pasted, and the
+ * shape of an InChIKey/CAS/CID/SMILES value is unambiguous enough to route
+ * without asking. The explicit selector remains available for the ambiguous
+ * cases — a formula such as CO2 and a SMILES such as CCO are impossible to
+ * distinguish from a drawing tool's point of view without a convention, and
+ * a person may also want to force a name lookup for something that looks
+ * like a formula.
+ */
 export function CompoundSearch() {
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<"name" | "smiles">("name");
+  const [mode, setMode] = useState<CompoundIdentifierKind>("auto");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -28,15 +56,25 @@ export function CompoundSearch() {
     clearTimeout(blurCloseTimeout.current);
   }, []);
 
-  // Live suggestions as you type (name mode only — a SMILES string isn't
-  // looked up against PubChem's name dictionary). Debounced, and guarded
-  // against out-of-order responses (a slow earlier request landing after a
-  // newer one) via a simple request-id check. Never surfaces an error —
-  // see fetchCompoundSuggestions's own doc comment for why.
+  const effectiveKind = (value: string): CompoundIdentifierKind =>
+    mode === "auto" ? detectIdentifierKind(value) : mode;
+
+  const modeLabel = (value: CompoundIdentifierKind): string => {
+    const option = MODE_OPTIONS.find((o) => o.value === value);
+    return t(option?.labelKey ?? "search.modeAuto");
+  };
+
+  // Live suggestions as you type. Only name searches have a dictionary to
+  // suggest from; SMILES/InChI/CID/etc. are exact identifiers. In auto mode
+  // the current value is classified first, so pasting an InChIKey doesn't
+  // fire a pointless name-autocomplete request on every keystroke.
+  // Debounced, and guarded against out-of-order responses (a slow earlier
+  // request landing after a newer one) via a simple request-id check. Never
+  // surfaces an error — see fetchCompoundSuggestions's own doc comment.
   useEffect(() => {
     clearTimeout(suggestionDebounce.current);
     const q = query.trim();
-    if (mode !== "name" || !q) {
+    if (effectiveKind(q) !== "name" || !q) {
       setSuggestions([]);
       return;
     }
@@ -48,6 +86,8 @@ export function CompoundSearch() {
       setActiveIndex(-1);
       setSuggestionsOpen(true);
     }, SUGGESTION_DEBOUNCE_MS);
+    // effectiveKind is derived from mode; listing mode and query is enough.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, mode]);
 
   const showError = (message: string) => {
@@ -58,12 +98,31 @@ export function CompoundSearch() {
 
   const messageForError = (err: unknown, forQuery: string): string => {
     if (err instanceof PubChemError) {
-      switch (err.code) {
-        case "EMPTY_QUERY": return t(mode === "smiles" ? "search.errorEmptyQuerySmiles" : "search.errorEmptyQuery");
-        case "NOT_FOUND": return t(mode === "smiles" ? "search.errorNotFoundSmiles" : "search.errorNotFound", { name: String(err.params.name ?? forQuery) });
-        case "NETWORK": return t("search.errorNetwork");
-        case "HTTP": return t("search.errorHttp", { status: String(err.params.status) });
-        case "NO_STRUCTURE": return t(mode === "smiles" ? "search.errorNoStructureSmiles" : "search.errorNoStructure", { name: String(err.params.name ?? forQuery) });
+      const kind = effectiveKind(forQuery);
+      if (kind === "name") {
+        switch (err.code) {
+          case "EMPTY_QUERY": return t("search.errorEmptyQuery");
+          case "NOT_FOUND": return t("search.errorNotFound", { name: String(err.params.name ?? forQuery) });
+          case "NETWORK": return t("search.errorNetwork");
+          case "HTTP": return t("search.errorHttp", { status: String(err.params.status) });
+          case "NO_STRUCTURE": return t("search.errorNoStructure", { name: String(err.params.name ?? forQuery) });
+        }
+      } else if (kind === "smiles") {
+        switch (err.code) {
+          case "EMPTY_QUERY": return t("search.errorEmptyQuerySmiles");
+          case "NOT_FOUND": return t("search.errorNotFoundSmiles", { name: String(err.params.name ?? forQuery) });
+          case "NETWORK": return t("search.errorNetwork");
+          case "HTTP": return t("search.errorHttp", { status: String(err.params.status) });
+          case "NO_STRUCTURE": return t("search.errorNoStructureSmiles");
+        }
+      } else {
+        switch (err.code) {
+          case "EMPTY_QUERY": return t("search.errorEmptyQueryAny");
+          case "NOT_FOUND": return t("search.errorNotFoundAny", { name: String(err.params.name ?? forQuery), kind: modeLabel(kind) });
+          case "NETWORK": return t("search.errorNetwork");
+          case "HTTP": return t("search.errorHttp", { status: String(err.params.status) });
+          case "NO_STRUCTURE": return t("search.errorNoStructureAny", { name: String(err.params.name ?? forQuery) });
+        }
       }
     }
     return err instanceof Error ? err.message : "Lookup failed";
@@ -76,7 +135,7 @@ export function CompoundSearch() {
     setLoading(true);
     setError(null);
     try {
-      const result = mode === "smiles" ? await fetchCompoundBySmiles(q) : await fetchCompoundByName(q);
+      const result = await fetchCompoundByIdentifier(q, mode);
       importCompound(result.molecule);
 
       const label = result.name ?? result.resolvedName;
@@ -103,7 +162,24 @@ export function CompoundSearch() {
     runSearch(name);
   };
 
-  const showDropdown = mode === "name" && suggestionsOpen && suggestions.length > 0 && !loading;
+  const isNameSearch = effectiveKind(query.trim()) === "name";
+  const showDropdown = isNameSearch && suggestionsOpen && suggestions.length > 0 && !loading;
+  const placeholder =
+    mode === "auto"
+      ? t("search.placeholderAuto")
+      : mode === "name"
+        ? t("search.placeholder")
+        : mode === "smiles"
+          ? t("search.placeholderSmiles")
+          : t("search.placeholderExplicit", { kind: modeLabel(mode) });
+  const ariaLabel =
+    mode === "auto"
+      ? t("search.ariaLabelAuto")
+      : mode === "name"
+        ? t("search.ariaLabel")
+        : mode === "smiles"
+          ? t("search.ariaLabelSmiles")
+          : t("search.ariaLabelExplicit", { kind: modeLabel(mode) });
 
   return (
     <div className="compound-search-wrapper">
@@ -118,14 +194,22 @@ export function CompoundSearch() {
         }
       }}
     >
-      <button
-        type="button"
-        className="compound-search__mode-toggle"
-        onClick={() => { setMode((m) => (m === "name" ? "smiles" : "name")); setError(null); setSuggestions([]); }}
-        title={t(mode === "name" ? "search.modeSwitchToSmiles" : "search.modeSwitchToName")}
+      <Search size={14} className="compound-search__mode-icon" aria-hidden="true" />
+      <select
+        className="compound-search__mode-select"
+        value={mode}
+        onChange={(e) => {
+          setMode(e.target.value as CompoundIdentifierKind);
+          setError(null);
+          setSuggestions([]);
+        }}
+        title={t("search.modeLabel")}
+        aria-label={t("search.modeLabel")}
       >
-        {mode === "name" ? <Search size={14} /> : <Braces size={14} />}
-      </button>
+        {MODE_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
+        ))}
+      </select>
       <input
         value={query}
         onChange={(e) => { setQuery(e.target.value); if (error) setError(null); }}
@@ -148,8 +232,8 @@ export function CompoundSearch() {
             setSuggestionsOpen(false);
           }
         }}
-        placeholder={t(mode === "smiles" ? "search.placeholderSmiles" : "search.placeholder")}
-        aria-label={t(mode === "smiles" ? "search.ariaLabelSmiles" : "search.ariaLabel")}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
         role="combobox"
         aria-expanded={showDropdown}
         aria-autocomplete="list"

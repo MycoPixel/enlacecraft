@@ -1,4 +1,5 @@
 import { buildExportClone } from "./exportImage";
+import { computePublicationPlacement, type PublicationPreset } from "../model/publicationPresets";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -28,10 +29,26 @@ function escapeHtml(s: string): string {
  * suspenders, in case that assumption ever doesn't hold in some
  * environment.
  */
-export function printMolecule(svg: SVGSVGElement, backgroundColor: string | null, title: string): void {
+export function printMolecule(
+  svg: SVGSVGElement,
+  backgroundColor: string | null,
+  title: string,
+  preset?: PublicationPreset
+): void {
   const { clone, bounds } = buildExportClone(svg, backgroundColor);
-  clone.setAttribute("width", "100%");
-  clone.setAttribute("height", "100%");
+  const placement = preset ? computePublicationPlacement(bounds.width, bounds.height, preset) : null;
+
+  if (placement) {
+    // Exact physical page: the preset page size becomes @page's size with no
+    // printer margin, and the drawing is placed at the same centred box the
+    // direct PDF export uses. This is what makes "print to PDF" match
+    // "Export PDF" rather than merely being roughly similar.
+    clone.setAttribute("width", `${placement.widthPt}pt`);
+    clone.setAttribute("height", `${placement.heightPt}pt`);
+  } else {
+    clone.setAttribute("width", "100%");
+    clone.setAttribute("height", "100%");
+  }
   const svgMarkup = new XMLSerializer().serializeToString(clone);
 
   const iframe = document.createElement("iframe");
@@ -63,21 +80,34 @@ export function printMolecule(svg: SVGSVGElement, backgroundColor: string | null
   // reaction scheme and a tall single molecule should each fill the page
   // width appropriately rather than one of them being squeezed or
   // leaving most of the page blank.
+  //
+  // With a publication preset, the page itself is physical: @page gets the
+  // preset's exact size and no printer margin, and the SVG is absolutely
+  // positioned at the same centred box computePublicationPlacement gives the
+  // PDF exporter. Without one, the original "fill the printable width"
+  // layout is kept for a quick print.
+  const pageCss = placement
+    ? `@page { size: ${placement.pageWidthPt}pt ${placement.pageHeightPt}pt; margin: 0; }
+  html, body { margin: 0; padding: 0; width: ${placement.pageWidthPt}pt; height: ${placement.pageHeightPt}pt; }
+  body { position: relative; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .print-svg-wrap { position: absolute; left: ${placement.xPt}pt; top: ${placement.yPt}pt; width: ${placement.widthPt}pt; height: ${placement.heightPt}pt; }`
+    : `@page { margin: 16mm; }
+  html, body { margin: 0; padding: 0; }
+  body { display: flex; flex-direction: column; align-items: center; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 13px; font-weight: 600; color: #444; margin: 0 0 10mm; align-self: flex-start; }
+  .print-svg-wrap { width: 100%; aspect-ratio: ${bounds.width} / ${bounds.height}; max-height: 250mm; }`;
+  const titleHtml = !placement && title ? `<h1>${escapeHtml(title)}</h1>` : "";
   doc.write(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>${escapeHtml(title)}</title>
 <style>
-  @page { margin: 16mm; }
-  html, body { margin: 0; padding: 0; }
-  body { display: flex; flex-direction: column; align-items: center; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
-  h1 { font-size: 13px; font-weight: 600; color: #444; margin: 0 0 10mm; align-self: flex-start; }
-  .print-svg-wrap { width: 100%; aspect-ratio: ${bounds.width} / ${bounds.height}; max-height: 250mm; }
+  ${pageCss}
 </style>
 </head>
 <body>
-${title ? `<h1>${escapeHtml(title)}</h1>` : ""}
+${titleHtml}
 <div class="print-svg-wrap">${svgMarkup}</div>
 </body>
 </html>`);

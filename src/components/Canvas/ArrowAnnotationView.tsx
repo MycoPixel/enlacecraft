@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { ArrowAnnotation, Annotation, Molecule, Point } from "../../types/chemistry";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { effectiveArrowHead, effectiveArrowShaft, effectiveArrowTail, type ArrowHeadStyle, type ArrowShaftStyle, type ArrowTailStyle } from "../../model/arrowStyle";
+import { snapAnnotationEndpoint, snapAnnotationMove } from "./annotationSnap";
 
 interface ArrowAnnotationViewProps {
   annotation: ArrowAnnotation;
@@ -241,7 +242,10 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
 
     if (drag.kind === "body") {
       const d = worldDelta(e, drag.startClient, viewScale);
-      moveAnnotationTransient(annotation.id, { x: drag.origin.x1 + d.x, y: drag.origin.y1 + d.y });
+      moveAnnotationTransient(
+        annotation.id,
+        snapAnnotationMove(annotation.id, { x: drag.origin.x1 + d.x, y: drag.origin.y1 + d.y }, e.shiftKey),
+      );
       return;
     }
     if (drag.kind === "group") {
@@ -261,7 +265,7 @@ export function ArrowAnnotationView({ annotation, selected, viewScale }: ArrowAn
       updateArrowCurvatureTransient(annotation.id, nextCurvature);
       return;
     }
-    updateArrowEndpointTransient(annotation.id, drag.kind, pt);
+    updateArrowEndpointTransient(annotation.id, drag.kind, snapAnnotationEndpoint(annotation.id, pt, e.shiftKey));
   }, [annotation.id, annotation.x1, annotation.y1, annotation.x2, annotation.y2, moveAnnotationTransient, moveAnnotationsTransient, updateArrowEndpointTransient, updateArrowCurvatureTransient, viewScale]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {

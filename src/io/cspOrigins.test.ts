@@ -43,6 +43,9 @@ describe("CSP connect-src covers every origin used in src/io", () => {
     const network = raw
       .replace(/xmlns(:\w+)?\s*=\s*["'][^"']*["']/g, "")
       .replace(/setAttribute\(\s*["']xmlns[^"']*["']\s*,\s*["'][^"']*["']\s*\)/g, "")
+      // A namespace constant (e.g. `const SVG_NS = "http://www.w3.org/..."`)
+      // is passed to createElementNS, not fetched.
+      .replace(/(?:const|let|var)\s+[A-Z_]*NS\s*=\s*["'][^"']*["']/g, "")
       .replace(/<!DOCTYPE[^>]*>/gi, "")
       // Comments mention origins that aren't fetched.
       .replace(/\/\*[\s\S]*?\*\//g, "")

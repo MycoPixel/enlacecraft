@@ -22,6 +22,7 @@ import type {
 } from "../types/chemistry";
 import { connectedComponents, emptyMolecule } from "../model/molecule";
 import { ABBREVIATED_GROUPS, BOND_LEN, PERIODIC_TABLE } from "../model/constants";
+import { annotationBounds } from "../model/alignmentGuides";
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { calibrateImportScale } from "./importScale";
 import { defaultArrowHead, defaultArrowShaft, defaultArrowTail } from "../model/arrowStyle";
@@ -1039,22 +1040,6 @@ export interface CdxmlDocument {
 /** ChemDraw's default header/footer inset, reused as the breathing room an
  * auto-sized page leaves around its content. */
 const AUTO_PAGE_MARGIN = 36;
-
-/** The bounding box an annotation occupies, in app canvas units. */
-function annotationBounds(ann: Annotation): { left: number; top: number; right: number; bottom: number } {
-  if (ann.kind === "arrow") {
-    return {
-      left: Math.min(ann.x1, ann.x2),
-      top: Math.min(ann.y1, ann.y2),
-      right: Math.max(ann.x1, ann.x2),
-      bottom: Math.max(ann.y1, ann.y2),
-    };
-  }
-  if (ann.kind === "orbital") {
-    return { left: ann.x, top: ann.y, right: ann.x + ann.size, bottom: ann.y + ann.size };
-  }
-  return { left: ann.x, top: ann.y, right: ann.x + ann.width, bottom: ann.y + ann.height };
-}
 
 /**
  * Page setup for callers that have none: A4 portrait, enlarged only if the

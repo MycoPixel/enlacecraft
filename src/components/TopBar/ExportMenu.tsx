@@ -3,18 +3,32 @@ import { createPortal } from "react-dom";
 import { Download } from "lucide-react";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
+import {
+  DEFAULT_PUBLICATION_PRESET_ID,
+  PUBLICATION_PRESETS,
+} from "../../model/publicationPresets";
 
 export type ExportBackground = "transparent" | "white" | "theme";
 
 interface ExportMenuProps {
   onPNG: (background: ExportBackground) => void;
   onSVG: (background: ExportBackground) => void;
-  onPrint: (background: ExportBackground) => void;
+  onPDF: (background: ExportBackground, presetId: string) => void;
+  onPrint: (background: ExportBackground, presetId: string) => void;
   onMOL: () => void;
+  onSDF: () => void;
+  onSDFWithProperties: () => void;
+  onRXN: () => void;
+  onReactionSmiles: () => void;
   onCDXML: () => void;
   onSmiles: () => void;
   onSaveProject: () => void;
   onSaveProjectAs: () => void;
+  onCopyShareLink: () => void;
+  onCopyEmbedCode: () => void;
+  onExportHtmlViewer: (background: ExportBackground) => void;
+  /** RXN and reaction SMILES only make sense once a scheme exists. */
+  reactionExportDisabled: boolean;
   /** File this project was last saved to, shown next to the Save entry so
    * it's visible where a plain Save is going before it's pressed. */
   projectFileName: string | null;
@@ -31,9 +45,29 @@ interface ExportMenuProps {
  * button's own bounding rect sidesteps that entirely — it's never inside any
  * scrolling/clipping ancestor.
  */
-export function ExportMenu({ onPNG, onSVG, onPrint, onMOL, onCDXML, onSmiles, onSaveProject, onSaveProjectAs, projectFileName }: ExportMenuProps) {
+export function ExportMenu({
+  onPNG,
+  onSVG,
+  onPDF,
+  onPrint,
+  onMOL,
+  onSDF,
+  onSDFWithProperties,
+  onRXN,
+  onReactionSmiles,
+  onCDXML,
+  onSmiles,
+  onSaveProject,
+  onSaveProjectAs,
+  onCopyShareLink,
+  onCopyEmbedCode,
+  onExportHtmlViewer,
+  reactionExportDisabled,
+  projectFileName,
+}: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [background, setBackground] = useState<ExportBackground>("transparent");
+  const [presetId, setPresetId] = useState(DEFAULT_PUBLICATION_PRESET_ID);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
   const btnWrapRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -92,6 +126,17 @@ export function ExportMenu({ onPNG, onSVG, onPrint, onMOL, onCDXML, onSmiles, on
               {t("tool.saveAs")}
             </button>
             <div className="export-dropdown__divider" />
+            <div className="export-dropdown__section-label">{t("tool.share")}</div>
+            <button className="export-dropdown__item" onClick={() => { onCopyShareLink(); setOpen(false); }}>
+              {t("tool.copyShareLink")}
+            </button>
+            <button className="export-dropdown__item" onClick={() => { onCopyEmbedCode(); setOpen(false); }}>
+              {t("tool.copyEmbedCode")}
+            </button>
+            <button className="export-dropdown__item" onClick={() => { onExportHtmlViewer(background); setOpen(false); }}>
+              {t("tool.exportHtmlViewer")}
+            </button>
+            <div className="export-dropdown__divider" />
             <div className="export-dropdown__section-label">{t("tool.exportBackground")}</div>
             <div className="export-bg-picker" role="radiogroup" aria-label={t("tool.exportBackground")}>
               {(["transparent", "white", "theme"] as const).map((mode) => (
@@ -108,11 +153,39 @@ export function ExportMenu({ onPNG, onSVG, onPrint, onMOL, onCDXML, onSmiles, on
             </div>
             <button className="export-dropdown__item" onClick={() => { onPNG(background); setOpen(false); }}>{t("tool.exportPNG")}</button>
             <button className="export-dropdown__item" onClick={() => { onSVG(background); setOpen(false); }}>{t("tool.exportSVG")}</button>
-            <button className="export-dropdown__item" onClick={() => { onPrint(background); setOpen(false); }}>{t("tool.exportPrintPDF")}</button>
+            <label className="export-dropdown__preset">
+              {t("tool.exportPreset")}
+              <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+                {PUBLICATION_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{t(preset.labelKey)}</option>
+                ))}
+              </select>
+            </label>
+            <button className="export-dropdown__item" onClick={() => { onPDF(background, presetId); setOpen(false); }}>{t("tool.exportPDF")}</button>
+            <button className="export-dropdown__item" onClick={() => { onPrint(background, presetId); setOpen(false); }}>{t("tool.exportPrintPDF")}</button>
             <div className="export-dropdown__divider" />
             <button className="export-dropdown__item" onClick={() => { onMOL(); setOpen(false); }}>{t("tool.exportMOL")}</button>
+            <button className="export-dropdown__item" onClick={() => { onSDF(); setOpen(false); }}>{t("tool.exportSDF")}</button>
+            <button className="export-dropdown__item" onClick={() => { onSDFWithProperties(); setOpen(false); }}>{t("tool.exportSDFWithProperties")}</button>
             <button className="export-dropdown__item" onClick={() => { onCDXML(); setOpen(false); }}>{t("tool.exportCDXML")}</button>
             <button className="export-dropdown__item" onClick={() => { onSmiles(); setOpen(false); }}>{t("tool.exportSmiles")}</button>
+            <div className="export-dropdown__divider" />
+            <button
+              className="export-dropdown__item"
+              disabled={reactionExportDisabled}
+              title={reactionExportDisabled ? t("tool.exportReactionDisabled") : undefined}
+              onClick={() => { onRXN(); setOpen(false); }}
+            >
+              {t("tool.exportRXN")}
+            </button>
+            <button
+              className="export-dropdown__item"
+              disabled={reactionExportDisabled}
+              title={reactionExportDisabled ? t("tool.exportReactionDisabled") : undefined}
+              onClick={() => { onReactionSmiles(); setOpen(false); }}
+            >
+              {t("tool.exportReactionSmiles")}
+            </button>
           </div>,
           document.body
         )}

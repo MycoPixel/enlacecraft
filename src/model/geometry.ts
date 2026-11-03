@@ -1,5 +1,5 @@
 import type { Point } from "../types/chemistry";
-import { DEFAULT_BRACKET_HEIGHT } from "./constants";
+import { DEFAULT_BRACKET_HEIGHT, GRID_STEP } from "./constants";
 
 export const dist = (a: Point, b: Point): number =>
   Math.hypot(a.x - b.x, a.y - b.y);
@@ -18,6 +18,19 @@ export const angleOf = (a: Point, b: Point): number =>
  */
 export const snapAngle = (rad: number, step: number = Math.PI / 6): number =>
   step > 0 ? Math.round(rad / step) * step : rad;
+
+/**
+ * Rounds a point to the nearest multiple of `step` on both axes. A
+ * non-positive `step` means "no snapping" and returns the point untouched,
+ * matching snapAngle's convention.
+ */
+export const snapPoint = (p: Point, step: number = GRID_STEP): Point => {
+  if (step <= 0) return p;
+  // `|| 0` normalizes -0 (Math.round(-0.5) * step) to 0, so a snapped
+  // coordinate never carries a surprising signed zero into exports.
+  const quantize = (v: number) => Math.round(v / step) * step || 0;
+  return { x: quantize(p.x), y: quantize(p.y) };
+};
 
 /**
  * Shortest signed angular difference `to - from`, normalized to

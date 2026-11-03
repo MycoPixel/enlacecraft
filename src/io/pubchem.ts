@@ -85,6 +85,77 @@ async function fetchAutocomplete(query: string, limit: number): Promise<string[]
 export type PubChemErrorCode = "EMPTY_QUERY" | "NOT_FOUND" | "NETWORK" | "HTTP" | "NO_STRUCTURE" | "BUSY";
 
 /**
+ * What a pasted value actually is.
+ *
+ * `"auto"` is only a request mode — `detectIdentifierKind` always returns one
+ * of the concrete kinds below. The user-facing search box uses the concrete
+ * kind to choose the right PubChem namespace, and the resolved kind is also
+ * recorded on the lookup result so callers can show what was interpreted.
+ */
+export type CompoundIdentifierKind = "auto" | "name" | "smiles" | "inchi" | "inchikey" | "cid" | "cas" | "formula";
+export type ResolvedIdentifierKind = Exclude<CompoundIdentifierKind, "auto">;
+
+const CAS_RE = /^\d{2,7}-\d{2}-\d$/;
+const INCHIKEY_RE = /^[A-Z]{14}-[A-Z]{10}-[A-Z]$/i;
+/** A compact molecular formula: element symbols with optional counts, and at
+ * least one digit or lowercase second letter so a bare uppercase string like
+ * "CCO" stays SMILES rather than being read as carbon-cobalt-oxygen. */
+const FORMULA_RE = /^(?:[A-Z][a-z]?\d*)+$/;
+
+function looksLikeFormula(value: string): boolean {
+  if (!FORMULA_RE.test(value) || !(/\d/.test(value) || /[a-z]/.test(value))) return false;
+  // A real molecular formula combines each element into one term ("C6H12O6"),
+  // so a repeated symbol means this is much more likely ring-closure SMILES
+  // ("C1CCCCC1") than a formula.
+  const symbols = [...value.matchAll(/[A-Z][a-z]?/g)].map((match) => match[0]);
+  return new Set(symbols).size === symbols.length;
+}
+
+function looksLikeSmiles(value: string): boolean {
+  // Spaces, commas and a leading locant digit are how chemical *names* are
+  // written ("2-propanol", "1,3-butadiene"), not SMILES. Pure digits were
+  // already claimed by CID above.
+  if (/[\s,]/.test(value) || /^[0-9]/.test(value)) return false;
+
+  // Strong SMILES-only syntax. Hyphens are deliberately excluded: they are
+  // far more common in names ("p-xylene", "alpha-tocopherol") than as the
+  // single-bond symbol, and a user who really means "CC-N" can choose
+  // SMILES mode explicitly.
+  if (/[[\]()=#@+\\/%.*:]/.test(value)) return true;
+
+  // No punctuation: a bare organic-subset string ("CCO", "CCN") or a
+  // ring-closed aromatic/upper-case string ("c1ccccc1", "C1CCCCC1").
+  if (/^[BCNOPSFI]+[0-9BCNOPSFI]*$/.test(value)) return true;
+  return /^[bcnops]+[0-9bcnops]*$/.test(value);
+}
+
+/**
+ * Guesses which PubChem namespace a pasted identifier belongs to.
+ *
+ * Order matters:
+ *  - InChIKey before InChI (both contain dashes/slashes, but the key has a
+ *    rigid shape);
+ *  - CAS before plain CID (a CAS number contains dashes, a CID doesn't);
+ *  - formula before SMILES, using the "contains a digit or a lowercase
+ *    element symbol, and no repeated element" rule that keeps common
+ *    all-uppercase SMILES such as "CCO" and ring SMILES such as "C1CCCCC1"
+ *    on the SMILES side;
+ *  - everything else is treated as a name, which is also what PubChem's
+ *    most forgiving namespace expects.
+ */
+export function detectIdentifierKind(raw: string): ResolvedIdentifierKind {
+  const value = raw.trim();
+  if (!value) return "name";
+  if (/^InChI=/i.test(value)) return "inchi";
+  if (INCHIKEY_RE.test(value)) return "inchikey";
+  if (CAS_RE.test(value)) return "cas";
+  if (/^\d{1,9}$/.test(value)) return "cid";
+  if (looksLikeFormula(value)) return "formula";
+  if (looksLikeSmiles(value)) return "smiles";
+  return "name";
+}
+
+/**
  * PubChem answers overload with HTTP 503 / "PUGREST.ServerBusy — Too many
  * requests or server too busy", and it does so for the whole endpoint rather
  * than one bad query. Left as a generic HTTP error, that surfaces to the user
@@ -121,24 +192,33 @@ export interface CompoundLookupResult {
   name?: string;
   formula?: string;
   cid?: number;
+  /** How the query was interpreted, when the caller asked for auto-detection
+   * or an explicit identifier namespace. Absent on the legacy name/SMILES/CID
+   * entry points, which predate the identifier hub. */
+  identifierKind?: ResolvedIdentifierKind;
 }
 
 const PUG_REST_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 
-async function fetchSDFRaw(identifier: string, namespace: "name" | "smiles" | "cid"): Promise<string> {
+async function fetchSDFRaw(
+  identifier: string,
+  namespace: "name" | "smiles" | "cid" | "inchi" | "inchikey"
+): Promise<string> {
   let res: Response;
   try {
-    if (namespace === "smiles") {
-      // POST (with the SMILES in the body, not the URL) rather than GET —
-      // PubChem's own docs call out that some SMILES characters (notably
-      // "/", used for cis/trans double-bond geometry) can break a GET
-      // even when percent-encoded, since some routing along the way
-      // decodes the URL before PubChem's own parser sees it. POSTing the
-      // identifier as a form field sidesteps that entirely.
-      res = await fetch(`${PUG_REST_BASE}/compound/smiles/record/SDF?record_type=2d`, {
+    if (namespace === "smiles" || namespace === "inchi") {
+      // POST (with the identifier in the body, not the URL) rather than GET —
+      // PubChem's own docs call out that some SMILES characters (notably "/",
+      // used for cis/trans double-bond geometry) can break a GET even when
+      // percent-encoded, since some routing along the way decodes the URL
+      // before PubChem's own parser sees it. InChI has the same problem (its
+      // layers are full of "/" and "="), and POSTing the identifier as a form
+      // field sidesteps it entirely for both.
+      const field = namespace === "smiles" ? "smiles" : "inchi";
+      res = await fetch(`${PUG_REST_BASE}/compound/${namespace}/record/SDF?record_type=2d`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `smiles=${encodeURIComponent(identifier)}`,
+        body: `${field}=${encodeURIComponent(identifier)}`,
       });
     } else {
       res = await fetch(`${PUG_REST_BASE}/compound/${namespace}/${encodeURIComponent(identifier)}/record/SDF?record_type=2d`);
@@ -265,6 +345,103 @@ export async function fetchCompoundByCid(cid: number): Promise<CompoundLookupRes
     formula: extractSdfField(sdf, "PUBCHEM_MOLECULAR_FORMULA") ?? undefined,
     cid,
   };
+}
+
+function resultFromSdf(
+  sdf: string,
+  query: string,
+  resolvedName: string,
+  identifierKind: ResolvedIdentifierKind
+): CompoundLookupResult {
+  const molecule = importMol(sdf);
+  if (Object.keys(molecule.atoms).length === 0) {
+    throw new PubChemError("NO_STRUCTURE", { name: resolvedName });
+  }
+  return {
+    molecule,
+    query,
+    resolvedName,
+    identifierKind,
+    name: extractSdfField(sdf, "PUBCHEM_IUPAC_NAME") ?? undefined,
+    formula: extractSdfField(sdf, "PUBCHEM_MOLECULAR_FORMULA") ?? undefined,
+    cid: toInt(extractSdfField(sdf, "PUBCHEM_COMPOUND_CID")),
+  };
+}
+
+async function fetchCompoundByNamespace(
+  query: string,
+  namespace: "name" | "inchi" | "inchikey",
+  identifierKind: ResolvedIdentifierKind
+): Promise<CompoundLookupResult> {
+  const identifier = namespace === "inchikey" ? query.toUpperCase() : query;
+  const sdf = await fetchSDFRaw(identifier, namespace);
+  return resultFromSdf(sdf, query, identifier, identifierKind);
+}
+
+/** Resolves a molecular formula to one concrete PubChem compound. Formula
+ * lookup is one-to-many by nature (C6H6 has many isomers), so the first CID
+ * returned is used — the same "pick a representative" behaviour as the
+ * formula search on PubChem's own site. The result's formula field still
+ * comes from PubChem, so the caller can see exactly what was chosen. */
+async function fetchFirstCidForFormula(formula: string): Promise<number> {
+  let res: Response;
+  try {
+    res = await fetch(`${PUG_REST_BASE}/compound/formula/${encodeURIComponent(formula)}/cids/TXT`);
+  } catch {
+    throw new PubChemError("NETWORK");
+  }
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 400) throw new PubChemError("NOT_FOUND", { name: formula });
+    throw new PubChemError("HTTP", { status: res.status });
+  }
+  const text = await res.text();
+  const first = text
+    .split(/\s+/)
+    .map((value) => parseInt(value, 10))
+    .find((value) => Number.isFinite(value) && value > 0);
+  if (!first) throw new PubChemError("NOT_FOUND", { name: formula });
+  return first;
+}
+
+/**
+ * One entry point for every identifier the search box accepts.
+ *
+ * `kind: "auto"` runs `detectIdentifierKind`; an explicit kind skips the
+ * guess. Name lookup keeps the existing Spanish -> English retry, and CID /
+ * formula resolution reuse `fetchCompoundByCid`, so all paths return the same
+ * PubChem-derived 2D structure with the same metadata.
+ */
+export async function fetchCompoundByIdentifier(
+  query: string,
+  kind: CompoundIdentifierKind = "auto"
+): Promise<CompoundLookupResult> {
+  const trimmed = query.trim();
+  if (!trimmed) throw new PubChemError("EMPTY_QUERY");
+
+  const resolvedKind = kind === "auto" ? detectIdentifierKind(trimmed) : kind;
+
+  switch (resolvedKind) {
+    case "name":
+      return { ...(await fetchCompoundByName(trimmed)), identifierKind: resolvedKind };
+    case "smiles":
+      return { ...(await fetchCompoundBySmiles(trimmed)), identifierKind: resolvedKind };
+    case "cas":
+      return fetchCompoundByNamespace(trimmed, "name", resolvedKind);
+    case "inchi":
+      return fetchCompoundByNamespace(trimmed, "inchi", resolvedKind);
+    case "inchikey":
+      return fetchCompoundByNamespace(trimmed, "inchikey", resolvedKind);
+    case "cid": {
+      const cid = parseInt(trimmed, 10);
+      if (!Number.isFinite(cid) || cid <= 0) throw new PubChemError("NOT_FOUND", { name: trimmed });
+      return { ...(await fetchCompoundByCid(cid)), query: trimmed, identifierKind: resolvedKind };
+    }
+    case "formula": {
+      const cid = await fetchFirstCidForFormula(trimmed);
+      const result = await fetchCompoundByCid(cid);
+      return { ...result, query: trimmed, resolvedName: result.name ?? trimmed, identifierKind: resolvedKind };
+    }
+  }
 }
 
 export interface StructureSearchResult {
@@ -468,6 +645,72 @@ export async function fetchInChI(smiles: string): Promise<{ inchi: string; inchi
   const inchikey = props?.[0]?.InChIKey;
   if (!inchi || !inchikey) throw new PubChemError("NOT_FOUND", { name: trimmed });
   return { inchi, inchikey };
+}
+
+export interface CompoundIdentifiers {
+  /** PubChem's own compound id. */
+  cid?: number;
+  /** PubChem's preferred IUPAC-style name, when it has one. */
+  name?: string;
+  /** The standard 27-character InChIKey, useful for cross-database lookup. */
+  inchikey?: string;
+}
+
+/**
+ * Lightweight identifier lookup for batch workflows (the properties table's
+ * "enrich" action). Asks PubChem's property endpoint for only the three
+ * fields a table needs, rather than downloading a full SDF per structure —
+ * the identifier hub's structure lookup already exists for when the actual
+ * drawing is wanted.
+ *
+ * Uses the same POST-not-GET form as fetchIupacName/fetchInChI: SMILES
+ * characters such as "/" don't survive a GET reliably, even percent-encoded.
+ * The caller is expected to space batch calls out (PubChem asks for no more
+ * than about five requests per second); this function deliberately doesn't
+ * sleep internally, so a single interactive lookup stays instant.
+ */
+export async function fetchCompoundIdentifiersBySmiles(smiles: string): Promise<CompoundIdentifiers> {
+  const trimmed = smiles.trim();
+  if (!trimmed) throw new PubChemError("EMPTY_QUERY");
+
+  let res: Response;
+  try {
+    res = await fetch(`${PUG_REST_BASE}/compound/smiles/property/IUPACName,InChIKey/JSON`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `smiles=${encodeURIComponent(trimmed)}`,
+    });
+  } catch {
+    throw new PubChemError("NETWORK");
+  }
+  if (!res.ok) {
+    // Same 400-vs-404 ambiguity as the rest of this file: both mean "PubChem
+    // couldn't do anything useful with this structure".
+    if (res.status === 404 || res.status === 400) throw new PubChemError("NOT_FOUND", { name: trimmed });
+    throw new PubChemError("HTTP", { status: res.status });
+  }
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new PubChemError("NOT_FOUND", { name: trimmed });
+  }
+  const props = (
+    data as {
+      PropertyTable?: {
+        Properties?: { CID?: number; IUPACName?: string; InChIKey?: string }[];
+      };
+    }
+  )?.PropertyTable?.Properties;
+  const property = props?.[0];
+  if (!property) throw new PubChemError("NOT_FOUND", { name: trimmed });
+
+  return {
+    cid: property.CID,
+    name: property.IUPACName,
+    inchikey: property.InChIKey,
+  };
 }
 
 /**

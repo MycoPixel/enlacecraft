@@ -22,7 +22,7 @@ import { ComputedStereoOverlay } from "./ComputedStereoOverlay";
 import { previewRingLoops } from "../../engine/ringPlacement";
 import { previewFunctionalGroupSegments } from "../../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../../model/geometry";
-import { DEFAULT_BRACKET_WIDTH, RING_TEMPLATES } from "../../model/constants";
+import { DEFAULT_BRACKET_WIDTH, GRID_STEP, RING_TEMPLATES } from "../../model/constants";
 import { FUNCTIONAL_GROUP_TEMPLATES } from "../../model/functionalGroupTemplates";
 import type { Annotation, Atom, BracketAnnotation, RingAttachment, FunctionalGroupAttachment, Molecule } from "../../types/chemistry";
 
@@ -59,6 +59,7 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const showGrid = useMoleculeStore((s) => s.showGrid);
+  const alignmentGuides = useMoleculeStore((s) => s.alignmentGuides);
   const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
   const hoverBondId = useMoleculeStore((s) => s.hoverBondId);
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
@@ -141,6 +142,21 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
     return () => observer.disconnect();
   }, [svgRef, setCanvasSize]);
 
+  // Smart guides are a live drag affordance: clear them on any pointer-up or
+  // cancel, even if the gesture ended outside the annotation that owned it
+  // (pointer capture normally routes that event back, but a cancelled OS
+  // gesture may not). Capture phase means this runs even when a child stops
+  // propagation.
+  useEffect(() => {
+    const clear = () => useMoleculeStore.getState().setAlignmentGuides([]);
+    window.addEventListener("pointerup", clear, true);
+    window.addEventListener("pointercancel", clear, true);
+    return () => {
+      window.removeEventListener("pointerup", clear, true);
+      window.removeEventListener("pointercancel", clear, true);
+    };
+  }, []);
+
   const cursor = tool === "pan" ? "grab" : tool === "select" || tool === "lasso" ? "default" : "crosshair";
 
   return (
@@ -162,11 +178,11 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
       onWheel={onWheel}
       onContextMenu={onContextMenu}
     >      <defs>
-        <pattern id="grid" width={24} height={24} patternUnits="userSpaceOnUse">
+        <pattern id="grid" width={GRID_STEP} height={GRID_STEP} patternUnits="userSpaceOnUse">
           <circle cx={1} cy={1} r={1} fill="var(--grid-dot)" />
         </pattern>
-        <pattern id="line-grid" width={24} height={24} patternUnits="userSpaceOnUse">
-          <path d="M 24 0 L 0 0 0 24" fill="none" stroke="var(--grid-line)" strokeWidth="1" />
+        <pattern id="line-grid" width={GRID_STEP} height={GRID_STEP} patternUnits="userSpaceOnUse">
+          <path d={`M ${GRID_STEP} 0 L 0 0 0 ${GRID_STEP}`} fill="none" stroke="var(--grid-line)" strokeWidth="1" />
         </pattern>
         <marker id="arrowhead-small" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
           <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
@@ -221,6 +237,39 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
           viewScale={view.scale}
           linkedAtomId={linkedAtomId}
         />
+        {/* Smart alignment guides for the annotation currently being dragged.
+            Widths and overhangs are divided by the view scale so the line
+            keeps the same visual weight at any zoom, like a screen-space
+            overlay even though it lives in the world-space content group. */}
+        {alignmentGuides.length > 0 && (
+          <g
+            stroke="var(--accent)"
+            strokeWidth={1.25 / view.scale}
+            strokeDasharray={`${4 / view.scale} ${3 / view.scale}`}
+            pointerEvents="none"
+            data-export-exclude="true"
+          >
+            {alignmentGuides.map((guide, i) =>
+              guide.axis === "x" ? (
+                <line
+                  key={`x-${i}`}
+                  x1={guide.position}
+                  y1={guide.start - 6 / view.scale}
+                  x2={guide.position}
+                  y2={guide.end + 6 / view.scale}
+                />
+              ) : (
+                <line
+                  key={`y-${i}`}
+                  x1={guide.start - 6 / view.scale}
+                  y1={guide.position}
+                  x2={guide.end + 6 / view.scale}
+                  y2={guide.position}
+                />
+              ),
+            )}
+          </g>
+        )}
         {arrowPreview && (
           <>
             <line

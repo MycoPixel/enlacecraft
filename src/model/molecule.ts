@@ -951,6 +951,72 @@ export function distributeAtoms(mol: Molecule, atomIds: string[], axis: Distribu
   return { ...mol, atoms };
 }
 
+/** Horizontal clearance left between structures when overlapping fragments
+ * are pulled apart. Generous enough that a wide atom label on the left
+ * structure still clears the right one. */
+export const FRAGMENT_SEPARATION = BOND_LEN * 1.5;
+
+/**
+ * Separates connected structures whose bounding boxes overlap, laying them
+ * out left-to-right in their current reading order with a fixed gap.
+ *
+ * This is the "several records landed on top of each other" case: an import
+ * or merge can bring in structures at coordinates that collide with what is
+ * already drawn, and cleaning bond lengths (cleanUpAtoms) deliberately
+ * leaves fragment positions alone. Only actual overlap triggers a move; a
+ * drawing whose structures are already apart is returned unchanged, so this
+ * can be offered as a one-click command without disturbing a tidy layout.
+ *
+ * Each fragment is translated rigidly — its internal geometry, stereo
+ * wedges and atom labels are untouched — and the leftmost fragment keeps its
+ * original left edge as the row's starting point.
+ */
+export function separateOverlappingFragments(
+  mol: Molecule,
+  gap: number = FRAGMENT_SEPARATION,
+): Molecule {
+  const fragments = fragmentsOf(mol, Object.keys(mol.atoms));
+  if (fragments.length < 2) return mol;
+
+  // A small positive margin means structures that merely touch edges are
+  // treated as overlapping too — "touching" is not a readable layout.
+  const margin = gap * 0.25;
+  const overlaps = (a: Fragment, b: Fragment): boolean =>
+    a.minX < b.maxX + margin && b.minX < a.maxX + margin &&
+    a.minY < b.maxY + margin && b.minY < a.maxY + margin;
+
+  let anyOverlap = false;
+  for (let i = 0; i < fragments.length && !anyOverlap; i++) {
+    for (let j = i + 1; j < fragments.length; j++) {
+      if (overlaps(fragments[i], fragments[j])) {
+        anyOverlap = true;
+        break;
+      }
+    }
+  }
+  if (!anyOverlap) return mol;
+
+  // Reading order: left to right, then top to bottom for fragments that
+  // share a left edge (e.g. a vertically stacked pair).
+  const ordered = [...fragments].sort((a, b) => a.minX - b.minX || a.minY - b.minY);
+  const centerY =
+    (Math.min(...fragments.map((f) => f.minY)) + Math.max(...fragments.map((f) => f.maxY))) / 2;
+  let cursorX = Math.min(...fragments.map((f) => f.minX));
+
+  const atoms = { ...mol.atoms };
+  for (const fragment of ordered) {
+    const dx = cursorX - fragment.minX;
+    const dy = centerY - (fragment.minY + fragment.maxY) / 2;
+    for (const id of fragment.ids) {
+      const atom = atoms[id];
+      if (!atom) continue;
+      atoms[id] = { ...atom, x: atom.x + dx, y: atom.y + dy };
+    }
+    cursorX += fragment.maxX - fragment.minX + gap;
+  }
+  return { ...mol, atoms };
+}
+
 /**
  * Detects rings within `componentIds` (assumed to already be one connected
  * fragment) as the fundamental cycles of a breadth-first spanning tree:
