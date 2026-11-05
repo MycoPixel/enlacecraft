@@ -10,6 +10,7 @@ import {
   sanitizeAnnotationRecord,
   sanitizeFragment,
   sanitizeMolecule,
+  sanitizeObjectGroups,
   sanitizePageSetup,
   sanitizeUserTemplates,
   sanitizeView,
@@ -245,7 +246,14 @@ describe("sanitizePageSetup", () => {
       height: 841.89,
       bondLength: 36,
       marginWidth: 3,
+      margin: 28.35,
     });
+  });
+
+  test("keeps a custom printable margin", () => {
+    expect(
+      sanitizePageSetup({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 30, marginWidth: 2, margin: 12.5 }),
+    ).toMatchObject({ margin: 12.5 });
   });
 
   test("drops a page whose box is invalid instead of inventing a size", () => {
@@ -257,7 +265,58 @@ describe("sanitizePageSetup", () => {
 
   test("defaults an out-of-range bond length or margin without losing the page", () => {
     const page = sanitizePageSetup({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 0, marginWidth: -1 });
-    expect(page).toEqual({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 30, marginWidth: 2 });
+    expect(page).toEqual({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 30, marginWidth: 2, margin: 28.35 });
+    expect(
+      sanitizePageSetup({ x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 30, marginWidth: 2, margin: -4 })?.margin,
+    ).toBe(28.35);
+  });
+});
+
+describe("sanitizeObjectGroups", () => {
+  const molecule = sanitizeMolecule({ atoms: { a: atom("a"), b: atom("b", 100) }, bonds: {} });
+  const annotations = sanitizeAnnotationRecord({
+    t: { id: "t", kind: "text", x: 0, y: 0, width: 40, height: 20, html: "x", fontSize: 14 },
+  });
+
+  test("keeps live references and drops stale ones", () => {
+    const groups = sanitizeObjectGroups(
+      [
+        { id: "g1", atomIds: ["a", "missing", "b"], annotationIds: ["t", "nope"], cycleIds: [] },
+        { id: "g2", atomIds: ["a"], annotationIds: [], cycleIds: [] },
+      ],
+      molecule,
+      annotations,
+    );
+    expect(groups).toEqual([{ id: "g1", atomIds: ["a", "b"], annotationIds: ["t"], cycleIds: [] }]);
+  });
+
+  test("an object can only belong to one group", () => {
+    const groups = sanitizeObjectGroups(
+      [
+        { id: "g1", atomIds: ["a", "b"] },
+        { id: "g2", atomIds: ["b", "a"] },
+      ],
+      molecule,
+      annotations,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups?.[0].id).toBe("g1");
+  });
+
+  test("missing or fully invalid groups degrade to undefined", () => {
+    expect(sanitizeObjectGroups(undefined, molecule, annotations)).toBeUndefined();
+    expect(sanitizeObjectGroups([{ id: "g", atomIds: ["missing"] }], molecule, annotations)).toBeUndefined();
+  });
+});
+
+describe("z-order sanitisation", () => {
+  test("keeps a finite zOrder on annotations and cycles", () => {
+    const annotations = sanitizeAnnotationRecord({
+      t: { id: "t", kind: "text", x: 0, y: 0, width: 40, height: 20, html: "x", fontSize: 14, zOrder: 7 },
+      bad: { id: "bad", kind: "text", x: 0, y: 0, width: 40, height: 20, html: "x", fontSize: 14, zOrder: "top" },
+    });
+    expect(annotations.t.zOrder).toBe(7);
+    expect(annotations.bad.zOrder).toBeUndefined();
   });
 });
 

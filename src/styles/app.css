@@ -2420,6 +2420,49 @@
 
 
 
+/* ---------- Catalytic cycles ---------- */
+
+.cycle-view {
+  color: var(--ink);
+}
+
+.cycle-view.is-selected {
+  color: var(--accent);
+}
+
+.cycle-view__label,
+.cycle-view__caption {
+  font-size: 13px;
+  fill: currentColor;
+  paint-order: stroke;
+  stroke: var(--canvas-bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.cycle-view__caption {
+  font-weight: 600;
+}
+
+.cycle-view__handle {
+  fill: var(--canvas-bg);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.cycle-view__handle-glyph {
+  font-size: 12px;
+  fill: var(--accent);
+}
+
+.cycle-view__handle-glyph-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
 /* ---------- Canvas ---------- */
 
 .canvas-wrap {
@@ -3308,6 +3351,36 @@
   background: var(--panel-border);
 }
 
+/* Unit segmented control shown under the Rulers row while rulers are on. */
+.view-options-dropdown__units {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 8px 38px;
+}
+
+.view-options-dropdown__unit {
+  flex: 1;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.view-options-dropdown__unit:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.view-options-dropdown__unit--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* ---------- Theme picker ---------- */
 
 .theme-picker {
@@ -4151,6 +4224,26 @@
   border-color: var(--accent);
 }
 
+/* One-line variant used by "Open shared link" — same frame and focus ring
+   as the paste textarea, not a separate visual language. */
+.share-link-dialog__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--input-bg, var(--panel));
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.share-link-dialog__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .paste-dialog__meta {
   display: flex;
   align-items: center;
@@ -4216,6 +4309,84 @@
 .paste-dialog__add:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.page-setup-dialog {
+  width: min(420px, 100%);
+}
+
+.page-setup-dialog__body {
+  gap: 12px;
+  padding-bottom: 10px;
+}
+
+.page-setup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.page-setup-field > span,
+.page-setup-field > legend {
+  font-weight: 600;
+}
+
+.page-setup-field select,
+.page-setup-field input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--input-bg, var(--panel));
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.page-setup-field select:focus,
+.page-setup-field input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.page-setup-field--inline {
+  border: none;
+  margin: 0;
+  padding: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+}
+
+.page-setup-field--inline legend {
+  padding: 0;
+  margin-right: 4px;
+  float: left;
+}
+
+.page-setup-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.page-setup-dialog__summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.page-setup-dialog__hint {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.45;
 }
 
 .periodic-grid {
@@ -6598,4 +6769,293 @@
 .shared-loading {
   font-size: 13.5px;
   color: var(--ink-soft);
+}
+
+/* ---------- Command palette ---------- */
+
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 24px 24px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.command-palette {
+  width: min(620px, 100%);
+  max-height: min(64vh, 620px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+}
+
+.command-palette__search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--panel-border);
+  color: var(--ink-soft);
+  flex-shrink: 0;
+}
+
+.command-palette__search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.command-palette__hint,
+.command-palette__shortcut {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 10.5px;
+}
+
+.command-palette__list {
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.command-palette__section {
+  padding: 8px 10px 4px;
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.command-palette__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.command-palette__item--active {
+  background: var(--accent-soft);
+}
+
+.command-palette__item--disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.command-palette__empty {
+  padding: 22px 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Visually hidden but still announced by screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Reaction interpretation overlay and scheme authoring controls
+   --------------------------------------------------------------------------- */
+
+.reaction-role-overlay__box {
+  fill: none;
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+  opacity: 0.9;
+}
+
+.reaction-role-overlay__part.is-reactant .reaction-role-overlay__box { stroke: #2f6fbe; }
+.reaction-role-overlay__part.is-product .reaction-role-overlay__box { stroke: #2e7d32; }
+.reaction-role-overlay__part.is-above .reaction-role-overlay__box,
+.reaction-role-overlay__part.is-below .reaction-role-overlay__box { stroke: #a76a00; }
+
+.reaction-role-overlay__badge-bg { opacity: 0.92; }
+.reaction-role-overlay__part.is-reactant .reaction-role-overlay__badge-bg { fill: #2f6fbe; }
+.reaction-role-overlay__part.is-product .reaction-role-overlay__badge-bg { fill: #2e7d32; }
+.reaction-role-overlay__part.is-above .reaction-role-overlay__badge-bg,
+.reaction-role-overlay__part.is-below .reaction-role-overlay__badge-bg { fill: #a76a00; }
+
+.reaction-role-overlay__badge {
+  fill: #fff;
+  font-family: var(--font, inherit);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.reaction-role-overlay__mapped {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  stroke-dasharray: 2 2;
+  opacity: 0.75;
+}
+
+.molecule-info__reaction-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.molecule-info__reaction-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font, inherit);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.molecule-info__reaction-action:hover,
+.molecule-info__reaction-action.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.molecule-info__reaction {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.molecule-info__reaction .molecule-info__stereo-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.molecule-info__reaction-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.molecule-info__reaction-actions button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.molecule-info__reaction-actions button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.molecule-info__reaction-plus,
+.molecule-info__reaction-slash {
+  position: absolute;
+  right: 1px;
+  bottom: 0;
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.molecule-info__reaction-slash {
+  width: 10px;
+  height: 1px;
+  bottom: 5px;
+  background: currentColor;
+  transform: rotate(-40deg);
+  font-size: 0;
+}
+
+/* ---------- Rulers / crosshair ---------- */
+
+/* Overlaid on .canvas-wrap rather than inside the drawing SVG: view aids
+   must never be part of the export clone, and pointer-events: none keeps
+   them out of the way of drawing and selection. */
+.canvas-rulers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 4;
+}
+
+.canvas-ruler rect {
+  fill: var(--panel);
+  opacity: 0.94;
+}
+
+.canvas-ruler line {
+  stroke: var(--ink-soft);
+  stroke-width: 0.6;
+  opacity: 0.75;
+}
+
+.canvas-ruler text {
+  fill: var(--ink-soft);
+  font-size: 9px;
+  font-family: inherit;
+  user-select: none;
+}
+
+.canvas-ruler--corner text {
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.canvas-ruler__edge {
+  stroke: var(--panel-border);
+  stroke-width: 1;
+  opacity: 1;
+}
+
+.canvas-crosshair line {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.45;
 }

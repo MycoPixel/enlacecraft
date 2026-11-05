@@ -145,6 +145,56 @@ describe("insertMolecule with dative bonds and haptic bonds", () => {
   });
 });
 
+describe("catalytic cycles in copied fragments", () => {
+  function cycleMolecule(): Molecule {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a1", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: 40, y: 0 }, "C");
+    mol = addAtom(mol, "b1", { x: 200, y: 0 }, "C");
+    return {
+      ...mol,
+      cycles: [
+        {
+          id: "c1",
+          centre: { x: 20, y: 0 },
+          radius: 60,
+          clockwise: true,
+          nodes: [["a1"], ["a2"]],
+        },
+      ],
+    };
+  }
+
+  test("subMolecule carries a cycle only when all its nodes are selected", () => {
+    const mol = cycleMolecule();
+    expect(subMolecule(mol, ["a1", "a2"]).cycles).toHaveLength(1);
+    expect(subMolecule(mol, ["a1"]).cycles ?? []).toHaveLength(0);
+  });
+
+  test("extractFragment mirrors subMolecule's cycle filtering", () => {
+    const mol = cycleMolecule();
+    expect(extractFragment(mol, ["a1", "a2"]).cycles).toHaveLength(1);
+    expect(extractFragment(mol, ["a2", "b1"]).cycles ?? []).toHaveLength(0);
+  });
+
+  test("insertMolecule remaps a pasted cycle's nodes and translates its centre", () => {
+    const incoming = cycleMolecule();
+    const { mol, newAtomIds } = insertMolecule(emptyMolecule(), incoming, 100, 50);
+
+    expect(mol.cycles).toHaveLength(1);
+    const cycle = mol.cycles![0];
+    expect(cycle.id).not.toBe("c1");
+    expect(cycle.centre).toEqual({ x: 120, y: 50 });
+    expect(cycle.nodes).toHaveLength(2);
+    for (const node of cycle.nodes) {
+      for (const id of node) {
+        expect(newAtomIds).toContain(id);
+        expect(mol.atoms[id]).toBeDefined();
+      }
+    }
+  });
+});
+
 function bondAngleDeg(mol: Molecule, aId: string, bId: string): number {
   const a = mol.atoms[aId];
   const b = mol.atoms[bId];

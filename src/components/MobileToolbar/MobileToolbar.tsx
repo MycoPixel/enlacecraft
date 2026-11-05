@@ -4,7 +4,7 @@ import {
   MoreHorizontal, Wand2, AlignCenterVertical,
   AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Minus, ZoomIn, ZoomOut, MoveDiagonal, Hash, Trash2, Ruler, ShieldOff, LayoutGrid,
-  FlipHorizontal2, FlipVertical2,
+  FlipHorizontal2, FlipVertical2, RefreshCw, Link2, Magnet,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "../Sidebar/ToolButton";
@@ -144,6 +144,10 @@ export function MobileToolbar() {
   // to the 30-degree grid, because there is no way to hold a modifier key.
   const freeAngle = useMoleculeStore((s) => s.freeAngle);
   const toggleFreeAngle = useMoleculeStore((s) => s.toggleFreeAngle);
+  const fixedBondLength = useMoleculeStore((s) => s.fixedBondLength);
+  const toggleFixedBondLength = useMoleculeStore((s) => s.toggleFixedBondLength);
+  const fixedAngle = useMoleculeStore((s) => s.fixedAngle);
+  const toggleFixedAngle = useMoleculeStore((s) => s.toggleFixedAngle);
   const zoomBy = (factor: number) =>
     setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
 
@@ -466,6 +470,22 @@ export function MobileToolbar() {
                 >
                   <Ruler size={18} />
                 </ToolButton>
+                <ToolButton
+                  big
+                  active={fixedBondLength}
+                  title={t("tool.fixedBondLength")}
+                  onClick={toggleFixedBondLength}
+                >
+                  <Link2 size={18} />
+                </ToolButton>
+                <ToolButton
+                  big
+                  active={fixedAngle}
+                  title={t("tool.fixedAngle")}
+                  onClick={toggleFixedAngle}
+                >
+                  <Magnet size={18} />
+                </ToolButton>
                 <ToolButton big title={t("tool.zoomIn")} onClick={() => zoomBy(1.2)}>
                   <ZoomIn size={18} />
                 </ToolButton>
@@ -533,6 +553,9 @@ export function MobileToolbar() {
         </ToolButton>
         <ToolButton big title={t("tool.tlc")} active={tool === "tlc"} onClick={() => choose("tlc")}>
           <TlcIcon />
+        </ToolButton>
+        <ToolButton big title={t("tool.cycle")} active={tool === "cycle"} onClick={() => choose("cycle")}>
+          <RefreshCw size={20} />
         </ToolButton>
         <ToolButton big title={t("tool.plus")} active={tool === "plus"} onClick={() => choose("plus")}>
           <Plus size={20} />

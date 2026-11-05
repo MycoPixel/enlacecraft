@@ -1,4 +1,13 @@
-import type { Annotation, Atom, Molecule, ReactionScheme, ReactionStep } from "../types/chemistry";
+import type {
+  Annotation,
+  ArrowAnnotation,
+  Atom,
+  Molecule,
+  ReactionScheme,
+  ReactionStep,
+} from "../types/chemistry";
+import { connectedComponents } from "./molecule";
+import { nextId } from "./id";
 
 /**
  * Small helpers around `Molecule.schemes` (ChemDraw reaction-scheme
@@ -139,4 +148,188 @@ export function summarizeScheme(scheme: ReactionScheme): SchemeSummary {
     arrows += step.arrowIds.length;
   }
   return { steps: scheme.steps.length, reactants, products, arrows };
+}
+
+/**
+ * Vertical distance within which two arrows are read as belonging to the
+ * same reaction row. A reaction is read left-to-right along one baseline;
+ * arrows drawn for the same step may be a few pixels apart vertically
+ * (hand placement, snapped grid), while a genuinely separate row is at
+ * least a structure-height away. Kept as a plain world-unit constant so
+ * the grouping is independent of the current zoom.
+ */
+export const REACTION_ROW_TOLERANCE = 40;
+
+function arrowMidX(arrow: ArrowAnnotation): number {
+  return (arrow.x1 + arrow.x2) / 2;
+}
+
+function arrowMidY(arrow: ArrowAnnotation): number {
+  return (arrow.y1 + arrow.y2) / 2;
+}
+
+function rowMidY(row: ArrowAnnotation[]): number {
+  return row.reduce((sum, arrow) => sum + arrowMidY(arrow), 0) / row.length;
+}
+
+/**
+ * Groups selected straight arrows into left-to-right rows.
+ *
+ * A reaction row is a run of arrows sharing a baseline. Rows themselves are
+ * returned top-to-bottom so a two-row drawing still reads in page order.
+ * Non-arrow annotations in `arrowIds` are ignored: the caller's selection
+ * can legitimately contain condition text and plus signs too.
+ */
+export function findReactionRows(
+  annotations: Record<string, Annotation>,
+  arrowIds: Iterable<string>
+): ArrowAnnotation[][] {
+  const arrows: ArrowAnnotation[] = [];
+  const seen = new Set<string>();
+  for (const id of arrowIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const ann = annotations[id];
+    if (ann?.kind === "arrow") arrows.push(ann);
+  }
+  if (arrows.length === 0) return [];
+
+  arrows.sort((a, b) => arrowMidY(a) - arrowMidY(b) || arrowMidX(a) - arrowMidX(b));
+
+  const rows: ArrowAnnotation[][] = [];
+  for (const arrow of arrows) {
+    // Compare against the row's first arrow rather than its running mean:
+    // one very long arrow should not drag the anchor far enough to swallow
+    // an adjacent row.
+    const row = rows.find((candidate) => Math.abs(arrowMidY(candidate[0]) - arrowMidY(arrow)) <= REACTION_ROW_TOLERANCE);
+    if (row) row.push(arrow);
+    else rows.push([arrow]);
+  }
+
+  for (const row of rows) row.sort((a, b) => arrowMidX(a) - arrowMidX(b));
+  rows.sort((a, b) => rowMidY(a) - rowMidY(b));
+  return rows;
+}
+
+interface StructureBox {
+  atomIds: string[];
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  cx: number;
+  cy: number;
+}
+
+function structureBoxes(molecule: Molecule, atomIds: Iterable<string>): StructureBox[] {
+  const ids = [...new Set(atomIds)].filter((id) => molecule.atoms[id]);
+  return connectedComponents(molecule, ids)
+    .map((component): StructureBox | null => {
+      let left = Infinity;
+      let right = -Infinity;
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (const id of component) {
+        const atom = molecule.atoms[id];
+        if (!atom) continue;
+        left = Math.min(left, atom.x);
+        right = Math.max(right, atom.x);
+        top = Math.min(top, atom.y);
+        bottom = Math.max(bottom, atom.y);
+      }
+      if (left === Infinity) return null;
+      return {
+        atomIds: component,
+        left,
+        right,
+        top,
+        bottom,
+        cx: (left + right) / 2,
+        cy: (top + bottom) / 2,
+      };
+    })
+    .filter((box): box is StructureBox => box !== null)
+    .sort((a, b) => a.cx - b.cx || a.cy - b.cy);
+}
+
+/** How far a structure may sit from a row's baseline before it is treated
+ * as belonging to a different row (or not to the reaction at all). */
+const ROW_ASSIGNMENT_TOLERANCE = 220;
+
+/**
+ * Builds one or more reaction schemes from the current selection.
+ *
+ * The selection has to contain both arrows and structures. Each arrow
+ * becomes a step; structures left of the first arrow are its reactants,
+ * structures between two arrows are the product of the earlier step and
+ * the reactant of the later one, and structures right of the last arrow
+ * are its products. A row with only one side populated is not a reaction,
+ * so it is left out rather than inventing a half-step.
+ *
+ * `makeId` is injectable so tests can produce stable ids; the store uses
+ * the same page-lifetime id counter as atoms and annotations.
+ */
+export function buildSchemesFromSelection(
+  molecule: Molecule,
+  annotations: Record<string, Annotation>,
+  atomIds: Iterable<string>,
+  annotationIds: Iterable<string>,
+  makeId: () => string = nextId
+): ReactionScheme[] {
+  const rows = findReactionRows(annotations, annotationIds);
+  if (rows.length === 0) return [];
+
+  const boxes = structureBoxes(molecule, atomIds);
+  if (boxes.length === 0) return [];
+
+  const schemes: ReactionScheme[] = [];
+
+  // Assign every structure to its nearest row. With one row this is just
+  // "everything selected belongs to it"; with several it keeps a stacked
+  // pair of reactions from stealing each other's structures.
+  const rowForBox = (box: StructureBox): number => {
+    let best = -1;
+    let bestDistance = ROW_ASSIGNMENT_TOLERANCE;
+    rows.forEach((row, index) => {
+      const distance = Math.abs(box.cy - rowMidY(row));
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = index;
+      }
+    });
+    return best;
+  };
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+    const inRow = boxes.filter((box) => rowForBox(box) === rowIndex);
+    if (inRow.length === 0) continue;
+
+    const steps: ReactionStep[] = [];
+    for (let i = 0; i < row.length; i++) {
+      const arrow = row[i];
+      const mid = arrowMidX(arrow);
+      const previous = i > 0 ? arrowMidX(row[i - 1]) : -Infinity;
+      const next = i + 1 < row.length ? arrowMidX(row[i + 1]) : Infinity;
+
+      const reactants = inRow
+        .filter((box) => box.cx > previous && box.cx < mid)
+        .flatMap((box) => box.atomIds);
+      const products = inRow
+        .filter((box) => box.cx > mid && box.cx < next)
+        .flatMap((box) => box.atomIds);
+
+      if (reactants.length === 0 || products.length === 0) continue;
+      steps.push({
+        id: makeId(),
+        reactantAtomIds: reactants,
+        productAtomIds: products,
+        arrowIds: [arrow.id],
+      });
+    }
+
+    if (steps.length > 0) schemes.push({ id: makeId(), steps });
+  }
+
+  return schemes;
 }

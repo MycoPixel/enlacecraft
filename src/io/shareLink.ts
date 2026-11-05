@@ -1,5 +1,8 @@
+import { DEFAULT_WEB_APP_URL } from "../config";
 import { exportProject, importProject, type ProjectFile, type ProjectTab } from "./project";
 import { LIMITS } from "./validate";
+
+export { DEFAULT_WEB_APP_URL } from "../config";
 
 /**
  * Static, server-less read-only sharing.
@@ -201,10 +204,26 @@ export function readShareTokenFromLocation(hash?: string): string | null {
   return token.length > 0 ? token : null;
 }
 
+/**
+ * The URL a share link created in this window should point at.
+ *
+ * A normal http(s) deployment shares its own origin, so the link opens the
+ * same build the drawing was made in. The packaged desktop app is loaded from
+ * `file:`, where that would produce a link only its own machine could open;
+ * it uses the public web build instead. An explicit `base` argument always
+ * wins, which keeps the "this really is a file URL" rejection below available
+ * to callers that need to detect that case.
+ */
+function defaultShareBase(): string {
+  if (typeof window === "undefined") return DEFAULT_WEB_APP_URL;
+  const { protocol, href } = window.location;
+  return protocol === "file:" ? DEFAULT_WEB_APP_URL : href;
+}
+
 /** Builds the full share URL from the current app location. Any existing
  * hash is replaced, while query parameters (e.g. `embed=1`) are preserved. */
 export function buildShareUrl(token: string, base?: string): string {
-  const href = base ?? (typeof window === "undefined" ? "http://localhost/" : window.location.href);
+  const href = base ?? defaultShareBase();
   let url: URL;
   try {
     url = new URL(href);
@@ -216,6 +235,24 @@ export function buildShareUrl(token: string, base?: string): string {
   }
   url.hash = `${SHARE_HASH_KEY}=${token}`;
   return url.toString();
+}
+
+/**
+ * Pulls a `#view=` token out of a full URL or a bare fragment/hash.
+ *
+ * Used by the desktop "open shared link" action, where the user pastes the
+ * link they were given. Returns null for anything that isn't a share link;
+ * a malformed token is left for `decodeShareProject` to report with its
+ * usual, more specific error.
+ */
+export function readShareTokenFromUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return readShareTokenFromLocation(new URL(trimmed).hash);
+  } catch {
+    return readShareTokenFromLocation(trimmed);
+  }
 }
 
 /** One-tab project for the drawing currently being looked at. */

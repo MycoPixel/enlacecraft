@@ -56,6 +56,14 @@ export interface ElectronBridge {
   // as-is by the main process. Only present in the desktop build; the web
   // build keeps using the browser download fallback (see TopBar.tsx).
   saveProjectFile: (defaultName: string, content: string) => Promise<SaveProjectResult>;
+  /** Copies text through Electron's own clipboard. Resolves true when it was
+   * written. Used instead of the async Clipboard API from `file:` pages,
+   * where that API is not dependable — see src/io/clipboard.ts. */
+  writeClipboardText: (text: string) => Promise<boolean>;
+  /** Opens a read-only `#view=` share link in its own app window, so a link
+   * copied from another machine can be viewed in the desktop build without
+   * leaving for a browser. Resolves false when the token was rejected. */
+  openShareLink: (token: string) => Promise<boolean>;
   // Plain "Save": writes to the file already chosen this session with no
   // dialog. Deliberately takes no path argument — see the comment in
   // electron/preload.cjs and security.createProjectSaveTarget for why the

@@ -8,8 +8,8 @@ import type { Molecule } from "../../types/chemistry";
 import { SchemeSection } from "./MoleculeInfoButton";
 
 /**
- * The info panel's read-only reaction-scheme section: it must stay out of
- * the way when a drawing has no ChemDraw scheme, and let the person select
+ * The info panel's reaction-scheme section: it must stay out of the way when
+ * a drawing has no scheme and no usable selection, and let the person select
  * a whole reaction (structures + connecting arrows) in one click.
  */
 
@@ -68,8 +68,8 @@ describe("SchemeSection", () => {
   test("clicking a scheme selects its structures and its arrows", () => {
     const mol = moleculeWithScheme();
     render(mol);
-    const button = container.querySelector("button")!;
-    act(() => button.click());
+    const button = container.querySelector(".molecule-info__stereo-row")!;
+    act(() => (button as HTMLButtonElement).click());
 
     const state = useMoleculeStore.getState();
     expect([...state.selected].sort()).toEqual(["a", "b", "c"]);

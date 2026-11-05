@@ -3,7 +3,7 @@ import {
   MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, Undo2, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, BookmarkPlus, Highlighter, Hash, Trash2, LayoutGrid,
-  FlipHorizontal2, FlipVertical2,
+  FlipHorizontal2, FlipVertical2, RefreshCw, Ungroup, BringToFront, SendToBack,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { ToolButton, SectionLabel, SubsectionLabel } from "./ToolButton";
@@ -17,6 +17,7 @@ import { FunctionalGroupPicker } from "./FunctionalGroupPicker";
 import { StructureTemplateIcon, TemplatePalette } from "./TemplatePalette";
 import { STRUCTURE_TEMPLATES } from "../../model/structureTemplates";
 import { connectedComponents } from "../../model/molecule";
+import { groupsTouching, selectionObjectCount } from "../../model/groups";
 import { ArrowShapePicker, ArrowHeadSizePicker, MiniArrow } from "./ArrowVariantPicker";
 import { BracketVariantPicker } from "./BracketVariantPicker";
 import { ShapeVariantPicker, MiniShape } from "./ShapeVariantPicker";
@@ -25,6 +26,7 @@ import { ToolDropdown } from "./ToolDropdown";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
 import { HighlightColorPicker } from "./HighlightColorPicker";
 import { SnapAnglePicker } from "./SnapAnglePicker";
+import { DrawingConstraints } from "./DrawingConstraints";
 import { LonePairIcon, RadicalIcon, StereoLabelIcon, ReagentTextIcon, TlcIcon } from "./MarkIcons";
 import { useT } from "../../i18n/useT";
 import type { ArrowHeadSize, ArrowVariant, BracketVariant, OrbitalVariant, ShapeVariant } from "../../types/chemistry";
@@ -51,6 +53,12 @@ export function Sidebar() {
   const resetView = useMoleculeStore((s) => s.resetView);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
   const mirrorSelection = useMoleculeStore((s) => s.mirrorSelection);
+  const groupSelection = useMoleculeStore((s) => s.groupSelection);
+  const ungroupSelection = useMoleculeStore((s) => s.ungroupSelection);
+  const bringToFront = useMoleculeStore((s) => s.bringToFront);
+  const sendToBack = useMoleculeStore((s) => s.sendToBack);
+  const groups = useMoleculeStore((s) => s.groups);
+  const selectedCycleId = useMoleculeStore((s) => s.selectedCycleId);
   const resetRotation = useMoleculeStore((s) => s.resetRotation);
   const rotationSession = useMoleculeStore((s) => s.rotationSession);
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -127,6 +135,20 @@ export function Sidebar() {
   const annotations = useMoleculeStore((s) => s.annotations);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const hasSelectionToSave = selected.size > 0 || selectedAnnotationIds.size > 0;
+  // Grouping counts every kind of object the group can name; restacking only
+  // applies to annotations and cycles (atoms/bonds keep their structural
+  // layer), so the two commands use different enablement.
+  const selectedObjectCount = selectionObjectCount(
+    selected,
+    selectedAnnotationIds,
+    selectedCycleId ? [selectedCycleId] : []
+  );
+  const hasGroupInSelection = useMemo(
+    () =>
+      groupsTouching(groups, selected, selectedAnnotationIds, selectedCycleId ? [selectedCycleId] : []).length > 0,
+    [groups, selected, selectedAnnotationIds, selectedCycleId]
+  );
+  const canRestack = selectedAnnotationIds.size > 0 || selectedCycleId !== null;
   const setArrowVariantOf = useMoleculeStore((s) => s.setArrowVariantOf);
   const setArrowBarbOf = useMoleculeStore((s) => s.setArrowBarbOf);
   const setArrowHeadSizeOf = useMoleculeStore((s) => s.setArrowHeadSizeOf);
@@ -554,6 +576,9 @@ export function Sidebar() {
         <ToolButton title={t("tool.tlc")} active={tool === "tlc"} onClick={() => setTool("tlc")}>
           <TlcIcon />
         </ToolButton>
+        <ToolButton title={t("tool.cycle")} active={tool === "cycle"} onClick={() => setTool("cycle")}>
+          <RefreshCw size={17} />
+        </ToolButton>
         <ToolButton title={t("tool.plus")} active={tool === "plus"} onClick={() => setTool("plus")}>
           <Plus size={18} />
         </ToolButton>
@@ -653,6 +678,28 @@ export function Sidebar() {
           <Highlighter size={18} />
         </ToolDropdown>
       </div>
+      <div className="row">
+        <ToolButton
+          title={t("tool.group")}
+          disabled={selectedObjectCount < 2}
+          onClick={() => groupSelection()}
+        >
+          <Group size={17} />
+        </ToolButton>
+        <ToolButton
+          title={t("tool.ungroup")}
+          disabled={!hasGroupInSelection}
+          onClick={() => ungroupSelection()}
+        >
+          <Ungroup size={17} />
+        </ToolButton>
+        <ToolButton title={t("tool.bringToFront")} disabled={!canRestack} onClick={bringToFront}>
+          <BringToFront size={17} />
+        </ToolButton>
+        <ToolButton title={t("tool.sendToBack")} disabled={!canRestack} onClick={sendToBack}>
+          <SendToBack size={17} />
+        </ToolButton>
+      </div>
       <ToolButton title={t("tool.cleanUp")} onClick={cleanUpSelection}>
         <Wand2 size={17} />
         <span className="btn-label">{t("tool.cleanUpLabel")}</span>
@@ -667,6 +714,7 @@ export function Sidebar() {
         <ToolButton title={t("tool.resetView")} onClick={resetView}><MoveDiagonal size={17} /></ToolButton>
       </div>
       <SnapAnglePicker />
+      <DrawingConstraints />
 
       {/* A hairline before Clear sets it apart as the one destructive
           action down here among view controls, so it doesn't read as just

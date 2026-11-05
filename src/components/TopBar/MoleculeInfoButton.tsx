@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Info, Copy, Check, AlertTriangle, Loader2, Trash2, Plus, Minus } from "lucide-react";
+import { Info, Copy, Check, AlertTriangle, Loader2, Trash2, Plus, Minus, Wand2, MapPin, Eye, EyeOff } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
 import { useMoleculeDescriptors } from "../../hooks/useMoleculeDescriptors";
@@ -544,56 +544,150 @@ export function StereoSection({ molecule }: { molecule: Molecule }) {
 }
 
 /**
- * Read-only view of ChemDraw reaction-scheme grouping (see ReactionScheme's
- * doc comment). This app imports and re-exports `<scheme>`/`<step>` data so
- * a drawing opened from ChemDraw keeps its reaction semantics, but it has no
- * scheme *authoring* UI yet — so this section deliberately only reports what
- * is there and lets the person select a whole reaction at once.
+ * Reaction-scheme authoring and reading controls.
  *
- * Selecting sets both the atom selection and the annotation selection: the
- * structures on either side are atoms, while the connecting arrows live in
- * the annotation map, and "the reaction" means both.
+ * ChemDraw schemes are still imported and re-exported as `<scheme>`/`<step>`
+ * data, but this section now also creates them from a selection and exposes
+ * the reading commands (interpretation, clean-up, mapping). Selecting a row
+ * sets both the atom and the annotation selection: the structures on either
+ * side are atoms, while the connecting arrows live in the annotation map, and
+ * "the reaction" means both.
  */
 export function SchemeSection({ molecule }: { molecule: Molecule }) {
   const t = useT();
   const setSelected = useMoleculeStore((s) => s.setSelected);
   const setSelectedAnnotationIds = useMoleculeStore((s) => s.setSelectedAnnotationIds);
+  const selected = useMoleculeStore((s) => s.selected);
+  const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
+  const createSchemeFromSelection = useMoleculeStore((s) => s.createSchemeFromSelection);
+  const removeScheme = useMoleculeStore((s) => s.removeScheme);
+  const cleanReaction = useMoleculeStore((s) => s.cleanReaction);
+  const mapReactionAtoms = useMoleculeStore((s) => s.mapReactionAtoms);
+  const clearReactionMap = useMoleculeStore((s) => s.clearReactionMap);
+  const validateReactionMap = useMoleculeStore((s) => s.validateReactionMap);
+  const showInterpretation = useMoleculeStore((s) => s.showReactionInterpretation);
+  const toggleInterpretation = useMoleculeStore((s) => s.toggleReactionInterpretation);
+  const setStatus = useMoleculeStore((s) => s.setStatus);
 
   const schemes = molecule.schemes ?? [];
-  if (schemes.length === 0) return null;
+  const canCreate = selected.size > 0 && selectedAnnotationIds.size > 0;
+  if (schemes.length === 0 && !canCreate) return null;
 
   const selectScheme = (scheme: (typeof schemes)[number]) => {
     setSelected(new Set(schemeAtomIds(scheme)));
     setSelectedAnnotationIds(new Set(schemeArrowIds(scheme)));
   };
 
+  const create = () => {
+    const count = createSchemeFromSelection();
+    setStatus(count > 0 ? t("status.reactionSchemeCreated", { count }) : t("status.reactionSchemeCreateFailed"));
+  };
+
+  const clean = (schemeId: string, augmented: boolean) => {
+    const count = cleanReaction(schemeId, { augmented });
+    setStatus(count > 0 ? t("status.reactionCleaned") : t("status.reactionCleanFailed"));
+  };
+
+  const map = (schemeId: string) => {
+    const count = mapReactionAtoms(schemeId);
+    if (count === 0) {
+      setStatus(t("status.reactionMapFailed"));
+      return;
+    }
+    // Ambiguous atoms are deliberately left for the map-number tool, so say
+    // how many are still open instead of implying the map is complete.
+    const validation = validateReactionMap(schemeId);
+    const unmapped = validation
+      ? validation.unmappedReactantAtomIds.length + validation.unmappedProductAtomIds.length
+      : 0;
+    setStatus(
+      unmapped > 0
+        ? t("status.reactionMappedPartial", { count, unmapped })
+        : t("status.reactionMapped", { count })
+    );
+  };
+
+  const clearMap = (schemeId: string) => {
+    clearReactionMap(schemeId);
+    setStatus(t("status.reactionMapCleared"));
+  };
+
+  const remove = (schemeId: string) => {
+    removeScheme(schemeId);
+    setStatus(t("status.reactionSchemeRemoved"));
+  };
+
   return (
     <>
       <div className="molecule-info__divider" />
       <div className="molecule-info__label">{t("moleculeInfo.schemes")}</div>
-      <div className="molecule-info__stereo-list">
-        {schemes.map((scheme, i) => {
-          const summary = summarizeScheme(scheme);
-          return (
-            <button
-              key={scheme.id}
-              type="button"
-              className="molecule-info__stereo-row"
-              onClick={() => selectScheme(scheme)}
-              title={t("moleculeInfo.schemeClickHint")}
-            >
-              <span>{t("moleculeInfo.schemeName", { n: i + 1 })}</span>
-              <span className="molecule-info__stereo-value">
-                {t("moleculeInfo.schemeSummary", {
-                  steps: summary.steps,
-                  reactants: summary.reactants,
-                  products: summary.products,
-                })}
-              </span>
-            </button>
-          );
-        })}
+
+      <div className="molecule-info__reaction-toolbar">
+        {canCreate && (
+          <button type="button" className="molecule-info__reaction-action" onClick={create} title={t("moleculeInfo.schemeCreateHint")}>
+            <Plus size={13} />
+            <span>{t("moleculeInfo.schemeCreate")}</span>
+          </button>
+        )}
+        {schemes.length > 0 && (
+          <button
+            type="button"
+            className={`molecule-info__reaction-action${showInterpretation ? " is-on" : ""}`}
+            onClick={toggleInterpretation}
+            title={t("moleculeInfo.schemeInterpretHint")}
+          >
+            {showInterpretation ? <EyeOff size={13} /> : <Eye size={13} />}
+            <span>{showInterpretation ? t("moleculeInfo.schemeInterpretHide") : t("moleculeInfo.schemeInterpret")}</span>
+          </button>
+        )}
       </div>
+
+      {schemes.length > 0 && (
+        <div className="molecule-info__stereo-list">
+          {schemes.map((scheme, i) => {
+            const summary = summarizeScheme(scheme);
+            return (
+              <div key={scheme.id} className="molecule-info__reaction">
+                <button
+                  type="button"
+                  className="molecule-info__stereo-row"
+                  onClick={() => selectScheme(scheme)}
+                  title={t("moleculeInfo.schemeClickHint")}
+                >
+                  <span>{t("moleculeInfo.schemeName", { n: i + 1 })}</span>
+                  <span className="molecule-info__stereo-value">
+                    {t("moleculeInfo.schemeSummary", {
+                      steps: summary.steps,
+                      reactants: summary.reactants,
+                      products: summary.products,
+                    })}
+                  </span>
+                </button>
+                <div className="molecule-info__reaction-actions">
+                  <button type="button" title={t("moleculeInfo.schemeCleanHint")} onClick={() => clean(scheme.id, false)}>
+                    <Wand2 size={12} />
+                  </button>
+                  <button type="button" title={t("moleculeInfo.schemeCleanAugmentedHint")} onClick={() => clean(scheme.id, true)}>
+                    <Wand2 size={12} />
+                    <span className="molecule-info__reaction-plus">+</span>
+                  </button>
+                  <button type="button" title={t("moleculeInfo.schemeMapHint")} onClick={() => map(scheme.id)}>
+                    <MapPin size={12} />
+                  </button>
+                  <button type="button" title={t("moleculeInfo.schemeClearMapHint")} onClick={() => clearMap(scheme.id)}>
+                    <MapPin size={12} />
+                    <span className="molecule-info__reaction-slash" />
+                  </button>
+                  <button type="button" title={t("moleculeInfo.schemeDeleteHint")} onClick={() => remove(scheme.id)}>
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <p className="align-menu__hint">{t("moleculeInfo.schemeHint")}</p>
     </>
   );

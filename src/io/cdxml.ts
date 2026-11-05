@@ -6,6 +6,8 @@ import type {
   BondOrder,
   BondStereo,
   BracketAnnotation,
+  CatalyticCycle,
+  CycleSide,
   Element as ChemElement,
   Molecule,
   OrbitalAnnotation,
@@ -25,6 +27,7 @@ import { ABBREVIATED_GROUPS, BOND_LEN, PERIODIC_TABLE } from "../model/constants
 import { annotationBounds } from "../model/alignmentGuides";
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { calibrateImportScale } from "./importScale";
+import { layoutCycle } from "../engine/cycleLayout";
 import { defaultArrowHead, defaultArrowShaft, defaultArrowTail } from "../model/arrowStyle";
 import { nextId } from "../model/id";
 import { LIMITS, finalizeImportedMolecule, sanitizePageSetup } from "./validate";
@@ -852,6 +855,56 @@ export function exportCdxmlDocument(
     }
   }
 
+  // Catalytic cycles: write the derived arcs, side arrows and captions as
+  // ordinary graphics inside one <group>, then record the live object's
+  // identity in a private attribute. ChemDraw draws the group as a normal
+  // figure; our own importer sees the attribute and rebuilds the live cycle
+  // instead of turning the arcs back into unrelated arrows. A ChemDraw edit
+  // that strips the attribute therefore degrades to static arrows, which is
+  // the documented limitation (ChemDraw cannot edit a live cycle).
+  for (const cycle of mol.cycles ?? []) {
+    const geometry = layoutCycle(cycle, mol);
+    const meta = {
+      id: cycle.id,
+      centre: { x: cycle.centre.x * scale, y: cycle.centre.y * scale },
+      radius: cycle.radius * scale,
+      clockwise: cycle.clockwise,
+      nodes: cycle.nodes.map((node) => node.map((id) => cdxIdOf[id]).filter((id): id is string => !!id)),
+      ...(cycle.sides && cycle.sides.length > 0
+        ? {
+            sides: cycle.sides.map((side) => ({
+              id: side.id,
+              direction: side.direction,
+              angle: side.angle,
+              ...(side.label ? { label: side.label } : {}),
+            })),
+          }
+        : {}),
+      ...(cycle.gap != null ? { gap: cycle.gap } : {}),
+      ...(cycle.scale != null ? { scale: cycle.scale } : {}),
+      ...(cycle.label ? { label: cycle.label } : {}),
+    };
+    out += `<group id="${nextId()}" EnlaceCraftCycle="${escapeXml(JSON.stringify(meta))}">\n`;
+
+    for (const arc of geometry.arcs) {
+      const angular = (arc.sweep * 180) / Math.PI;
+      out += `<arrow id="${nextId()}" Head3D="${u(arc.end.x)} ${u(arc.end.y)} 0" Tail3D="${u(arc.start.x)} ${u(arc.start.y)} 0" AngularSize="${angular.toFixed(1)}" ArrowheadHead="Full" ArrowheadTail="None" ArrowheadType="Solid"/>\n`;
+    }
+
+    for (const side of geometry.sides) {
+      out += `<graphic id="${nextId()}" BoundingBox="${u(side.start.x)} ${u(side.start.y)} ${u(side.end.x)} ${u(side.end.y)}" GraphicType="Line" Head="FullHalfHead" Tail="None"/>\n`;
+      if (side.label) {
+        out += `<t id="${nextId()}" p="${u(side.labelAnchor.x)} ${u(side.labelAnchor.y)}" Justification="Center"><s font="3" size="10">${escapeXml(side.label)}</s></t>\n`;
+      }
+    }
+
+    if (geometry.label) {
+      out += `<t id="${nextId()}" p="${u(geometry.label.x)} ${u(geometry.label.y)}" Justification="Center"><s font="3" size="10">${escapeXml(geometry.label.text)}</s></t>\n`;
+    }
+
+    out += `</group>\n`;
+  }
+
   // Scheme/step bookkeeping comes last: it references the fragment and
   // arrow ids handed out above, and ChemDraw writes it as a page-level
   // object after the structures/graphics it groups. Stale references are
@@ -1394,6 +1447,17 @@ function importAnnotations(
     }
   };
 
+  // Graphics inside a live catalytic cycle's group are the rendered figure,
+  // not independent annotations: the cycle itself is rebuilt from the
+  // group's private metadata (see importCycles), so importing the arcs as
+  // arrows too would duplicate the whole ring.
+  const cycleOwned = new Set<Element>();
+  for (const group of Array.from(doc.querySelectorAll("group[EnlaceCraftCycle]"))) {
+    for (const child of Array.from(group.querySelectorAll("graphic, arrow, t"))) {
+      cycleOwned.add(child);
+    }
+  }
+
   const colortable = Array.from(doc.querySelectorAll("colortable color")).map((c) => {
     const r = Math.round(parseFloat(c.getAttribute("r") ?? "0") * 255);
     const g = Math.round(parseFloat(c.getAttribute("g") ?? "0") * 255);
@@ -1455,6 +1519,7 @@ function importAnnotations(
   // --- Straight-line graphics: reaction / resonance / equilibrium arrows.
   const harpoons: HarpoonLine[] = [];
   for (const g of Array.from(doc.querySelectorAll("graphic"))) {
+    if (cycleOwned.has(g)) continue;
     // ChemDraw "upgrades" an old graphic in place and leaves the original
     // behind with SupersededBy pointing at its replacement. Reading both
     // would draw the arrow twice (and the stale line graphic usually has no
@@ -1731,6 +1796,7 @@ function importAnnotations(
   // ChemDraw file used to vanish. Older/hand-written x1/y1/x2/y2 files are
   // still accepted.
   for (const el of Array.from(doc.querySelectorAll("arrow"))) {
+    if (cycleOwned.has(el)) continue;
     const legacy = ["x1", "y1", "x2", "y2"].map((a) => parseFloat(el.getAttribute(a) ?? ""));
     const legacyOk = legacy.every((v) => Number.isFinite(v));
     const bbox = parseBBox(el);
@@ -1899,6 +1965,7 @@ function importAnnotations(
   // node — that's how CDXML writes the label drawn ON an atom, which the
   // node itself already carries) becomes a TextAnnotation.
   for (const t of Array.from(doc.querySelectorAll("t"))) {
+    if (cycleOwned.has(t)) continue;
     const parentTag = (t.parentElement?.tagName ?? "").toLowerCase();
     if (parentTag === "n") continue;
 
@@ -2201,6 +2268,92 @@ function importSgroups(
 }
 
 /**
+ * Rebuilds live catalytic cycles from the private metadata written on each
+ * cycle's `<group>` (see exportCdxmlDocument). Anything malformed is dropped
+ * rather than guessed at; the group's child graphics stay skipped in
+ * importAnnotations, so a group with unreadable metadata simply leaves no
+ * figure behind (the same result as a ChemDraw edit that strips the
+ * attribute and leaves only the static arrows — which is the documented
+ * fallback for files that no longer carry it).
+ */
+function importCycles(
+  doc: Document,
+  atomIdByCdxId: Map<string, string>,
+  scale: number
+): CatalyticCycle[] {
+  const cycles: CatalyticCycle[] = [];
+  const groups = Array.from(doc.querySelectorAll("group[EnlaceCraftCycle]"));
+  if (groups.length === 0) return cycles;
+
+  for (const group of groups) {
+    if (cycles.length >= LIMITS.maxCycles) break;
+    const raw = group.getAttribute("EnlaceCraftCycle");
+    if (!raw) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object") continue;
+    const meta = parsed as Record<string, unknown>;
+    const centreRaw = meta.centre as { x?: unknown; y?: unknown } | undefined;
+    const cx = centreRaw?.x;
+    const cy = centreRaw?.y;
+    const radiusRaw = meta.radius;
+    if (
+      typeof cx !== "number" || !Number.isFinite(cx) ||
+      typeof cy !== "number" || !Number.isFinite(cy) ||
+      typeof radiusRaw !== "number" || !Number.isFinite(radiusRaw) || radiusRaw <= 0
+    ) {
+      continue;
+    }
+
+    const nodes: string[][] = [];
+    if (Array.isArray(meta.nodes)) {
+      for (const rawNode of meta.nodes) {
+        if (!Array.isArray(rawNode)) continue;
+        const ids = [...new Set(rawNode)]
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => atomIdByCdxId.get(id))
+          .filter((id): id is string => !!id);
+        if (ids.length > 0) nodes.push(ids);
+      }
+    }
+
+    const sides: CycleSide[] = [];
+    if (Array.isArray(meta.sides)) {
+      for (const rawSide of meta.sides) {
+        if (!rawSide || typeof rawSide !== "object") continue;
+        const side = rawSide as Record<string, unknown>;
+        const angle = side.angle;
+        if (typeof angle !== "number" || !Number.isFinite(angle)) continue;
+        sides.push({
+          id: `side-${nextId()}`,
+          direction: side.direction === "out" ? "out" : "in",
+          angle,
+          ...(typeof side.label === "string" && side.label ? { label: side.label } : {}),
+        });
+      }
+    }
+
+    cycles.push({
+      id: `cycle-${nextId()}`,
+      centre: { x: cx * scale, y: cy * scale },
+      radius: radiusRaw * scale,
+      clockwise: meta.clockwise !== false,
+      nodes,
+      ...(sides.length > 0 ? { sides } : {}),
+      ...(typeof meta.gap === "number" && Number.isFinite(meta.gap) ? { gap: meta.gap } : {}),
+      ...(typeof meta.scale === "number" && Number.isFinite(meta.scale) && meta.scale > 0 ? { scale: meta.scale } : {}),
+      ...(typeof meta.label === "string" && meta.label ? { label: meta.label } : {}),
+    });
+  }
+
+  return cycles;
+}
+
+/**
  * Reads a whole CDXML page: the molecule (atoms + bonds, via the same
  * self-calibrating scale importCdxml has always used) plus every arrow,
  * bracket and caption around it, mapped onto this app's annotation layer.
@@ -2352,7 +2505,9 @@ export function importCdxmlDocument(text: string): CdxmlDocument {
   const sgroups = importSgroups(doc, idByCdxId, bondIdByCdxId, bracketAnnotationIdsByGraphicId);
   // Feed S-groups through the same sanitizer as everything else: it prunes
   // references to atoms/bonds that didn't survive and enforces the limits.
-  const molecule = finalizeImportedMolecule(sgroups ? { ...mol, sgroups } : mol);
+  const baseMolecule = finalizeImportedMolecule(sgroups ? { ...mol, sgroups } : mol);
+  const cycles = importCycles(doc, idByCdxId, scale);
+  const molecule = cycles.length > 0 ? finalizeImportedMolecule({ ...baseMolecule, cycles }) : baseMolecule;
   const schemes = importReactionSchemes(doc, atomIdsByFragmentId, annotationIdByGraphicId);
   const page = importPageSetup(doc);
 

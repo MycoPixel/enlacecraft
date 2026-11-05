@@ -4,6 +4,7 @@ import { BOND_LEN } from "./constants";
 import { angleDelta, angleOf, dist, polar, snapAngle } from "./geometry";
 import { isMetalLike } from "./valence";
 import { pruneSchemesForAtoms } from "./reactionSchemes";
+import { pruneCyclesForAtoms } from "./cycles";
 import { pruneSgroups } from "./sgroups";
 
 export function emptyMolecule(): Molecule {
@@ -18,6 +19,7 @@ export function cloneMolecule(mol: Molecule): Molecule {
     aromaticRingDisplays: { ...mol.aromaticRingDisplays },
     ...(mol.schemes ? { schemes: mol.schemes } : {}),
     ...(mol.sgroups ? { sgroups: mol.sgroups } : {}),
+    ...(mol.cycles ? { cycles: mol.cycles } : {}),
   };
 }
 
@@ -488,6 +490,7 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
   const aromaticRingDisplays = survivingAromaticRingDisplays(mol.aromaticRingDisplays, (aid) => aid !== id);
   const schemes = pruneSchemesForAtoms(mol.schemes, new Set(Object.keys(atoms)));
   const sgroups = pruneSgroups(mol.sgroups, new Set(Object.keys(atoms)), new Set(Object.keys(bonds)));
+  const cycles = pruneCyclesForAtoms(mol.cycles, atoms);
   return {
     atoms,
     bonds,
@@ -495,6 +498,7 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
     aromaticRingDisplays,
     ...(schemes ? { schemes } : {}),
     ...(sgroups ? { sgroups } : {}),
+    ...(cycles ? { cycles } : {}),
   };
 }
 
@@ -622,6 +626,7 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
 
   const schemes = pruneSchemesForAtoms(mol.schemes, atoms);
   const sgroups = pruneSgroups(mol.sgroups, new Set(Object.keys(atoms)), new Set(Object.keys(bonds)));
+  const cycles = pruneCyclesForAtoms(mol.cycles, atoms);
   return {
     atoms,
     bonds,
@@ -629,6 +634,7 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
     aromaticRingDisplays: survivingAromaticRingDisplays(mol.aromaticRingDisplays, (id) => id in atoms),
     ...(schemes ? { schemes } : {}),
     ...(sgroups ? { sgroups } : {}),
+    ...(cycles ? { cycles } : {}),
   };
 }
 
@@ -672,11 +678,20 @@ export function subMolecule(mol: Molecule, atomIds: Iterable<string>): Molecule 
     const b = mol.bonds[id];
     if (idSet.has(b.a1) && idSet.has(b.a2)) bonds[id] = b;
   }
+  // A cycle only travels with a copied fragment when every intermediate it
+  // names is part of that fragment: a half-copied cycle would draw arcs
+  // around structures that stayed behind.
+  const cycles = (mol.cycles ?? []).filter(
+    (cycle) =>
+      cycle.nodes.length > 0 &&
+      cycle.nodes.every((node) => node.every((id) => idSet.has(id)))
+  );
   return {
     atoms,
     bonds,
     hapticBonds: survivingHapticBonds(mol.hapticBonds, (id) => idSet.has(id)),
     aromaticRingDisplays: survivingAromaticRingDisplays(mol.aromaticRingDisplays, (id) => idSet.has(id)),
+    ...(cycles.length > 0 ? { cycles } : {}),
   };
 }
 
@@ -768,6 +783,26 @@ export function insertMolecule(
     aromaticRingDisplays[newId] = { id: newId, atomIds: r.atomIds.map((id) => idMap[id]) };
   }
 
+  // Pasted cycles move with the fragment and get fresh ids, exactly like
+  // its atoms and bonds. A cycle whose nodes all failed to map (a malformed
+  // fragment) is dropped rather than left pointing at nothing.
+  const cycles = [...(base.cycles ?? [])];
+  for (const cycle of incoming.cycles ?? []) {
+    const nodes = cycle.nodes
+      .map((node) => node.map((id) => idMap[id]).filter((id): id is string => !!id))
+      .filter((node) => node.length > 0);
+    if (cycle.nodes.length > 0 && nodes.length === 0) continue;
+    cycles.push({
+      ...cycle,
+      id: `cycle-${nextId()}`,
+      centre: { x: cycle.centre.x + dx, y: cycle.centre.y + dy },
+      nodes,
+      ...(cycle.sides
+        ? { sides: cycle.sides.map((side) => ({ ...side, id: `side-${nextId()}` })) }
+        : {}),
+    });
+  }
+
   return {
     mol: {
       atoms,
@@ -775,6 +810,7 @@ export function insertMolecule(
       hapticBonds,
       aromaticRingDisplays,
       ...(base.schemes ? { schemes: base.schemes } : {}),
+      ...(cycles.length > 0 ? { cycles } : {}),
     },
     newAtomIds,
   };
@@ -808,7 +844,18 @@ export function extractFragment(mol: Molecule, atomIds: Iterable<string>): Molec
   for (const [id, r] of Object.entries(survivingAromaticRingDisplays(mol.aromaticRingDisplays, (aid) => idSet.has(aid)))) {
     aromaticRingDisplays[id] = { ...r, atomIds: [...r.atomIds] };
   }
-  return { atoms, bonds, hapticBonds, aromaticRingDisplays };
+  const cycles = (mol.cycles ?? []).filter(
+    (cycle) =>
+      cycle.nodes.length > 0 &&
+      cycle.nodes.every((node) => node.every((id) => idSet.has(id)))
+  );
+  return {
+    atoms,
+    bonds,
+    hapticBonds,
+    aromaticRingDisplays,
+    ...(cycles.length > 0 ? { cycles } : {}),
+  };
 }
 
 /**

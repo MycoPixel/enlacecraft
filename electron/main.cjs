@@ -1,7 +1,7 @@
 // Electron main process. Kept as plain CommonJS (.cjs) regardless of the
 // rest of the project being ESM ("type": "module" in package.json), since
 // Electron's main process is simplest and most compatible as CJS.
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session, clipboard } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const nmrServer = require("./server.cjs");
@@ -74,7 +74,13 @@ app.on("web-contents-created", (_event, contents) => {
 // unable to close the app to install an update.
 const UNLOAD_PROMPT_TIMEOUT_MS = 15000;
 
-function createWindow() {
+/**
+ * Builds one app window. `shareToken` turns it into a read-only shared-drawing
+ * window (the same `#view=` route the web build uses) instead of an editor;
+ * the token is appended as a URL fragment, never a path, and is validated by
+ * the "share:open-window" handler before it gets here.
+ */
+function createWindow(shareToken = null) {
   const win = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -155,8 +161,10 @@ function createWindow() {
   });
 
   if (devServerUrl) {
-    win.loadURL(devServerUrl);
+    win.loadURL(shareToken ? `${devServerUrl}#view=${shareToken}` : devServerUrl);
     win.webContents.openDevTools({ mode: "detach" });
+  } else if (shareToken) {
+    win.loadFile(path.join(__dirname, "../dist/index.html"), { hash: `view=${shareToken}` });
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
@@ -221,6 +229,25 @@ handleTrusted("iupac-fallback-server:get-status", () => iupacFallbackServer.getS
 // safe to call as a normal window close.
 handleTrusted("updater:get-status", () => updater.getStatus());
 handleTrusted("updater:quit-and-install", () => updater.quitAndInstall());
+
+// Text copy through the main process. See src/io/clipboard.ts for why the
+// renderer does not rely on navigator.clipboard alone in the packaged build.
+// The size cap mirrors the share-token ceiling; nothing here touches disk or
+// the network.
+handleTrusted("clipboard:write-text", (_event, text) => {
+  if (typeof text !== "string" || text.length > security.MAX_SHARE_TOKEN_LENGTH) return false;
+  clipboard.writeText(text);
+  return true;
+});
+
+// Opens a shared drawing in its own window (same `#view=` route as the web
+// build). Tokens are validated before being put in a URL; a malformed one is
+// rejected rather than loaded.
+handleTrusted("share:open-window", (_event, token) => {
+  if (!security.isShareToken(token)) return false;
+  createWindow(token);
+  return true;
+});
 
 // Native "Save As" for the project format (see src/io/project.ts /
 // PROJECT_FILE_EXTENSION) — the renderer already has the fully serialized

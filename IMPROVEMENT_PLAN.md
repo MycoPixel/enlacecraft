@@ -2,6 +2,8 @@
 
 Benchmark: [MolDraw](https://www.moldraw.com/) (checked via its public `llms.txt` and `/tools/` index, because the home page is rendered client-side).
 
+Follow-up benchmark and phased plan: [Octet Draw](https://github.com/SamChemMan/Octet-Draw) in [`OCTET_DRAW_IMPROVEMENT_PLAN.md`](OCTET_DRAW_IMPROVEMENT_PLAN.md).
+
 ## Where EnlaceCraft already leads
 
 - Full 2D structure editor with rings, chains, stereochemistry, abbreviations, query atoms, S-groups, haptics, TLC plates, orbitals and shapes.
@@ -62,9 +64,9 @@ Benchmark: [MolDraw](https://www.moldraw.com/) (checked via its public `llms.txt
 
 ### Phase 5 — Accessibility and polish
 
-- [ ] Keyboard-accessible atom/bond placement and selection.
-- [ ] Screen-reader descriptions for structures and reactions.
-- [ ] Command palette for every tool and export action.
+- [x] Keyboard-accessible atom/bond placement and selection. `Ctrl/Cmd+Shift+K` (or the command palette) turns on a keyboard drawing cursor; arrow keys move it by one bond length (Shift for the 24-unit grid), Enter places an atom bonded to the current single selection or selects the atom underneath, and Escape clears the selection before leaving the mode. The cursor is drawn on the canvas and excluded from exports.
+- [x] Screen-reader descriptions for structures and reactions. `src/hooks/useStructureDescription.ts` summarizes formula, atom/bond counts, reaction schemes, annotations and selection; the canvas exposes it as its `aria-label`, and `App` repeats it through a debounced polite live region so edits are announced without narrating every drag frame.
+- [x] Command palette for every tool and export action. `Ctrl/Cmd+K` opens `src/components/common/CommandPalette.tsx`; `src/commands/commands.ts` keeps the list in sync with the tools, editing, view, file, export and share actions registered by `App` and `TopBar`.
 
 ## Implementation notes
 
@@ -83,10 +85,13 @@ Benchmark: [MolDraw](https://www.moldraw.com/) (checked via its public `llms.txt
 - Share links carry the drawing in the URL *fragment*, not the query string, so the browser never sends it to a server. The token is the project format deflated through `CompressionStream` when available, with a plain-base64 fallback and a 48,000-character ceiling; decoded data still goes through `importProject`, so a hand-edited link gets the same validation as an untrusted project file. Inflated bytes are capped while streaming, so a small compressed link cannot expand into an unbounded allocation.
 - Copying a share link or embed snippet falls back to downloading `share-link.txt` / `embed-code.html` when the clipboard is unavailable or denied, matching the existing SMILES-copy behaviour rather than losing the result.
 - The shared viewer is a separate render root, not the editor with buttons hidden. `main.tsx` picks `SharedViewer` when `#view=` is present, so autosave, version history, shortcuts and editing surfaces never mount for a read-only link. The canvas keeps its normal pointer handlers but is isolated with `pointer-events:none`; the surrounding stage owns pan, wheel zoom and fit-to-window.
-- Share-link creation reports `not-web` on `file:` URLs (the packaged Electron build), since a link to a local file is not shareable. The HTML viewer export is the offline-friendly fallback for that case.
+- Share-link creation from the packaged desktop build targets the public web deployment (`https://enlacecraft.vercel.app`, overridable with `VITE_WEB_APP_URL`) instead of producing a link to a local `file:` path. Copying uses a native Electron clipboard bridge when `navigator.clipboard` is unavailable, and the desktop app can open a pasted read-only link in its own window through the `share:open-window` IPC handler.
 - The standalone HTML viewer reuses the same export-ready SVG as SVG export (`serializeExportSVG`), so both stay visually identical. Only the caller-supplied title, background and language are escaped/validated; the SVG markup itself comes from our exporter.
+- Keyboard drawing owns its keys in the capture phase while the mode is active, so Enter places an atom instead of opening the label editor and Escape clears the selection without also leaving the mode. The cursor is transient store state like hover/selection: never saved, never exported, and reset on tab switches. Placing an atom and its bond goes through one store commit, so undo treats the pair as a single action.
+- The command palette does not reimplement actions: each owner registers a group and the palette translates the titles, so adding a tool or export automatically makes it searchable. A modal dialog keeps its own arrow/Enter/Escape handling.
+- Structure announcements are debounced separately from the SVG's `aria-label`: the label is always current for on-demand reading, while the polite live region waits until edits settle so a drag does not flood a screen reader.
 
 ## Verification
 
 - `npm run check` (oxlint, `tsc -b`, Vitest) must pass.
-- New unit coverage: publication placement math, reaction export formats, identifier detection and PubChem namespaces, property-row construction, CSV quoting, SDF property fields, batch identifier enrichment, Spanish chain endings and substituent ordering, overlapping-fragment separation, grid-point rounding, alignment-guide matching, and guide-over-grid drag snapping. Phase 4 adds share-token round-trips (compressed and fallback), URL/embed-code building, size and format rejection, and HTML-viewer escaping.
+- New unit coverage: publication placement math, reaction export formats, identifier detection and PubChem namespaces, property-row construction, CSV quoting, SDF property fields, batch identifier enrichment, Spanish chain endings and substituent ordering, overlapping-fragment separation, grid-point rounding, alignment-guide matching, and guide-over-grid drag snapping. Phase 4 adds share-token round-trips (compressed and fallback), URL/embed-code building, size and format rejection, HTML-viewer escaping, cross-build clipboard fallbacks, and the Electron clipboard/share IPC channel list. Phase 5 adds keyboard-cursor movement, single-step atom+bond placement, atom selection, and Escape handling.

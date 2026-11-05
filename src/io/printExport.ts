@@ -1,5 +1,6 @@
 import { buildExportClone } from "./exportImage";
-import { computePublicationPlacement, type PublicationPreset } from "../model/publicationPresets";
+import { computePagePlacement } from "../model/pageSetup";
+import type { PageSetup } from "../types/chemistry";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -33,10 +34,10 @@ export function printMolecule(
   svg: SVGSVGElement,
   backgroundColor: string | null,
   title: string,
-  preset?: PublicationPreset
+  page?: PageSetup
 ): void {
   const { clone, bounds } = buildExportClone(svg, backgroundColor);
-  const placement = preset ? computePublicationPlacement(bounds.width, bounds.height, preset) : null;
+  const placement = page ? computePagePlacement(bounds.width, bounds.height, page) : null;
 
   if (placement) {
     // Exact physical page: the preset page size becomes @page's size with no

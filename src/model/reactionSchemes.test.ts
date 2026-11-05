@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { addAtom, addBond, cloneMolecule, deleteAtom, emptyMolecule, stripExplicitHydrogens } from "./molecule";
 import {
+  buildSchemesFromSelection,
+  findReactionRows,
   findSchemeForAnnotation,
   findSchemeForAtom,
   pruneSchemeArrowIds,
@@ -9,7 +11,7 @@ import {
   schemeAtomIds,
   summarizeScheme,
 } from "./reactionSchemes";
-import type { Molecule, ReactionScheme } from "../types/chemistry";
+import type { Annotation, ArrowAnnotation, Molecule, ReactionScheme } from "../types/chemistry";
 
 function scheme(overrides: Partial<ReactionScheme> = {}): ReactionScheme {
   return {
@@ -130,5 +132,109 @@ describe("molecule edits keep scheme references consistent", () => {
     };
     const after = stripExplicitHydrogens(mol);
     expect(after.schemes?.[0].steps[0].reactantAtomIds).toEqual([]);
+  });
+});
+
+function arrow(id: string, x1: number, x2: number, y = 0): ArrowAnnotation {
+  return { id, kind: "arrow", x1, y1: y, x2, y2: y, variant: "forward" };
+}
+
+function ids(): () => string {
+  let n = 0;
+  return () => `generated-${++n}`;
+}
+
+function twoSidedMolecule(): Molecule {
+  let mol = emptyMolecule();
+  mol = addAtom(mol, "r1", { x: 0, y: 0 }, "C");
+  mol = addAtom(mol, "r2", { x: 42, y: 0 }, "C");
+  mol = addBond(mol, "rb", "r1", "r2");
+  mol = addAtom(mol, "p1", { x: 300, y: 0 }, "C");
+  mol = addAtom(mol, "p2", { x: 342, y: 0 }, "O");
+  mol = addBond(mol, "pb", "p1", "p2");
+  return mol;
+}
+
+describe("findReactionRows", () => {
+  test("groups arrows on one baseline and orders each row left to right", () => {
+    const annotations: Record<string, Annotation> = {
+      a1: arrow("a1", 40, 80, 0),
+      a2: arrow("a2", 160, 200, 3),
+      a3: arrow("a3", 40, 80, 120),
+    };
+    const rows = findReactionRows(annotations, ["a2", "a3", "a1"]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].map((rowArrow) => rowArrow.id)).toEqual(["a1", "a2"]);
+    expect(rows[1].map((rowArrow) => rowArrow.id)).toEqual(["a3"]);
+  });
+
+  test("ignores non-arrow annotations in the selection", () => {
+    const annotations: Record<string, Annotation> = {
+      a1: arrow("a1", 40, 80),
+      text: { id: "text", kind: "text", x: 0, y: -30, width: 40, height: 20, html: "heat", fontSize: 12 },
+    };
+    expect(findReactionRows(annotations, ["a1", "text"]).flat().map((rowArrow) => rowArrow.id)).toEqual(["a1"]);
+  });
+});
+
+describe("buildSchemesFromSelection", () => {
+  test("groups the structures on each side of one arrow", () => {
+    const mol = twoSidedMolecule();
+    const annotations: Record<string, Annotation> = { arrow1: arrow("arrow1", 160, 220) };
+    const schemes = buildSchemesFromSelection(
+      mol,
+      annotations,
+      ["r1", "r2", "p1", "p2"],
+      ["arrow1"],
+      ids()
+    );
+
+    expect(schemes).toHaveLength(1);
+    expect(schemes[0].steps).toHaveLength(1);
+    expect([...schemes[0].steps[0].reactantAtomIds].sort()).toEqual(["r1", "r2"]);
+    expect([...schemes[0].steps[0].productAtomIds].sort()).toEqual(["p1", "p2"]);
+    expect(schemes[0].steps[0].arrowIds).toEqual(["arrow1"]);
+  });
+
+  test("makes an intermediate between two arrows a product and then a reactant", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "b", { x: 120, y: 0 }, "C");
+    mol = addAtom(mol, "c", { x: 240, y: 0 }, "C");
+    const annotations: Record<string, Annotation> = {
+      a1: arrow("a1", 40, 80),
+      a2: arrow("a2", 160, 200),
+    };
+    const schemes = buildSchemesFromSelection(mol, annotations, ["a", "b", "c"], ["a1", "a2"], ids());
+
+    expect(schemes).toHaveLength(1);
+    expect(schemes[0].steps).toHaveLength(2);
+    expect(schemes[0].steps[0].reactantAtomIds).toEqual(["a"]);
+    expect(schemes[0].steps[0].productAtomIds).toEqual(["b"]);
+    expect(schemes[0].steps[1].reactantAtomIds).toEqual(["b"]);
+    expect(schemes[0].steps[1].productAtomIds).toEqual(["c"]);
+  });
+
+  test("does not invent a step when one side of the arrow is empty", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a", { x: 0, y: 0 }, "C");
+    const annotations: Record<string, Annotation> = { a1: arrow("a1", 40, 80) };
+    expect(buildSchemesFromSelection(mol, annotations, ["a"], ["a1"], ids())).toEqual([]);
+  });
+
+  test("keeps stacked reaction rows in separate schemes", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "b", { x: 240, y: 0 }, "C");
+    mol = addAtom(mol, "c", { x: 0, y: 200 }, "C");
+    mol = addAtom(mol, "d", { x: 240, y: 200 }, "C");
+    const annotations: Record<string, Annotation> = {
+      top: arrow("top", 100, 140, 0),
+      bottom: arrow("bottom", 100, 140, 200),
+    };
+    const schemes = buildSchemesFromSelection(mol, annotations, ["a", "b", "c", "d"], ["top", "bottom"], ids());
+    expect(schemes).toHaveLength(2);
+    expect(schemes[0].steps[0].arrowIds).toEqual(["top"]);
+    expect(schemes[1].steps[0].arrowIds).toEqual(["bottom"]);
   });
 });

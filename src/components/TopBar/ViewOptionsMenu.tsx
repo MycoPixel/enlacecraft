@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { SlidersHorizontal, Atom, Contrast, Grid3x3, Grid2x2, Square, Check } from "lucide-react";
+import { SlidersHorizontal, Atom, Contrast, Grid3x3, Grid2x2, Square, Check, Ruler, Crosshair, SquareDashed } from "lucide-react";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { ExpandedFormulaIcon } from "./ExpandedFormulaIcon";
 import { useT } from "../../i18n/useT";
@@ -19,6 +19,14 @@ interface ViewOptionsMenuProps {
   onToggleMonochromeAtoms: () => void;
   showGrid: boolean;
   onToggleGrid: () => void;
+  showRulers: boolean;
+  onToggleRulers: () => void;
+  showCrosshair: boolean;
+  onToggleCrosshair: () => void;
+  showPageOutline: boolean;
+  onTogglePageOutline: () => void;
+  rulerUnit: "mm" | "in" | "bond";
+  onSetRulerUnit: (unit: "mm" | "in" | "bond") => void;
   canvasBackground: "white" | "theme";
   onToggleCanvasBackground: () => void;
 }
@@ -43,6 +51,10 @@ export function ViewOptionsMenu({
   hasExplicitHydrogens, onToggleExplicitHydrogens,
   monochromeAtoms, onToggleMonochromeAtoms,
   showGrid, onToggleGrid,
+  showRulers, onToggleRulers,
+  showCrosshair, onToggleCrosshair,
+  showPageOutline, onTogglePageOutline,
+  rulerUnit, onSetRulerUnit,
   canvasBackground, onToggleCanvasBackground,
 }: ViewOptionsMenuProps) {
   const [open, setOpen] = useState(false);
@@ -86,7 +98,7 @@ export function ViewOptionsMenu({
   // whole still gives an at-a-glance signal the way the standalone icons
   // used to — you don't have to open the menu just to know something in
   // here is active.
-  const anyActive = showHydrogens || hasExplicitHydrogens || monochromeAtoms || showGrid || canvasBackground === "white";
+  const anyActive = showHydrogens || hasExplicitHydrogens || monochromeAtoms || showGrid || canvasBackground === "white" || showRulers || showCrosshair || showPageOutline;
 
   // Offered in every theme, the dark ones included: a white canvas there
   // re-resolves the drawing's own ink colors (styles/theme.css), so this no
@@ -132,6 +144,40 @@ export function ViewOptionsMenu({
               active={canvasBackground === "white"}
               title={canvasBgTitle}
               onClick={onToggleCanvasBackground}
+            />
+            <div className="view-options-dropdown__divider" />
+            <ViewOptionRow
+              icon={<Ruler size={16} />}
+              label={t("tool.viewOptionsRulers")}
+              active={showRulers}
+              onClick={onToggleRulers}
+            />
+            {showRulers && (
+              <div className="view-options-dropdown__units" role="group" aria-label={t("tool.viewOptionsRulerUnit")}>
+                {(["mm", "in", "bond"] as const).map((unit) => (
+                  <button
+                    key={unit}
+                    type="button"
+                    className={`view-options-dropdown__unit ${rulerUnit === unit ? "view-options-dropdown__unit--active" : ""}`}
+                    aria-pressed={rulerUnit === unit}
+                    onClick={() => onSetRulerUnit(unit)}
+                  >
+                    {unit === "mm" ? t("ruler.mm") : unit === "in" ? t("ruler.in") : t("ruler.bond")}
+                  </button>
+                ))}
+              </div>
+            )}
+            <ViewOptionRow
+              icon={<Crosshair size={16} />}
+              label={t("tool.viewOptionsCrosshair")}
+              active={showCrosshair}
+              onClick={onToggleCrosshair}
+            />
+            <ViewOptionRow
+              icon={<SquareDashed size={16} />}
+              label={t("tool.viewOptionsPageOutline")}
+              active={showPageOutline}
+              onClick={onTogglePageOutline}
             />
           </div>,
           document.body

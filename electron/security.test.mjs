@@ -39,6 +39,27 @@ describe("isSafeExternalUrl", () => {
   });
 });
 
+describe("isShareToken", () => {
+  test("accepts the two token prefixes this app writes", () => {
+    expect(security.isShareToken("c.eJzNVE2L2zAQ")).toBe(true);
+    expect(security.isShareToken("u.SGVsbG8td29ybGQ")).toBe(true);
+  });
+
+  test.each([
+    ["missing prefix", "eJzNVE2L2zAQ"],
+    ["unknown prefix", "x.eJzNVE2L2zAQ"],
+    ["empty payload", "c."],
+    ["whitespace", "c.eJz NVE2"],
+    ["path characters", "c.../../../etc/passwd"],
+    ["a query-looking token", "c.abc?x=1"],
+    ["an over-long token", "c." + "A".repeat(security.MAX_SHARE_TOKEN_LENGTH)],
+  ])("refuses %s", (_label, token) => expect(security.isShareToken(token)).toBe(false));
+
+  test("refuses non-strings", () => {
+    for (const v of [null, undefined, 42, {}, ["c.abc"]]) expect(security.isShareToken(v)).toBe(false);
+  });
+});
+
 describe("createTrustedUrlChecker", () => {
   const distDir = path.resolve(os.tmpdir(), "enlacecraft-app", "dist");
   const fileUrl = (...parts) => pathToFileURL(path.join(distDir, ...parts)).href;

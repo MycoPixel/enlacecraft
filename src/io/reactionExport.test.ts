@@ -126,6 +126,20 @@ describe("exportRxn", () => {
     expect(rxn.match(/^\$MOL$/gm)).toHaveLength(2);
   });
 
+  test("carries atom map numbers into each $MOL block", () => {
+    const { mol } = reaction();
+    const mapped: Molecule = {
+      ...mol,
+      atoms: {
+        ...mol.atoms,
+        r1: { ...mol.atoms.r1, mapNumber: 1 },
+        p1: { ...mol.atoms.p1, mapNumber: 1 },
+      },
+    };
+    const rxn = exportRxn(mapped)!;
+    expect(rxn.match(/^M {2}MAP {2}1 {2}1 {2}1$/gm)).toHaveLength(2);
+  });
+
   test("counts disconnected components on each side separately", () => {
     const mol = molecule(
       [
@@ -170,6 +184,21 @@ describe("reaction SMILES", () => {
   test("writes reactants>>products", () => {
     const { mol } = reaction();
     expect(exportReactionSmiles(mol)).toBe("CC>>CCO");
+  });
+
+  test("writes atom map numbers as SMILES atom classes", () => {
+    const { mol } = reaction();
+    const mapped: Molecule = {
+      ...mol,
+      atoms: {
+        ...mol.atoms,
+        r1: { ...mol.atoms.r1, mapNumber: 1 },
+        r2: { ...mol.atoms.r2, mapNumber: 2 },
+        p1: { ...mol.atoms.p1, mapNumber: 1 },
+        p2: { ...mol.atoms.p2, mapNumber: 2 },
+      },
+    };
+    expect(exportReactionSmiles(mapped)).toBe("[CH3:1][CH3:2]>>[CH3:1][CH2:2]O");
   });
 
   test("returns null when either side is empty", () => {

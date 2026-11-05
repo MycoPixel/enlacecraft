@@ -378,3 +378,96 @@ describe("dative and hollow-wedge bond tools", () => {
     expect(bonds.some((b) => b.dative)).toBe(true);
   });
 });
+
+describe("catalytic cycle interactions", () => {
+  function seedCycleTool() {
+    useMoleculeStore.setState({
+      molecule: emptyMolecule(),
+      selected: new Set(),
+      selectedCycleId: null,
+      tool: "cycle",
+      view: { scale: 1, tx: 0, ty: 0 },
+    });
+  }
+
+  /** Places a bare ring centred at (400, 300) with radius 100. */
+  function placeRing() {
+    act(() => {
+      handlers.onPointerDown(pointerEvent(400, 300));
+    });
+    act(() => {
+      handlers.onPointerMove(pointerEvent(500, 300));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(500, 300));
+    });
+  }
+
+  test("dragging with the cycle tool places a ring and selects it", () => {
+    seedCycleTool();
+    placeRing();
+
+    const s = useMoleculeStore.getState();
+    expect(s.molecule.cycles).toHaveLength(1);
+    const cycle = s.molecule.cycles![0];
+    expect(cycle.centre).toEqual({ x: 400, y: 300 });
+    expect(cycle.radius).toBeCloseTo(100, 6);
+    expect(s.selectedCycleId).toBe(cycle.id);
+    expect(s.tool).toBe("select");
+  });
+
+  test("clicking the direction handle flips the ring", () => {
+    seedCycleTool();
+    placeRing();
+    expect(useMoleculeStore.getState().molecule.cycles![0].clockwise).toBe(true);
+
+    // The direction handle sits just above the ring (radius + 30).
+    act(() => {
+      handlers.onPointerDown(pointerEvent(400, 170));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(400, 170));
+    });
+
+    expect(useMoleculeStore.getState().molecule.cycles![0].clockwise).toBe(false);
+  });
+
+  test("clicking the ring only selects it, without an undo step", () => {
+    seedCycleTool();
+    placeRing();
+    const pastBefore = useMoleculeStore.getState().past.length;
+
+    act(() => {
+      handlers.onPointerDown(pointerEvent(500, 300));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(500, 300));
+    });
+
+    expect(useMoleculeStore.getState().past.length).toBe(pastBefore);
+  });
+
+  test("dragging the ring moves the cycle in one undo step", () => {
+    seedCycleTool();
+    placeRing();
+    const id = useMoleculeStore.getState().molecule.cycles![0].id;
+    const pastBefore = useMoleculeStore.getState().past.length;
+
+    // Grab the right edge of the ring and drag it 20px down-right.
+    act(() => {
+      handlers.onPointerDown(pointerEvent(500, 300));
+    });
+    act(() => {
+      handlers.onPointerMove(pointerEvent(520, 320));
+    });
+    act(() => {
+      handlers.onPointerUp(pointerEvent(520, 320));
+    });
+
+    const s = useMoleculeStore.getState();
+    const cycle = s.molecule.cycles!.find((candidate) => candidate.id === id)!;
+    expect(cycle.centre).toEqual({ x: 420, y: 320 });
+    // Placement is one checkpoint; the drag is exactly one more.
+    expect(s.past.length).toBe(pastBefore + 1);
+  });
+});

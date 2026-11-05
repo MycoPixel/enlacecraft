@@ -1,8 +1,6 @@
 import { buildExportClone, type ExportBounds } from "./exportImage";
-import {
-  computePublicationPlacement,
-  type PublicationPreset,
-} from "../model/publicationPresets";
+import { computePagePlacement } from "../model/pageSetup";
+import type { PageSetup } from "../types/chemistry";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -162,8 +160,8 @@ export function foreignObjectsToSvgText(root: SVGSVGElement, bounds: ExportBound
 }
 
 /**
- * Exports the current drawing as a real PDF file on a publication preset's
- * page, rather than relying on the browser/OS print dialog.
+ * Exports the current drawing as a real PDF file on the active tab's page
+ * setup, rather than relying on the browser/OS print dialog.
  *
  * The clone is built before the dynamic imports resolve: selection clearing
  * in the caller's `withDeselected` is synchronous, so the PDF must capture
@@ -175,12 +173,12 @@ export function foreignObjectsToSvgText(root: SVGSVGElement, bounds: ExportBound
 export async function exportPDF(
   svg: SVGSVGElement,
   backgroundColor: string | null,
-  preset: PublicationPreset,
+  page: PageSetup,
   filename = "molecule.pdf",
   title?: string
 ): Promise<void> {
   const { clone, bounds } = buildExportClone(svg, backgroundColor);
-  const placement = computePublicationPlacement(bounds.width, bounds.height, preset);
+  const placement = computePagePlacement(bounds.width, bounds.height, page);
 
   foreignObjectsToSvgText(clone, bounds);
 
@@ -189,11 +187,11 @@ export async function exportPDF(
 
   const [{ jsPDF }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
 
-  const orientation = preset.widthPt > preset.heightPt ? "landscape" : "portrait";
+  const orientation = placement.pageWidthPt > placement.pageHeightPt ? "landscape" : "portrait";
   const doc = new jsPDF({
     unit: "pt",
     orientation,
-    format: [preset.widthPt, preset.heightPt],
+    format: [placement.pageWidthPt, placement.pageHeightPt],
     compress: true,
   });
   if (title) doc.setProperties({ title });
@@ -209,4 +207,4 @@ export async function exportPDF(
 }
 
 /** Re-exported so the export menu and print path can share one page model. */
-export { computePublicationPlacement };
+export { computePagePlacement };

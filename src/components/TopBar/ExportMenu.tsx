@@ -3,18 +3,16 @@ import { createPortal } from "react-dom";
 import { Download } from "lucide-react";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
-import {
-  DEFAULT_PUBLICATION_PRESET_ID,
-  PUBLICATION_PRESETS,
-} from "../../model/publicationPresets";
 
 export type ExportBackground = "transparent" | "white" | "theme";
 
 interface ExportMenuProps {
   onPNG: (background: ExportBackground) => void;
   onSVG: (background: ExportBackground) => void;
-  onPDF: (background: ExportBackground, presetId: string) => void;
-  onPrint: (background: ExportBackground, presetId: string) => void;
+  /** Opens the page setup dialog (paper, margins, bond length). */
+  onPageSetup: () => void;
+  onPDF: (background: ExportBackground) => void;
+  onPrint: (background: ExportBackground) => void;
   onMOL: () => void;
   onSDF: () => void;
   onSDFWithProperties: () => void;
@@ -25,6 +23,7 @@ interface ExportMenuProps {
   onSaveProject: () => void;
   onSaveProjectAs: () => void;
   onCopyShareLink: () => void;
+  onOpenShareLink: () => void;
   onCopyEmbedCode: () => void;
   onExportHtmlViewer: (background: ExportBackground) => void;
   /** RXN and reaction SMILES only make sense once a scheme exists. */
@@ -48,6 +47,7 @@ interface ExportMenuProps {
 export function ExportMenu({
   onPNG,
   onSVG,
+  onPageSetup,
   onPDF,
   onPrint,
   onMOL,
@@ -60,6 +60,7 @@ export function ExportMenu({
   onSaveProject,
   onSaveProjectAs,
   onCopyShareLink,
+  onOpenShareLink,
   onCopyEmbedCode,
   onExportHtmlViewer,
   reactionExportDisabled,
@@ -67,7 +68,6 @@ export function ExportMenu({
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [background, setBackground] = useState<ExportBackground>("transparent");
-  const [presetId, setPresetId] = useState(DEFAULT_PUBLICATION_PRESET_ID);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
   const btnWrapRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -130,6 +130,9 @@ export function ExportMenu({
             <button className="export-dropdown__item" onClick={() => { onCopyShareLink(); setOpen(false); }}>
               {t("tool.copyShareLink")}
             </button>
+            <button className="export-dropdown__item" onClick={() => { onOpenShareLink(); setOpen(false); }}>
+              {t("tool.openShareLink")}
+            </button>
             <button className="export-dropdown__item" onClick={() => { onCopyEmbedCode(); setOpen(false); }}>
               {t("tool.copyEmbedCode")}
             </button>
@@ -153,16 +156,9 @@ export function ExportMenu({
             </div>
             <button className="export-dropdown__item" onClick={() => { onPNG(background); setOpen(false); }}>{t("tool.exportPNG")}</button>
             <button className="export-dropdown__item" onClick={() => { onSVG(background); setOpen(false); }}>{t("tool.exportSVG")}</button>
-            <label className="export-dropdown__preset">
-              {t("tool.exportPreset")}
-              <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
-                {PUBLICATION_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>{t(preset.labelKey)}</option>
-                ))}
-              </select>
-            </label>
-            <button className="export-dropdown__item" onClick={() => { onPDF(background, presetId); setOpen(false); }}>{t("tool.exportPDF")}</button>
-            <button className="export-dropdown__item" onClick={() => { onPrint(background, presetId); setOpen(false); }}>{t("tool.exportPrintPDF")}</button>
+            <button className="export-dropdown__item" onClick={() => { onPageSetup(); setOpen(false); }}>{t("tool.pageSetup")}</button>
+            <button className="export-dropdown__item" onClick={() => { onPDF(background); setOpen(false); }}>{t("tool.exportPDF")}</button>
+            <button className="export-dropdown__item" onClick={() => { onPrint(background); setOpen(false); }}>{t("tool.exportPrintPDF")}</button>
             <div className="export-dropdown__divider" />
             <button className="export-dropdown__item" onClick={() => { onMOL(); setOpen(false); }}>{t("tool.exportMOL")}</button>
             <button className="export-dropdown__item" onClick={() => { onSDF(); setOpen(false); }}>{t("tool.exportSDF")}</button>

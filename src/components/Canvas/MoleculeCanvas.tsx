@@ -1,6 +1,7 @@
 import { forwardRef, memo, useEffect, useMemo } from "react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useCanvasInteractions } from "../../hooks/useCanvasInteractions";
+import { useStructureDescription } from "../../hooks/useStructureDescription";
 import { AtomView } from "./AtomView";
 import { BondView } from "./BondView";
 import { HapticBondView } from "./HapticBondView";
@@ -19,9 +20,13 @@ import { resolveDoubleBondSide } from "../../engine/doubleBondSide";
 import { ringBondIds, ringCircleGeometry } from "../../engine/aromaticRings";
 import { AromaticityOverlay } from "./AromaticityOverlay";
 import { ComputedStereoOverlay } from "./ComputedStereoOverlay";
+import { ReactionRoleOverlay } from "./ReactionRoleOverlay";
+import { CycleView } from "./CycleView";
 import { previewRingLoops } from "../../engine/ringPlacement";
 import { previewFunctionalGroupSegments } from "../../engine/functionalGroupPlacement";
 import { bracketPairLayout } from "../../model/geometry";
+import { pageBoundsInWorld } from "../../model/pageSetup";
+import { sortByZOrder } from "../../model/groups";
 import { DEFAULT_BRACKET_WIDTH, GRID_STEP, RING_TEMPLATES } from "../../model/constants";
 import { FUNCTIONAL_GROUP_TEMPLATES } from "../../model/functionalGroupTemplates";
 import type { Annotation, Atom, BracketAnnotation, RingAttachment, FunctionalGroupAttachment, Molecule } from "../../types/chemistry";
@@ -30,6 +35,10 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
   const view = useMoleculeStore((s) => s.view);
+  // A text alternative for the drawing itself. The SVG is one image to a
+  // screen reader, so its label carries the formula/counts/selection summary
+  // rather than trying to expose every atom as a separate node.
+  const structureDescription = useStructureDescription();
   const bondPreview = useMoleculeStore((s) => s.bondPreview);
   const atomMoveAnchor = useMoleculeStore((s) => s.atomMoveAnchor);
   const chainPreview = useMoleculeStore((s) => s.chainPreview);
@@ -39,10 +48,13 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const showHydrogens = useMoleculeStore((s) => s.showHydrogens);
   const showAromaticityOverlay = useMoleculeStore((s) => s.showAromaticityOverlay);
   const showComputedStereo = useMoleculeStore((s) => s.showComputedStereo);
+  const showReactionInterpretation = useMoleculeStore((s) => s.showReactionInterpretation);
   const atomLabelRevealTargets = useMoleculeStore((s) => s.atomLabelRevealTargets);
   const setCanvasSize = useMoleculeStore((s) => s.setCanvasSize);
   const annotations = useMoleculeStore((s) => s.annotations);
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
+  const selectedCycleId = useMoleculeStore((s) => s.selectedCycleId);
+  const cyclePreview = useMoleculeStore((s) => s.cyclePreview);
   const editingTextId = useMoleculeStore((s) => s.editingTextId);
   const linkedAtomId = useMoleculeStore((s) => s.linkedAtomId);
   const arrowPreview = useMoleculeStore((s) => s.arrowPreview);
@@ -59,10 +71,14 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
   const bracketVariant = useMoleculeStore((s) => s.bracketVariant);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const showGrid = useMoleculeStore((s) => s.showGrid);
+  const showPageOutline = useMoleculeStore((s) => s.showPageOutline);
+  const page = useMoleculeStore((s) => s.page);
   const alignmentGuides = useMoleculeStore((s) => s.alignmentGuides);
   const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
   const hoverBondId = useMoleculeStore((s) => s.hoverBondId);
   const hoverPoint = useMoleculeStore((s) => s.hoverPoint);
+  const keyboardDrawing = useMoleculeStore((s) => s.keyboardDrawing);
+  const keyboardCursor = useMoleculeStore((s) => s.keyboardCursor);
   const ringTemplateId = useMoleculeStore((s) => s.ringTemplateId);
   const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
   const functionalGroupDesiredAngle = useMoleculeStore((s) => s.functionalGroupDesiredAngle);
@@ -164,6 +180,9 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
     <svg
       ref={ref}
       className="canvas"
+      role="img"
+      aria-label={structureDescription}
+      tabIndex={0}
       style={{ cursor }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -213,6 +232,27 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
         <rect x="-6000" y="-6000" width="12000" height="12000" fill="url(#line-grid)" data-export-exclude="true" pointerEvents="none" />
       )}
       <g transform={`translate(${view.tx},${view.ty}) scale(${view.scale})`} data-export-viewport="true">
+        {/* The printable page boundary. A view aid only: it lives inside the
+            viewport group so it tracks pan/zoom, but is marked
+            data-export-exclude so it never reaches PNG/SVG/PDF output. */}
+        {showPageOutline && (() => {
+          const box = pageBoundsInWorld(page);
+          return (
+            <g data-export-exclude="true" pointerEvents="none">
+              <rect
+                x={box.x}
+                y={box.y}
+                width={box.width}
+                height={box.height}
+                fill="none"
+                stroke="var(--ink-soft)"
+                strokeWidth={1.5 / view.scale}
+                strokeDasharray={`${8 / view.scale} ${6 / view.scale}`}
+                opacity={0.6}
+              />
+            </g>
+          );
+        })()}
         {/*
           Everything that is actual drawing content (and should end up in an
           exported image) lives inside this group. Export measures this
@@ -229,10 +269,12 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
           showHydrogens={showHydrogens}
           showAromaticityOverlay={showAromaticityOverlay}
           showComputedStereo={showComputedStereo}
+          showReactionInterpretation={showReactionInterpretation}
           atomLabelRevealTargets={atomLabelRevealTargets}
           svgRef={svgRef}
           annotations={annotations}
           selectedAnnotationIds={selectedAnnotationIds}
+          selectedCycleId={selectedCycleId}
           editingTextId={editingTextId}
           viewScale={view.scale}
           linkedAtomId={linkedAtomId}
@@ -286,6 +328,22 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             />
             <DragReadout from={{ x: arrowPreview.x1, y: arrowPreview.y1 }} to={{ x: arrowPreview.x2, y: arrowPreview.y2 }} />
           </>
+        )}
+        {cyclePreview && (
+          // Cycle-tool drag preview: a plain ring that becomes the real
+          // cycle's circle on release. Transient, so never exported.
+          <circle
+            cx={cyclePreview.centre.x}
+            cy={cyclePreview.centre.y}
+            r={cyclePreview.radius}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={1.6}
+            strokeDasharray="6 4"
+            opacity={0.7}
+            pointerEvents="none"
+            data-export-exclude="true"
+          />
         )}
         {bracketPairPreview && (() => {
           // Same layout math the store's addBracketPair uses to commit the
@@ -656,6 +714,30 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
             data-export-exclude="true"
           />
         )}
+        {keyboardDrawing && keyboardCursor && (
+          // Keyboard drawing cursor. Sized in screen pixels (divided by the
+          // view scale, like the alignment guides) so the crosshair stays
+          // readable at every zoom, and excluded from exports.
+          <g
+            pointerEvents="none"
+            data-export-exclude="true"
+            stroke="var(--accent)"
+            fill="none"
+            strokeLinecap="round"
+          >
+            <circle
+              cx={keyboardCursor.x}
+              cy={keyboardCursor.y}
+              r={10 / view.scale}
+              strokeWidth={1.5 / view.scale}
+              strokeDasharray={`${3 / view.scale} ${2 / view.scale}`}
+            />
+            <path
+              d={`M ${keyboardCursor.x - 14 / view.scale} ${keyboardCursor.y} H ${keyboardCursor.x - 4 / view.scale} M ${keyboardCursor.x + 4 / view.scale} ${keyboardCursor.y} H ${keyboardCursor.x + 14 / view.scale} M ${keyboardCursor.x} ${keyboardCursor.y - 14 / view.scale} V ${keyboardCursor.y - 4 / view.scale} M ${keyboardCursor.x} ${keyboardCursor.y + 4 / view.scale} V ${keyboardCursor.y + 14 / view.scale}`}
+              strokeWidth={1.5 / view.scale}
+            />
+          </g>
+        )}
       </g>
     </svg>
     <AnnotationToolbar />
@@ -671,6 +753,8 @@ interface MoleculeContentProps {
   svgRef: React.RefObject<SVGSVGElement>;
   annotations: Record<string, Annotation>;
   selectedAnnotationIds: Set<string>;
+  /** The catalytic cycle the canvas is treating as selected; see selectedCycleId. */
+  selectedCycleId: string | null;
   editingTextId: string | null;
   viewScale: number;
   /** The atom the 3D panel's link tool points at; see linkedAtomId in the store. */
@@ -679,6 +763,8 @@ interface MoleculeContentProps {
   showAromaticityOverlay: boolean;
   /** Overlay OpenChemLib-computed (R)/(S) and E/Z labels; see showComputedStereo. */
   showComputedStereo: boolean;
+  /** Label reaction roles on the canvas; see showReactionInterpretation. */
+  showReactionInterpretation: boolean;
 }
 
 /**
@@ -710,11 +796,13 @@ const MoleculeContent = memo(function MoleculeContent({
   svgRef,
   annotations,
   selectedAnnotationIds,
+  selectedCycleId,
   editingTextId,
   viewScale,
   linkedAtomId,
   showAromaticityOverlay,
   showComputedStereo,
+  showReactionInterpretation,
 }: MoleculeContentProps) {
   // Aromatic ring circles the person has toggled on (see
   // AromaticRingDisplay's own doc comment) -- one memo for which bonds
@@ -773,6 +861,17 @@ const MoleculeContent = memo(function MoleculeContent({
       ))}
       {showAromaticityOverlay && <AromaticityOverlay molecule={molecule} />}
       {showComputedStereo && <ComputedStereoOverlay molecule={molecule} />}
+      {/* Catalytic cycles sit above ring circles but below the atoms, so an
+          intermediate's ink always covers the arc it sits on. Geometry is
+          derived from the atoms' current positions on every render. */}
+      {(sortByZOrder(molecule.cycles ?? [])).map((cycle) => (
+        <CycleView
+          key={cycle.id}
+          cycle={cycle}
+          molecule={molecule}
+          selected={selectedCycleId === cycle.id}
+        />
+      ))}
       {Object.values(molecule.hapticBonds).map((hb) => (
         <HapticBondView
           key={hb.id}
@@ -786,7 +885,7 @@ const MoleculeContent = memo(function MoleculeContent({
         if (!ctx) return null;
         return <AtomView key={a.id} atom={a} ctx={ctx} selected={selected.has(a.id)} overValent={isOverValent(molecule, a.id)} svgRef={svgRef} />;
       })}
-      {Object.values(annotations).map((ann) =>
+      {sortByZOrder(Object.values(annotations)).map((ann) =>
         ann.kind === "arrow" ? (
           <ArrowAnnotationView key={ann.id} annotation={ann} selected={selectedAnnotationIds.has(ann.id)} viewScale={viewScale} />
         ) : ann.kind === "bracket" ? (
@@ -806,6 +905,9 @@ const MoleculeContent = memo(function MoleculeContent({
             viewScale={viewScale}
           />
         )
+      )}
+      {showReactionInterpretation && (
+        <ReactionRoleOverlay molecule={molecule} annotations={annotations} />
       )}
       <SGroupOverlay molecule={molecule} annotations={annotations} />
     </g>

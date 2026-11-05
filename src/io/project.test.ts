@@ -318,7 +318,7 @@ describe("reaction scheme grouping in projects", () => {
 });
 
 describe("project page setup persistence", () => {
-  const page = { x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 36, marginWidth: 3 };
+  const page = { x: 0, y: 0, width: 595.28, height: 841.89, bondLength: 36, marginWidth: 3, margin: 28.35 };
 
   test("round-trips a tab's page setup", () => {
     const json = exportProject({
@@ -373,6 +373,70 @@ describe("project page setup persistence", () => {
     });
 
     expect(importProject(saved).tabs[0].page).toBeUndefined();
+  });
+});
+
+// Object groups and draw order are document state: both must survive a
+// save/open cycle, and a stale group reference must be pruned rather than
+// resurrecting a group around objects that no longer exist.
+describe("object groups and z-order in projects", () => {
+  const molecule: Molecule = {
+    atoms: {
+      a0: { id: "a0", x: 0, y: 0, element: "C", charge: 0 },
+      a1: { id: "a1", x: 60, y: 0, element: "C", charge: 0 },
+    },
+    bonds: { b0: { id: "b0", a1: "a0", a2: "a1", order: 1, stereo: "none", doubleSide: "auto" } },
+    hapticBonds: {},
+    aromaticRingDisplays: {},
+  };
+  const annotation: TextAnnotation = {
+    id: "t0",
+    kind: "text",
+    x: 120,
+    y: 0,
+    width: 40,
+    height: 20,
+    html: "note",
+    fontSize: 14,
+    zOrder: 3,
+  };
+
+  test("groups and annotation z-order round-trip", () => {
+    const json = exportProject({
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Grouped",
+          molecule,
+          annotations: { t0: annotation },
+          groups: [{ id: "g1", atomIds: ["a0", "a1"], annotationIds: ["t0"], cycleIds: [] }],
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const tab = importProject(json).tabs[0];
+    expect(tab.groups).toEqual([{ id: "g1", atomIds: ["a0", "a1"], annotationIds: ["t0"], cycleIds: [] }]);
+    expect(tab.annotations.t0.zOrder).toBe(3);
+  });
+
+  test("a group naming a deleted object drops that reference", () => {
+    const json = exportProject({
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Stale",
+          molecule,
+          annotations: { t0: annotation },
+          groups: [{ id: "g1", atomIds: ["a0", "gone"], annotationIds: ["t0"], cycleIds: [] }],
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    expect(importProject(json).tabs[0].groups?.[0].atomIds).toEqual(["a0"]);
   });
 });
 
@@ -455,5 +519,85 @@ describe("S-groups in projects", () => {
 
     const project = importProject(saved);
     expect(project.tabs[0].molecule.sgroups!.sg1.bracketAnnotationIds).toEqual(["br1"]);
+  });
+});
+
+// Catalytic cycles are live objects on the molecule, so reopening a project
+// must restore them as cycles rather than as the arrows they happen to render.
+describe("catalytic cycles in projects", () => {
+  const baseMolecule: Molecule = {
+    atoms: {
+      a0: { id: "a0", x: 0, y: -60, element: "C", charge: 0 },
+      a1: { id: "a1", x: 60, y: 0, element: "C", charge: 0 },
+      a2: { id: "a2", x: -60, y: 0, element: "C", charge: 0 },
+    },
+    bonds: {},
+    hapticBonds: {},
+    aromaticRingDisplays: {},
+  };
+
+  test("a live cycle survives save/open", () => {
+    const json = exportProject({
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Cycle",
+          molecule: {
+            ...baseMolecule,
+            cycles: [
+              {
+                id: "c1",
+                centre: { x: 0, y: 0 },
+                radius: 100,
+                clockwise: false,
+                nodes: [["a0"], ["a1"], ["a2"]],
+                sides: [{ id: "s1", direction: "out", angle: 0, label: "product" }],
+                label: "Cycle",
+              },
+            ],
+          },
+          annotations: {},
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const restored = importProject(json).tabs[0].molecule.cycles;
+    expect(restored).toHaveLength(1);
+    expect(restored![0]).toMatchObject({ id: "c1", radius: 100, clockwise: false, label: "Cycle" });
+    expect(restored![0].nodes).toEqual([["a0"], ["a1"], ["a2"]]);
+    expect(restored![0].sides?.[0]).toMatchObject({ direction: "out", label: "product" });
+  });
+
+  test("a node naming a missing atom is repaired on load", () => {
+    const saved = JSON.stringify({
+      version: 2,
+      activeTabId: "tab-1",
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Cycle",
+          molecule: {
+            ...baseMolecule,
+            cycles: [
+              {
+                id: "c1",
+                centre: { x: 0, y: 0 },
+                radius: 100,
+                clockwise: true,
+                nodes: [["a0", "gone"], ["a1"]],
+              },
+            ],
+          },
+          annotations: {},
+          view: { scale: 1, tx: 0, ty: 0 },
+        },
+      ],
+    });
+
+    const restored = importProject(saved).tabs[0].molecule.cycles;
+    expect(restored).toHaveLength(1);
+    expect(restored![0].nodes).toEqual([["a0"], ["a1"]]);
   });
 });

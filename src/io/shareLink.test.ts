@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { emptyMolecule } from "../model/molecule";
 import type { ProjectFile } from "./project";
 import {
+  DEFAULT_WEB_APP_URL,
   MAX_SHARE_TOKEN_LENGTH,
   ShareLinkError,
   buildShareUrl,
@@ -14,6 +15,7 @@ import {
   encodeShareProject,
   projectForShareTab,
   readShareTokenFromLocation,
+  readShareTokenFromUrl,
 } from "./shareLink";
 
 function sampleProject(): ProjectFile {
@@ -112,10 +114,33 @@ describe("share URL handling", () => {
     );
   });
 
-  test("explains why file:// URLs cannot be shared", () => {
+  test("explains why an explicitly supplied file:// URL cannot be shared", () => {
     expect(() => buildShareUrl("abc", "file:///opt/enlacecraft/index.html")).toThrow(
       expect.objectContaining({ code: "not-web" }),
     );
+  });
+
+  test("uses the public web build when the current window is a file:// URL", () => {
+    // The packaged Electron app is the real caller: its own location is a
+    // local file, but the link has to be openable by someone else.
+    const original = window.location.href;
+    try {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { href: "file:///opt/enlacecraft/dist/index.html", protocol: "file:" },
+      });
+      expect(buildShareUrl("abc")).toBe(`${DEFAULT_WEB_APP_URL}/#view=abc`);
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: { href: original } });
+    }
+  });
+
+  test("reads a token from a full link, a hash, or a bare token fragment", () => {
+    expect(readShareTokenFromUrl("https://example.test/#view=abc")).toBe("abc");
+    expect(readShareTokenFromUrl("https://example.test/?embed=1#view=abc")).toBe("abc");
+    expect(readShareTokenFromUrl("#view=abc")).toBe("abc");
+    expect(readShareTokenFromUrl("https://example.test/#other=abc")).toBeNull();
+    expect(readShareTokenFromUrl("")).toBeNull();
   });
 
   test("one-tab project keeps only the tab being shared", () => {

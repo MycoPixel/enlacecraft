@@ -122,7 +122,10 @@ export function exportRxn(molecule: Molecule, scheme?: ReactionScheme): string |
 
 function reactionSideSmiles(molecule: Molecule, atomIds: string[]): string {
   if (atomIds.length === 0) return "";
-  return exportSmiles(subMolecule(molecule, atomIds));
+  // Atom maps are part of a reaction SMILES's meaning (they say which product
+  // atom came from which reactant atom), so they are written as atom classes
+  // here. A plain structure export leaves them off — see exportSmiles.
+  return exportSmiles(subMolecule(molecule, atomIds), { includeAtomMaps: true });
 }
 
 /** Reaction SMILES for one scheme, or null when either side is empty (an

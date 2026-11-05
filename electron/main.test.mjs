@@ -18,11 +18,13 @@ const electronDir = path.dirname(fileURLToPath(import.meta.url));
 const distIndexUrl = pathToFileURL(path.join(electronDir, "..", "dist", "index.html")).href;
 
 const EXPECTED_CHANNELS = [
+  "clipboard:write-text",
   "dialog:open-file",
   "dialog:save-project",
   "dialog:save-project-to",
   "iupac-fallback-server:get-status",
   "nmr-server:get-status",
+  "share:open-window",
   "structure3d-server:get-status",
   "updater:get-status",
   "updater:quit-and-install",

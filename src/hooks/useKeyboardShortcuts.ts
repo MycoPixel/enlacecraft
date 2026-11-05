@@ -15,6 +15,7 @@ import { runProjectSave } from "../io/projectSaver";
  *   condensed formula (CH3, COOH), or a placeholder label (R, R1, R')
  *   Ctrl/Cmd+Z = undo   Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y = redo
  *   Ctrl/Cmd+A = select all   Ctrl/Cmd+D = duplicate selection
+ *   Ctrl/Cmd+G = group selection   Ctrl/Cmd+Shift+G = ungroup
  *   Ctrl/Cmd+S = save project   Ctrl/Cmd+Shift+S = save project as
  *   Escape = clear selection / cancel atom or label edit
  *   Delete / Backspace = delete selection (or selected annotation)
@@ -53,6 +54,10 @@ export function useKeyboardShortcuts() {
   const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const deleteAnnotations = useMoleculeStore((s) => s.deleteAnnotations);
   const setSelectedAnnotationIds = useMoleculeStore((s) => s.setSelectedAnnotationIds);
+  const cleanReaction = useMoleculeStore((s) => s.cleanReaction);
+  const mapReactionAtoms = useMoleculeStore((s) => s.mapReactionAtoms);
+  const groupSelection = useMoleculeStore((s) => s.groupSelection);
+  const ungroupSelection = useMoleculeStore((s) => s.ungroupSelection);
 
   const pendingElementBufferRef = useRef("");
   const pendingElementTimerRef = useRef<number | null>(null);
@@ -148,6 +153,25 @@ export function useKeyboardShortcuts() {
         void runProjectSave(e.shiftKey);
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        cleanReaction();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        mapReactionAtoms();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
+        // Ctrl/Cmd+G groups, Ctrl/Cmd+Shift+G ungroups — the conventional
+        // pair, and both need preventDefault to keep the browser's own
+        // find-again/whatever binding out of the way.
+        e.preventDefault();
+        if (e.shiftKey) ungroupSelection();
+        else groupSelection();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
         // Ctrl/Cmd+D duplicates the selection offset down-right by 24px (the
         // same offset the context menu's Duplicate action uses). Not left to
@@ -218,6 +242,7 @@ export function useKeyboardShortcuts() {
           case "t": setTool("text"); break;
           case "a": setTool("arrow"); break;
           case "k": setTool("bracket"); break;
+          case "y": setTool("cycle"); break;
           case "+": setTool("plus"); break;
           case "1": setTool("bond-1"); break;
           case "2": setTool("bond-2"); break;
@@ -237,5 +262,5 @@ export function useKeyboardShortcuts() {
         pendingElementTimerRef.current = null;
       }
     };
-  }, [undo, redo, setTool, deleteSelection, selectAll, duplicateSelection, clearSelection, toggleShowHydrogens, rotateSelection, atomEditTarget, selected, hoverAtomId, setAtomEditTarget, setLabelEditTarget, setAtomLabelRevealTargets, setAtomElementOf, selectedAnnotationIds, deleteAnnotations, setSelectedAnnotationIds]);
+  }, [undo, redo, setTool, deleteSelection, selectAll, duplicateSelection, clearSelection, toggleShowHydrogens, rotateSelection, atomEditTarget, selected, hoverAtomId, setAtomEditTarget, setLabelEditTarget, setAtomLabelRevealTargets, setAtomElementOf, selectedAnnotationIds, deleteAnnotations, setSelectedAnnotationIds, cleanReaction, mapReactionAtoms, groupSelection, ungroupSelection]);
 }

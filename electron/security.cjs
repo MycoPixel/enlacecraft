@@ -10,6 +10,23 @@ const { fileURLToPath } = require("node:url");
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 const PROJECT_EXTENSION = ".enlacecraft";
+
+/** Mirrors MAX_SHARE_TOKEN_LENGTH in src/io/shareLink.ts — keep in sync. */
+const MAX_SHARE_TOKEN_LENGTH = 48000;
+
+/**
+ * A `#view=` token is plain base64url behind a one-character format prefix
+ * ("c." compressed or "u." plain). No path, query or whitespace can get into
+ * the URL this way, which matters because the token is appended to a file URL.
+ */
+function isShareToken(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 2 &&
+    value.length <= MAX_SHARE_TOKEN_LENGTH &&
+    /^[cu]\.[A-Za-z0-9_-]+$/.test(value)
+  );
+}
 // Structure formats the Open dialog / drag-onto-window flows may read.
 // .smi/.smiles are plain-text SMILES files (one molecule per line, often
 // "SMILES name" pairs) — parsed by io/smilesImport.ts on the renderer side.
@@ -262,7 +279,9 @@ function rotateLogIfNeeded(fs, logPath, maxBytes = 1024 * 1024) {
 module.exports = {
   MAX_FILE_BYTES,
   PROJECT_EXTENSION,
+  MAX_SHARE_TOKEN_LENGTH,
   ALLOWED_PERMISSIONS,
+  isShareToken,
   isSafeExternalUrl,
   createTrustedUrlChecker,
   isTrustedSender,

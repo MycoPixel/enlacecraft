@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Maximize, ZoomIn, ZoomOut } from "lucide-react";
 import { MoleculeCanvas } from "../Canvas/MoleculeCanvas";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -89,7 +89,7 @@ export function SharedViewer({ token }: SharedViewerProps) {
     return () => cancelAnimationFrame(raf);
   }, [project, resetView]);
 
-  const zoomAtCenter = (factor: number) => {
+  const zoomAtCenter = useCallback((factor: number) => {
     const rect = stageRef.current?.getBoundingClientRect();
     const mx = (rect?.width ?? 0) / 2;
     const my = (rect?.height ?? 0) / 2;
@@ -101,11 +101,20 @@ export function SharedViewer({ token }: SharedViewerProps) {
         ty: my - ((my - v.ty) / v.scale) * scale,
       };
     });
-  };
+  }, [setView]);
 
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     zoomAtCenter(e.deltaY < 0 ? 1.12 : 0.89);
+  };
+
+  // The stage's double-click-to-fit is a convenience for the drawing area,
+  // not for its buttons. Without this check, two quick clicks on +/− (which
+  // is exactly how someone zooms) also produce a dblclick that resets the
+  // view, making the second click appear to do nothing.
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    resetView();
   };
 
   const onStagePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -128,6 +137,30 @@ export function SharedViewer({ token }: SharedViewerProps) {
     setPanning(false);
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
+
+  // Keyboard equivalents for the same controls, so the read-only viewer is
+  // usable without a mouse. Ignored while typing anywhere (there is nowhere
+  // to type in this view today, but the guard keeps it that way if the
+  // header ever grows an input).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        zoomAtCenter(1.2);
+      } else if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        zoomAtCenter(0.83);
+      } else if (e.key === "0") {
+        e.preventDefault();
+        resetView();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [resetView, zoomAtCenter]);
 
   const downloadProject = () => {
     if (!project) return;
@@ -201,11 +234,11 @@ export function SharedViewer({ token }: SharedViewerProps) {
         onPointerMove={onStagePointerMove}
         onPointerUp={endPan}
         onPointerCancel={endPan}
-        onDoubleClick={() => resetView()}
+        onDoubleClick={onDoubleClick}
       >
         <MoleculeCanvas ref={svgRef} />
         {!embedded && (
-          <div className="shared-controls">
+          <div className="shared-controls" onPointerDown={(e) => e.stopPropagation()}>
             <button type="button" className="shared-control" title={t("sharedView.zoomIn")} aria-label={t("sharedView.zoomIn")} onClick={() => zoomAtCenter(1.2)}>
               <ZoomIn size={16} />
             </button>

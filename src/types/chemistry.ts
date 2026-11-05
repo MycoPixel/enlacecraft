@@ -328,6 +328,55 @@ export interface Molecule {
    * the drawing has no scheme grouping (the overwhelmingly common case).
    */
   schemes?: ReactionScheme[];
+  /**
+   * Live catalytic cycles. Each cycle draws a ring of directed arcs around
+   * the structures that are its intermediates; the geometry is recomputed
+   * from the atoms' current positions every time it is rendered, so moving
+   * an intermediate keeps its arc attached instead of leaving a stale
+   * hand-placed ring behind.
+   *
+   * Like schemes and sgroups, cycles live on the molecule so undo, tabs,
+   * autosave and the native project format carry them without parallel
+   * plumbing. The atom ids refer to this molecule's own atoms; cycles whose
+   * nodes lose all their atoms are pruned on load and on delete.
+   */
+  cycles?: CatalyticCycle[];
+}
+
+/** One intermediate of a catalytic cycle: the atoms of a whole structure. */
+export interface CatalyticCycle extends ZOrdered {
+  id: string;
+  /** Centre of the ring, in drawing units. */
+  centre: Point;
+  /** Distance from the centre to the arcs, in drawing units. */
+  radius: number;
+  /** True when the arcs run clockwise on screen. */
+  clockwise: boolean;
+  /** One entry per intermediate, each a list of atom ids. The array order
+   * is the traversal order around the ring; each node's angular position is
+   * derived from its atoms, so a node may be moved without reordering. */
+  nodes: string[][];
+  /** Optional reagent-in/product-out arrows attached to the ring. */
+  sides?: CycleSide[];
+  /** Angular gap kept clear around each node, in radians. Defaults to a
+   * value derived from the node's own size. */
+  gap?: number;
+  /** Multiplier for arrowheads, labels and hit targets. Default 1. */
+  scale?: number;
+  /** Optional caption drawn above the ring. */
+  label?: string;
+}
+
+/** A side arrow on a catalytic cycle: a reagent entering or a product
+ * leaving the ring. */
+export interface CycleSide {
+  id: string;
+  /** "in" points toward the ring, "out" points away from it. */
+  direction: "in" | "out";
+  /** Attachment angle in radians (0 = right, increasing clockwise). */
+  angle: number;
+  /** Optional reagent/product label drawn at the arrow's outer end. */
+  label?: string;
 }
 
 /** One reaction step: the structures on either side of an arrow. */
@@ -462,6 +511,22 @@ export interface PageSetup {
   bondLength: number;
   /** Atom-label margin (CDXML MarginWidth). Default 2 pt. */
   marginWidth: number;
+  /**
+   * Printable margin kept clear on every side of the page, in points.
+   * Optional for files written before the page dialog existed; absent means
+   * model/pageSetup.ts's DEFAULT_PAGE_MARGIN.
+   */
+  margin?: number;
+}
+
+/**
+ * Draw-order override shared by canvas objects that can be restacked.
+ * Objects without one sort as 0, preserving their insertion order; the
+ * bring/send commands assign explicit values so the result is stable across
+ * saves. Atoms and bonds are structural and always keep their layer.
+ */
+export interface ZOrdered {
+  zOrder?: number;
 }
 
 export type ToolId =
@@ -497,6 +562,7 @@ export type ToolId =
   | "shape"
   | "orbital"
   | "tlc"
+  | "cycle"
   | "plus";
 
 /** Live, uncommitted rectangle-selection ("marquee") drag, in world coordinates. */
@@ -714,7 +780,7 @@ export type ArrowVariant = "forward" | "equilibrium" | "resonance" | "retrosynth
  * (single-electron) style, which only ever comes in one size. */
 export type ArrowHeadSize = "small" | "medium" | "large";
 
-export interface ArrowAnnotation {
+export interface ArrowAnnotation extends ZOrdered {
   id: string;
   kind: "arrow";
   x1: number;
@@ -778,7 +844,7 @@ export type BracketVariant = "paren" | "square" | "curly";
 export type BracketFacing = "open" | "close";
 
 /** A single resizable bracket glyph (place one "open" and one "close" to enclose a fragment). */
-export interface BracketAnnotation {
+export interface BracketAnnotation extends ZOrdered {
   id: string;
   kind: "bracket";
   x: number;
@@ -798,7 +864,7 @@ export interface BracketAnnotation {
  * TextAnnotationView) purely so the surrounding <foreignObject> is sized
  * correctly and so hit-testing/selection outlines match the visible box.
  */
-export interface TextAnnotation {
+export interface TextAnnotation extends ZOrdered {
   id: string;
   kind: "text";
   x: number;
@@ -811,6 +877,22 @@ export interface TextAnnotation {
 
 export type Annotation = ArrowAnnotation | TextAnnotation | BracketAnnotation | ShapeAnnotation | OrbitalAnnotation | TlcPlateAnnotation;
 
+/**
+ * A document-level selection group: atoms, annotations and catalytic cycles
+ * that move/rotate together and are selected as one unit.
+ *
+ * Groups live on the tab rather than the molecule (see ProjectTab.groups)
+ * because they name annotations too, and annotations are a sibling map. An
+ * object may belong to at most one group; groupSelection() re-homes members
+ * from any group it absorbs, so membership stays unambiguous.
+ */
+export interface ObjectGroup {
+  id: string;
+  atomIds: string[];
+  annotationIds: string[];
+  cycleIds: string[];
+}
+
 /** Graphics-primitive shapes: the plain drawing objects ChemDraw's tools
  * palette offers alongside chemistry-specific glyphs (boxes around scheme
  * steps, an oval callout, a plain divider line). `x`/`y`/`width`/`height`
@@ -821,7 +903,7 @@ export type Annotation = ArrowAnnotation | TextAnnotation | BracketAnnotation | 
  * lineJoin for full ChemDraw compatibility. */
 export type ShapeVariant = "rectangle" | "ellipse" | "line" | "polygon" | "arc" | "curve" | "polyline" | "roundedRect" | "triangle" | "hexagon";
 
-export interface ShapeAnnotation {
+export interface ShapeAnnotation extends ZOrdered {
   id: string;
   kind: "shape";
   x: number;
@@ -858,7 +940,7 @@ export interface ShapeAnnotation {
  */
 export type OrbitalVariant = "s" | "p" | "lobe" | "d" | "sp" | "sp2" | "sp3" | "hybrid";
 
-export interface OrbitalAnnotation {
+export interface OrbitalAnnotation extends ZOrdered {
   id: string;
   kind: "orbital";
   x: number;
@@ -897,7 +979,7 @@ export interface TlcSpot {
   stain?: "iodine" | "ninhydrin" | "kMnO4" | "vanillin" | "p-anisaldehyde" | "dragendorff";
 }
 
-export interface TlcPlateAnnotation {
+export interface TlcPlateAnnotation extends ZOrdered {
   id: string;
   kind: "tlc";
   x: number;

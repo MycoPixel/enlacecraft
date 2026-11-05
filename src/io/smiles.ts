@@ -16,25 +16,35 @@ function bondSymbol(order: BondOrder): string {
   return order === 2 ? "=" : order === 3 ? "#" : "";
 }
 
-function atomToken(mol: Molecule, id: string, chiral: "@" | "@@" | undefined): string {
+function atomToken(
+  mol: Molecule,
+  id: string,
+  chiral: "@" | "@@" | undefined,
+  includeAtomMaps: boolean
+): string {
   const a = mol.atoms[id];
+  // SMILES atom class ("map number"), written last inside the brackets. Only
+  // reaction SMILES asks for it; a plain structure's map numbers are editor
+  // metadata and would just add noise to naming/lookup services.
+  const mapPart = includeAtomMaps && a.mapNumber != null ? `:${a.mapNumber}` : "";
   if (a.group) {
     // Abbreviated groups (Ph, Boc, ...) only exist in this app as a single
     // labeled vertex with a formula for weight/formula purposes — there's
     // no actual stored substructure to expand into real SMILES atoms. `*`
     // is SMILES's standard wildcard atom, so this stays valid SMILES
     // rather than asserting a structure we don't actually have.
-    return "*";
+    return mapPart ? `[*${mapPart}]` : "*";
   }
 
-  const needsBracket = !ORGANIC_SUBSET.has(a.element) || a.charge !== 0 || !!a.isotope || !!chiral;
+  const needsBracket =
+    !ORGANIC_SUBSET.has(a.element) || a.charge !== 0 || !!a.isotope || !!chiral || !!mapPart;
   if (!needsBracket) return a.element;
 
   const h = implicitH(mol, id);
   const hPart = h > 0 ? `H${h > 1 ? h : ""}` : "";
   const chargePart = a.charge === 0 ? "" : a.charge === 1 ? "+" : a.charge === -1 ? "-" : a.charge > 0 ? `+${a.charge}` : `${a.charge}`;
   const isotopePart = a.isotope ? String(a.isotope) : "";
-  return `[${isotopePart}${a.element}${chiral ?? ""}${hPart}${chargePart}]`;
+  return `[${isotopePart}${a.element}${chiral ?? ""}${hPart}${chargePart}${mapPart}]`;
 }
 
 function ringClosureToken(digit: number): string {
@@ -331,7 +341,12 @@ function computeChiralTags(
  * `includeStereo=false` skips both tetrahedral and cis/trans stereo
  * descriptors entirely — used to produce a flat fallback SMILES when a
  * fully-stereo one fails to resolve (see exportSmiles's doc comment). */
-function writeFragment(mol: Molecule, atomIds: string[], includeStereo: boolean): { text: string; order: string[] } {
+function writeFragment(
+  mol: Molecule,
+  atomIds: string[],
+  includeStereo: boolean,
+  includeAtomMaps = false
+): { text: string; order: string[] } {
   const idSet = new Set(atomIds);
   const visited = new Set<string>();
   const children = new Map<string, { id: string; order: BondOrder }[]>();
@@ -407,7 +422,7 @@ function writeFragment(mol: Molecule, atomIds: string[], includeStereo: boolean)
   }
 
   function emit(u: string): string {
-    let s = atomToken(mol, u, chiralTag.get(u)) + ringDigitsFor(u);
+    let s = atomToken(mol, u, chiralTag.get(u), includeAtomMaps) + ringDigitsFor(u);
     const kids = children.get(u)!;
     kids.forEach((kid, i) => {
       const bondChar = doubleBondChar.get(`${u}|${kid.id}`) ?? bondSymbol(kid.order);
@@ -454,11 +469,23 @@ function writeFragment(mol: Molecule, atomIds: string[], includeStereo: boolean)
  * isn't itself indexed even though the flat structure resolves fine —
  * see IupacNameButton's fallback retry, which uses this to still return
  * a usable (if less precise) name rather than nothing.
+ *
+ * Pass `{ includeAtomMaps: true }` to write each atom's reaction map number
+ * as a SMILES atom class (`[CH3:1]`). Reaction SMILES uses this so atom
+ * correspondences survive the trip into RDKit/OpenBabel; ordinary structure
+ * exports leave it off because the numbers are editor metadata there.
  */
-export function exportSmiles(mol: Molecule, options?: { includeStereo?: boolean }): string {
+export function exportSmiles(
+  mol: Molecule,
+  options?: { includeStereo?: boolean; includeAtomMaps?: boolean }
+): string {
   const includeStereo = options?.includeStereo ?? true;
+  const includeAtomMaps = options?.includeAtomMaps ?? false;
   const fragments = findConnectedFragments(mol);
-  return fragments.map((ids) => writeFragment(mol, ids, includeStereo).text).filter(Boolean).join(".");
+  return fragments
+    .map((ids) => writeFragment(mol, ids, includeStereo, includeAtomMaps).text)
+    .filter(Boolean)
+    .join(".");
 }
 
 /**

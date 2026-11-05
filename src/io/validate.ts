@@ -18,14 +18,17 @@ import type {
   ViewTransform,
   AtomQueryProps,
   BondQueryProps,
+  CatalyticCycle,
+  CycleSide,
   ReactionScheme,
   ReactionStep,
   PageSetup,
   SGroup,
+  ObjectGroup,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
 import { PERIODIC_TABLE } from "../model/constants";
-import { DEFAULT_BOND_LENGTH, DEFAULT_MARGIN_WIDTH } from "../model/pageSetup";
+import { DEFAULT_BOND_LENGTH, DEFAULT_MARGIN_WIDTH, DEFAULT_PAGE_MARGIN } from "../model/pageSetup";
 import { nextId } from "../model/id";
 import { sanitizeAnnotationHtml } from "./sanitizeHtml";
 
@@ -69,6 +72,10 @@ export const LIMITS = {
   maxReactionSchemes: 500,
   maxReactionSteps: 5_000,
   maxSgroups: 500,
+  maxCycles: 100,
+  maxObjectGroups: 200,
+  maxCycleNodes: 200,
+  maxCycleSides: 20,
   /** Largest page dimension or page origin accepted in a project file, in
    * CDXML points (about 278 inches — far past any real paper size). */
   maxPageDimension: 20_000,
@@ -314,6 +321,7 @@ const SGROUP_REQUIRED = ["type", "atomIds"] as const;
 
 const ARROW_SPEC: Spec<ArrowAnnotation> = {
   id: ID,
+  zOrder: finite(-1_000_000, 1_000_000),
   kind: oneOf("arrow"),
   x1: COORD,
   y1: COORD,
@@ -332,6 +340,7 @@ const ARROW_REQUIRED = ["x1", "y1", "x2", "y2"] as const;
 
 const BRACKET_SPEC: Spec<BracketAnnotation> = {
   id: ID,
+  zOrder: finite(-1_000_000, 1_000_000),
   kind: oneOf("bracket"),
   x: COORD,
   y: COORD,
@@ -344,6 +353,7 @@ const BRACKET_REQUIRED = ["x", "y", "width", "height"] as const;
 
 const TEXT_SPEC: Spec<TextAnnotation> = {
   id: ID,
+  zOrder: finite(-1_000_000, 1_000_000),
   kind: oneOf("text"),
   x: COORD,
   y: COORD,
@@ -368,6 +378,7 @@ const parsePoints = (v: unknown): Point[] => {
 
 const SHAPE_SPEC: Spec<ShapeAnnotation> = {
   id: ID,
+  zOrder: finite(-1_000_000, 1_000_000),
   kind: oneOf("shape"),
   x: COORD,
   y: COORD,
@@ -387,6 +398,7 @@ const SHAPE_REQUIRED = ["x", "y", "width", "height"] as const;
 
 const ORBITAL_SPEC: Spec<OrbitalAnnotation> = {
   id: ID,
+  zOrder: finite(-1_000_000, 1_000_000),
   kind: oneOf("orbital"),
   x: COORD,
   y: COORD,
@@ -455,6 +467,7 @@ const laneLabelsParser: Parser<string[]> = (v) => {
 
 const TLC_SPEC: Spec<TlcPlateAnnotation> = {
   id: ID,
+  zOrder: finite(-1_000_000, 1_000_000),
   kind: oneOf("tlc"),
   x: COORD,
   y: COORD,
@@ -639,6 +652,152 @@ function sanitizeReactionSchemes(
 }
 
 /** Validates and rebuilds a Molecule. Throws ImportValidationError only for unrepairable structure. */
+/**
+ * Validates `Molecule.cycles` (live catalytic-cycle figures). Node atom ids
+ * are filtered to atoms that survived sanitization; a node that loses every
+ * atom is dropped, but a cycle with no nodes is kept because a bare ring is
+ * a valid figure. Centre/radius must be finite, otherwise the whole cycle is
+ * dropped rather than guessed at.
+ */
+function sanitizeCycles(
+  raw: unknown,
+  atoms: Record<string, Atom>,
+  report: RepairReport
+): CatalyticCycle[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) throw new ImportValidationError("cycles: expected an array");
+  if (raw.length > LIMITS.maxCycles) {
+    throw new ImportValidationError(`cycles: too many entries (${raw.length} > ${LIMITS.maxCycles})`);
+  }
+
+  const usedIds = new Set<string>();
+  const out: CatalyticCycle[] = [];
+
+  for (const rawCycle of raw) {
+    if (!isPlainObject(rawCycle)) {
+      report.droppedOther++;
+      continue;
+    }
+    const rawCentre = rawCycle.centre;
+    if (!isPlainObject(rawCentre)) {
+      report.droppedOther++;
+      continue;
+    }
+    const cx = rawCentre.x;
+    const cy = rawCentre.y;
+    const radius = rawCycle.radius;
+    if (
+      typeof cx !== "number" ||
+      typeof cy !== "number" ||
+      typeof radius !== "number" ||
+      !Number.isFinite(cx) ||
+      !Number.isFinite(cy) ||
+      !Number.isFinite(radius) ||
+      Math.abs(cx) > LIMITS.maxCoord ||
+      Math.abs(cy) > LIMITS.maxCoord ||
+      radius <= 0 ||
+      radius > LIMITS.maxCoord
+    ) {
+      report.droppedOther++;
+      continue;
+    }
+
+    const rawNodes = rawCycle.nodes;
+    if (!Array.isArray(rawNodes)) {
+      report.droppedOther++;
+      continue;
+    }
+    if (rawNodes.length > LIMITS.maxCycleNodes) {
+      throw new ImportValidationError(`cycle: too many nodes (${rawNodes.length} > ${LIMITS.maxCycleNodes})`);
+    }
+    const nodes: string[][] = [];
+    for (const rawNode of rawNodes) {
+      if (!Array.isArray(rawNode)) {
+        report.droppedOther++;
+        continue;
+      }
+      const ids = [...new Set(rawNode)]
+        .filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= LIMITS.maxIdChars)
+        .filter((id) => hasOwn(atoms, id));
+      if (ids.length === 0) {
+        report.droppedOther++;
+        continue;
+      }
+      nodes.push(ids);
+    }
+
+    const rawId = rawCycle.id;
+    let id =
+      typeof rawId === "string" && rawId.length > 0 && rawId.length <= LIMITS.maxIdChars && !usedIds.has(rawId)
+        ? rawId
+        : "";
+    while (!id || usedIds.has(id)) id = `cycle-${nextId()}`;
+    usedIds.add(id);
+
+    const sides: CycleSide[] = [];
+    if (Array.isArray(rawCycle.sides)) {
+      if (rawCycle.sides.length > LIMITS.maxCycleSides) {
+        throw new ImportValidationError(`cycle: too many sides (${rawCycle.sides.length} > ${LIMITS.maxCycleSides})`);
+      }
+      const usedSideIds = new Set<string>();
+      for (const rawSide of rawCycle.sides) {
+        if (!isPlainObject(rawSide)) {
+          report.droppedOther++;
+          continue;
+        }
+        const angle = rawSide.angle;
+        if (typeof angle !== "number" || !Number.isFinite(angle)) {
+          report.droppedOther++;
+          continue;
+        }
+        let sideId =
+          typeof rawSide.id === "string" &&
+          rawSide.id.length > 0 &&
+          rawSide.id.length <= LIMITS.maxIdChars &&
+          !usedSideIds.has(rawSide.id)
+            ? rawSide.id
+            : "";
+        while (!sideId || usedSideIds.has(sideId)) sideId = `side-${nextId()}`;
+        usedSideIds.add(sideId);
+        const label =
+          typeof rawSide.label === "string" && rawSide.label.length <= LIMITS.maxTitleChars
+            ? rawSide.label
+            : undefined;
+        sides.push({
+          id: sideId,
+          direction: rawSide.direction === "out" ? "out" : "in",
+          angle,
+          ...(label ? { label } : {}),
+        });
+      }
+    }
+
+    const gap = rawCycle.gap;
+    const scale = rawCycle.scale;
+    const label =
+      typeof rawCycle.label === "string" && rawCycle.label.length <= LIMITS.maxTitleChars
+        ? rawCycle.label
+        : undefined;
+
+    out.push({
+      id,
+      centre: { x: cx, y: cy },
+      radius,
+      clockwise: rawCycle.clockwise !== false,
+      nodes,
+      ...(sides.length > 0 ? { sides } : {}),
+      ...(typeof gap === "number" && Number.isFinite(gap) && gap >= 0 && gap <= Math.PI ? { gap } : {}),
+      ...(typeof scale === "number" && Number.isFinite(scale) && scale > 0 && scale <= 10 ? { scale } : {}),
+      ...(label ? { label } : {}),
+      ...(typeof rawCycle.zOrder === "number" && Number.isFinite(rawCycle.zOrder)
+        ? { zOrder: Math.max(-1_000_000, Math.min(1_000_000, rawCycle.zOrder)) }
+        : {}),
+    });
+  }
+
+  return out.length > 0 ? out : undefined;
+}
+
 export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairReport()): Molecule {
   if (!isPlainObject(raw)) throw new ImportValidationError("molecule: expected an object");
 
@@ -718,6 +877,7 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
   }
 
   const schemes = sanitizeReactionSchemes(raw.schemes, atoms, report);
+  const cycles = sanitizeCycles(raw.cycles, atoms, report);
   return {
     atoms,
     bonds,
@@ -725,6 +885,7 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
     aromaticRingDisplays,
     ...(Object.keys(sgroups).length > 0 ? { sgroups } : {}),
     ...(schemes ? { schemes } : {}),
+    ...(cycles ? { cycles } : {}),
   };
 }
 
@@ -847,6 +1008,7 @@ export function sanitizePageSetup(raw: unknown, report: RepairReport = newRepair
 
   const bondLength = raw.bondLength === undefined ? DEFAULT_BOND_LENGTH : finite(1, 1_000)(raw.bondLength);
   const marginWidth = raw.marginWidth === undefined ? DEFAULT_MARGIN_WIDTH : finite(0, 1_000)(raw.marginWidth);
+  const margin = raw.margin === undefined ? DEFAULT_PAGE_MARGIN : finite(0, LIMITS.maxPageDimension)(raw.margin);
 
   return {
     x,
@@ -855,7 +1017,69 @@ export function sanitizePageSetup(raw: unknown, report: RepairReport = newRepair
     height,
     bondLength: bondLength === BAD ? DEFAULT_BOND_LENGTH : bondLength,
     marginWidth: marginWidth === BAD ? DEFAULT_MARGIN_WIDTH : marginWidth,
+    margin: margin === BAD ? DEFAULT_PAGE_MARGIN : margin,
   };
+}
+
+/**
+ * Validates a tab's object groups. References are kept only when the named
+ * atom/annotation/cycle actually survived sanitization; a group with fewer
+ * than two surviving members is dropped rather than left as a one-item
+ * "group" that would change how a single click behaves for no benefit.
+ *
+ * `raw === undefined` is normal for saves written before grouping existed.
+ */
+export function sanitizeObjectGroups(
+  raw: unknown,
+  molecule: Molecule,
+  annotations: Record<string, Annotation>,
+  report: RepairReport = newRepairReport()
+): ObjectGroup[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    report.droppedOther++;
+    return undefined;
+  }
+  if (raw.length > LIMITS.maxObjectGroups) {
+    throw new ImportValidationError(`groups: too many entries (${raw.length} > ${LIMITS.maxObjectGroups})`);
+  }
+
+  const usedIds = new Set<string>();
+  const claimed = new Set<string>();
+  const out: ObjectGroup[] = [];
+  for (const item of raw) {
+    if (!isPlainObject(item)) {
+      report.droppedOther++;
+      continue;
+    }
+    const cleanIds = (value: unknown, exists: (id: string) => boolean): string[] => {
+      if (!Array.isArray(value)) return [];
+      const ids: string[] = [];
+      for (const id of value) {
+        if (typeof id !== "string" || id.length === 0 || id.length > LIMITS.maxIdChars) continue;
+        if (!exists(id) || claimed.has(id)) continue;
+        ids.push(id);
+      }
+      return [...new Set(ids)];
+    };
+    const atomIds = cleanIds(item.atomIds, (id) => hasOwn(molecule.atoms, id));
+    const annotationIds = cleanIds(item.annotationIds, (id) => hasOwn(annotations, id));
+    const cycleIds = cleanIds(item.cycleIds, (id) => (molecule.cycles ?? []).some((cycle) => cycle.id === id));
+    const total = atomIds.length + annotationIds.length + cycleIds.length;
+    if (total < 2) {
+      report.droppedOther++;
+      continue;
+    }
+    let id =
+      typeof item.id === "string" && item.id.length > 0 && item.id.length <= LIMITS.maxIdChars && !usedIds.has(item.id)
+        ? item.id
+        : "";
+    while (!id || usedIds.has(id)) id = `group-${nextId()}`;
+    usedIds.add(id);
+    for (const member of [...atomIds, ...annotationIds, ...cycleIds]) claimed.add(member);
+    out.push({ id, atomIds, annotationIds, cycleIds });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 export function sanitizeFragment(raw: unknown, report: RepairReport = newRepairReport()): { molecule: Molecule; annotations: Annotation[] } {

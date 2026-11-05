@@ -1,11 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History, ClipboardPaste } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { themeViewerBackground } from "../../styles/themes";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
+import { PageSetupDialog } from "./PageSetupDialog";
 import { PasteStructureDialog } from "./PasteStructureDialog";
+import { OpenShareLinkDialog } from "./OpenShareLinkDialog";
 import { ViewOptionsMenu } from "./ViewOptionsMenu";
 import { ThemePicker } from "./ThemePicker";
 import { CompoundSearch } from "./CompoundSearch";
@@ -27,16 +29,17 @@ import { printMolecule } from "../../io/printExport";
 import { exportMol } from "../../io/molfile";
 import { exportAllReactionSmiles, exportRxn, exportSdf, hasExportableReaction } from "../../io/reactionExport";
 import { buildPropertyRows, propertyRowToSdfFields } from "../../io/propertiesTable";
-import { findPublicationPreset } from "../../model/publicationPresets";
 import { exportCdxmlDocument } from "../../io/cdxml";
 import { exportSmiles } from "../../io/smiles";
 import { runProjectSave } from "../../io/projectSaver";
-import { ShareLinkError, createEmbedCodeForTab, createShareUrlForTab } from "../../io/shareLink";
+import { ShareLinkError, buildShareUrl, createEmbedCodeForTab, createShareUrlForTab } from "../../io/shareLink";
 import { buildHtmlViewer } from "../../io/htmlViewer";
+import { writeClipboardText } from "../../io/clipboard";
 import { useFileImport } from "../../hooks/useFileImport";
 import { useHorizontalStripScroll } from "../../hooks/useHorizontalStripScroll";
 import { LIMITS } from "../../io/validate";
 import { useT } from "../../i18n/useT";
+import { registerCommandGroup, unregisterCommandGroup, type AppCommand } from "../../commands/commands";
 
 interface TopBarProps {
   svgRef: React.RefObject<SVGSVGElement | null>;
@@ -53,6 +56,14 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const toggleCanvasBackground = useMoleculeStore((s) => s.toggleCanvasBackground);
   const showGrid = useMoleculeStore((s) => s.showGrid);
   const toggleShowGrid = useMoleculeStore((s) => s.toggleShowGrid);
+  const showRulers = useMoleculeStore((s) => s.showRulers);
+  const toggleShowRulers = useMoleculeStore((s) => s.toggleShowRulers);
+  const showCrosshair = useMoleculeStore((s) => s.showCrosshair);
+  const toggleShowCrosshair = useMoleculeStore((s) => s.toggleShowCrosshair);
+  const showPageOutline = useMoleculeStore((s) => s.showPageOutline);
+  const toggleShowPageOutline = useMoleculeStore((s) => s.toggleShowPageOutline);
+  const rulerUnit = useMoleculeStore((s) => s.rulerUnit);
+  const setRulerUnit = useMoleculeStore((s) => s.setRulerUnit);
   const toggleLanguage = useMoleculeStore((s) => s.toggleLanguage);
   const undo = useMoleculeStore((s) => s.undo);
   const redo = useMoleculeStore((s) => s.redo);
@@ -78,6 +89,12 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   // here rather than in the dialog so the trigger button stays a plain
   // ToolButton like every other top-bar action.
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [shareLinkOpen, setShareLinkOpen] = useState(false);
+  const [pageSetupOpen, setPageSetupOpen] = useState(false);
+  // The palette commands below are registered once, but each action must run
+  // the *current* render's handler (fresh molecule, language, background).
+  // This ref is refreshed every render and read only when a command fires.
+  const commandActionsRef = useRef<Record<string, () => void | Promise<void>>>({});
   // The action strip scrolls sideways when the window is too narrow for
   // every button; this is what makes a plain mouse wheel drive it.
   const topActionsRef = useRef<HTMLDivElement>(null);
@@ -139,16 +156,16 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     if (!svgRef.current) return;
     withDeselected(() => exportSVG(svgRef.current!, resolveBackground(bg)));
   };
-  const doExportPrint = (bg: ExportBackground, presetId: string) => {
+  const doExportPrint = (bg: ExportBackground) => {
     if (!svgRef.current) return;
     // "transparent" has no printed-page equivalent (paper has no
     // transparency) — falls through to resolveBackground's own
     // null-background handling, which prints on plain white the same as
     // an explicit "white" choice.
     const title = tabs.find((tb) => tb.id === activeTabId)?.title ?? "";
-    withDeselected(() => printMolecule(svgRef.current!, resolveBackground(bg), title, findPublicationPreset(presetId)));
+    withDeselected(() => printMolecule(svgRef.current!, resolveBackground(bg), title, page));
   };
-  const doExportPDF = async (bg: ExportBackground, presetId: string) => {
+  const doExportPDF = async (bg: ExportBackground) => {
     if (!svgRef.current) return;
     const title = tabs.find((tb) => tb.id === activeTabId)?.title ?? "molecule";
     try {
@@ -156,7 +173,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       // resolves, so selection can be restored as soon as this call
       // returns — the export itself continues with the already-taken copy.
       await withDeselected(() =>
-        exportPDF(svgRef.current!, resolveBackground(bg), findPublicationPreset(presetId), "molecule.pdf", title)
+        exportPDF(svgRef.current!, resolveBackground(bg), page, "molecule.pdf", title)
       );
       setStatus(t("status.pdfExported"));
     } catch (err) {
@@ -200,8 +217,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       return;
     }
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("no clipboard API");
-      await navigator.clipboard.writeText(smiles);
+      await writeClipboardText(smiles);
       setStatus(t("status.reactionSmilesCopied", { smiles }));
     } catch {
       downloadBlob(new Blob([smiles], { type: "chemical/x-daylight-smiles" }), "reaction.smi");
@@ -221,8 +237,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const doExportSmiles = async () => {
     const smiles = exportSmiles(molecule);
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("no clipboard API");
-      await navigator.clipboard.writeText(smiles);
+      await writeClipboardText(smiles);
       setStatus(t("status.smilesCopied", { smiles }));
     } catch {
       // Clipboard access can fail (permissions, insecure context, older
@@ -255,10 +270,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     return t("status.shareLinkError", { error: err instanceof Error ? err.message : String(err) });
   };
 
-  const writeClipboard = async (text: string) => {
-    if (!navigator.clipboard?.writeText) throw new Error("no clipboard API");
-    await navigator.clipboard.writeText(text);
-  };
+  const writeClipboard = writeClipboardText;
 
   const doCopyShareLink = async () => {
     const tab = activeTabForShare();
@@ -298,6 +310,32 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     } catch {
       downloadBlob(new Blob([code], { type: "text/html" }), "embed-code.html");
       setStatus(t("status.embedCodeDownloaded"));
+    }
+  };
+
+  /**
+   * Opens a link the user pasted into the shared-link dialog.
+   *
+   * Desktop gets its own read-only window (main.cjs builds the same `#view=`
+   * URL from the token), because navigating this window away from the
+   * editor's `file:` page would be blocked and reloading it would trigger the
+   * unsaved-changes prompt. The web build simply opens a new tab.
+   */
+  const doOpenShareLink = async (token: string) => {
+    if (window.electron) {
+      try {
+        const opened = await window.electron.openShareLink(token);
+        setStatus(opened ? t("status.shareLinkOpened") : t("status.shareLinkOpenFailed"));
+      } catch (err) {
+        setStatus(t("status.shareLinkOpenFailed"));
+        console.warn("Could not open shared link", err);
+      }
+      return;
+    }
+    try {
+      window.open(buildShareUrl(token), "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setStatus(shareFailureMessage(err));
     }
   };
 
@@ -348,6 +386,62 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     fileInputRef.current?.click();
   };
 
+  // Palette-facing commands for actions whose implementation lives here.
+  // Wrappers read `commandActionsRef` so the registered group never has to be
+  // rebuilt (and re-registered) on every edit.
+  useEffect(() => {
+    commandActionsRef.current = {
+      "file.open": doOpen,
+      "file.paste": () => setPasteOpen(true),
+      "file.save": () => { void runProjectSave(false); },
+      "file.saveAs": () => { void runProjectSave(true); },
+      "export.png": () => doExportPNG("transparent"),
+      "export.svg": () => doExportSVG("transparent"),
+      "export.pageSetup": () => setPageSetupOpen(true),
+      "export.pdf": () => { void doExportPDF("transparent"); },
+      "export.print": () => doExportPrint("transparent"),
+      "export.mol": doExportMol,
+      "export.sdf": doExportSdf,
+      "export.sdfProperties": doExportSdfWithProperties,
+      "export.cdxml": doExportCdxml,
+      "export.smiles": () => { void doExportSmiles(); },
+      "export.rxn": doExportRxn,
+      "export.reactionSmiles": () => { void doExportReactionSmiles(); },
+      "share.copyLink": () => { void doCopyShareLink(); },
+      "share.open": () => setShareLinkOpen(true),
+      "share.copyEmbed": () => { void doCopyEmbedCode(); },
+      "share.html": () => doExportHtmlViewer("transparent"),
+    };
+  });
+
+  useEffect(() => {
+    const reactionDisabled = () => !hasExportableReaction(useMoleculeStore.getState().molecule);
+    const commands: AppCommand[] = [
+      { id: "file.open", titleKey: "tool.import", sectionKey: "palette.section.file", keywords: "open load read", run: () => commandActionsRef.current["file.open"]?.() },
+      { id: "file.paste", titleKey: "tool.pasteStructure", sectionKey: "palette.section.file", keywords: "smiles mol cdxml import", run: () => commandActionsRef.current["file.paste"]?.() },
+      { id: "file.save", titleKey: "tool.saveProject", sectionKey: "palette.section.file", shortcut: "Ctrl+S", keywords: "project enlacecraft", run: () => commandActionsRef.current["file.save"]?.() },
+      { id: "file.saveAs", titleKey: "tool.saveAs", sectionKey: "palette.section.file", shortcut: "Ctrl+Shift+S", keywords: "project enlacecraft", run: () => commandActionsRef.current["file.saveAs"]?.() },
+      { id: "export.png", titleKey: "tool.exportPNG", sectionKey: "palette.section.export", keywords: "image raster", run: () => commandActionsRef.current["export.png"]?.() },
+      { id: "export.svg", titleKey: "tool.exportSVG", sectionKey: "palette.section.export", keywords: "vector image", run: () => commandActionsRef.current["export.svg"]?.() },
+      { id: "export.pageSetup", titleKey: "tool.pageSetup", sectionKey: "palette.section.export", keywords: "paper size margin orientation bond length", run: () => commandActionsRef.current["export.pageSetup"]?.() },
+      { id: "export.pdf", titleKey: "tool.exportPDF", sectionKey: "palette.section.export", keywords: "document publication print", run: () => commandActionsRef.current["export.pdf"]?.() },
+      { id: "export.print", titleKey: "tool.exportPrintPDF", sectionKey: "palette.section.export", keywords: "print paper", run: () => commandActionsRef.current["export.print"]?.() },
+      { id: "export.mol", titleKey: "tool.exportMOL", sectionKey: "palette.section.export", keywords: "molfile mdl", run: () => commandActionsRef.current["export.mol"]?.() },
+      { id: "export.sdf", titleKey: "tool.exportSDF", sectionKey: "palette.section.export", keywords: "sd file records", run: () => commandActionsRef.current["export.sdf"]?.() },
+      { id: "export.sdfProperties", titleKey: "tool.exportSDFWithProperties", sectionKey: "palette.section.export", keywords: "descriptors data", run: () => commandActionsRef.current["export.sdfProperties"]?.() },
+      { id: "export.cdxml", titleKey: "tool.exportCDXML", sectionKey: "palette.section.export", keywords: "chemdraw xml", run: () => commandActionsRef.current["export.cdxml"]?.() },
+      { id: "export.smiles", titleKey: "tool.exportSmiles", sectionKey: "palette.section.export", keywords: "copy text", run: () => commandActionsRef.current["export.smiles"]?.() },
+      { id: "export.rxn", titleKey: "tool.exportRXN", sectionKey: "palette.section.export", keywords: "reaction scheme", isDisabled: reactionDisabled, run: () => commandActionsRef.current["export.rxn"]?.() },
+      { id: "export.reactionSmiles", titleKey: "tool.exportReactionSmiles", sectionKey: "palette.section.export", keywords: "reaction scheme copy", isDisabled: reactionDisabled, run: () => commandActionsRef.current["export.reactionSmiles"]?.() },
+      { id: "share.copyLink", titleKey: "tool.copyShareLink", sectionKey: "palette.section.share", keywords: "read only link url", run: () => commandActionsRef.current["share.copyLink"]?.() },
+      { id: "share.open", titleKey: "tool.openShareLink", sectionKey: "palette.section.share", keywords: "view shared url", run: () => commandActionsRef.current["share.open"]?.() },
+      { id: "share.copyEmbed", titleKey: "tool.copyEmbedCode", sectionKey: "palette.section.share", keywords: "iframe embed", run: () => commandActionsRef.current["share.copyEmbed"]?.() },
+      { id: "share.html", titleKey: "tool.exportHtmlViewer", sectionKey: "palette.section.share", keywords: "offline standalone html", run: () => commandActionsRef.current["share.html"]?.() },
+    ];
+    registerCommandGroup("topbar", commands);
+    return () => unregisterCommandGroup("topbar");
+  }, []);
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -391,6 +485,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
         <ExportMenu
           onPNG={doExportPNG}
           onSVG={doExportSVG}
+          onPageSetup={() => setPageSetupOpen(true)}
           onPDF={doExportPDF}
           onPrint={doExportPrint}
           onMOL={doExportMol}
@@ -403,6 +498,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
           onSaveProject={doSaveProject}
           onSaveProjectAs={doSaveProjectAs}
           onCopyShareLink={doCopyShareLink}
+          onOpenShareLink={() => setShareLinkOpen(true)}
           onCopyEmbedCode={doCopyEmbedCode}
           onExportHtmlViewer={doExportHtmlViewer}
           reactionExportDisabled={reactionExportDisabled}
@@ -431,6 +527,14 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
           onToggleMonochromeAtoms={toggleMonochromeAtoms}
           showGrid={showGrid}
           onToggleGrid={toggleShowGrid}
+          showRulers={showRulers}
+          onToggleRulers={toggleShowRulers}
+          showCrosshair={showCrosshair}
+          onToggleCrosshair={toggleShowCrosshair}
+          showPageOutline={showPageOutline}
+          onTogglePageOutline={toggleShowPageOutline}
+          rulerUnit={rulerUnit}
+          onSetRulerUnit={setRulerUnit}
           canvasBackground={canvasBackground}
           onToggleCanvasBackground={toggleCanvasBackground}
         />
@@ -457,6 +561,10 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       {/* Mounted only while open — the dialog's text/error state then
           initializes fresh each time, no reset-on-open effect needed. */}
       {pasteOpen && <PasteStructureDialog onClose={() => setPasteOpen(false)} />}
+      {shareLinkOpen && (
+        <OpenShareLinkDialog onClose={() => setShareLinkOpen(false)} onOpen={doOpenShareLink} />
+      )}
+      {pageSetupOpen && <PageSetupDialog onClose={() => setPageSetupOpen(false)} />}
     </header>
   );
 }

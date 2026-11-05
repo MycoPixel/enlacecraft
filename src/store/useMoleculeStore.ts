@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, ChainPreview, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, RingAttachment, RingTemplate, RotationSession, SGroup, SGroupType, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, CatalyticCycle, ChainPreview, CycleSide, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, ObjectGroup, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, RingAttachment, RingTemplate, RotationSession, SGroup, SGroupType, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import type { AlignmentGuide } from "../model/alignmentGuides";
@@ -15,9 +15,26 @@ import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, BOND_LEN, ISOTOPE_PRESET
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
 import { parseAtomLabel } from "../model/atomLabelParser";
 import { collapseToGroup, findCollapsibleGroups } from "../model/groupCollapse";
-import { pruneSchemeArrowIds } from "../model/reactionSchemes";
+import {
+  buildSchemesFromSelection,
+  findSchemeForAnnotation,
+  findSchemeForAtom,
+  pruneSchemeArrowIds,
+  schemeArrowIds,
+  schemeAtomIds,
+} from "../model/reactionSchemes";
+import { interpretReaction } from "../engine/reactionInterpret";
+import { cleanReaction as cleanReactionImpl, layoutSchemeGrid } from "../engine/reactionLayout";
+import {
+  clearReactionMap as clearReactionMapImpl,
+  mapReactionAtoms as mapReactionAtomsImpl,
+  validateReactionMap as validateReactionMapImpl,
+  type ReactionMapValidation,
+} from "../engine/reactionMapping";
 import { DEFAULT_SGROUP_SUBSCRIPT, pruneSGroupAnnotationIds, sgroupBondIds, sgroupBondsTouching } from "../model/sgroups";
+import { centroidOf, cycleAtomIds, fragmentsForNodes, suggestedCycleRadius } from "../model/cycles";
 import { defaultPageSetup } from "../model/pageSetup";
+import { expandGroupSelection, groupsTouching, pruneObjectGroups, restackByZOrder, type RestackMode } from "../model/groups";
 import type { ArrowHeadChoice, ArrowShaftChoice, ArrowTailChoice } from "../model/arrowStyle";
 import type { Embed3DMethod } from "../io/embed3d";
 import {
@@ -35,6 +52,69 @@ import {
 import { THEME_IDS, nextTheme } from "../styles/themes";
 
 const HISTORY_LIMIT = 100;
+
+/** Rotates a point around `center` (screen-coordinate convention: positive
+ * radians turn clockwise on screen). */
+function rotateAround(p: Point, center: Point, radians: number): Point {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const dx = p.x - center.x;
+  const dy = p.y - center.y;
+  return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+}
+
+/** Rotates an annotation's anchor(s) so a grouped annotation travels with
+ * its atoms. Boxes rotate as points; their axis-aligned size is unchanged. */
+function rotateAnnotation(annotation: Annotation, center: Point, radians: number): Annotation {
+  if (annotation.kind === "arrow") {
+    const a = rotateAround({ x: annotation.x1, y: annotation.y1 }, center, radians);
+    const b = rotateAround({ x: annotation.x2, y: annotation.y2 }, center, radians);
+    return { ...annotation, x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+  }
+  const p = rotateAround({ x: annotation.x, y: annotation.y }, center, radians);
+  if (annotation.kind === "orbital") {
+    return { ...annotation, x: p.x, y: p.y, angle: annotation.angle + (radians * 180) / Math.PI };
+  }
+  return { ...annotation, x: p.x, y: p.y };
+}
+
+/**
+ * Atom/cycle origins for the duration of one annotation-group drag.
+ *
+ * The annotation views already pass a stable `origins` object per drag; using
+ * it as a WeakMap key lets this store action translate the group's atoms and
+ * cycles from their drag-start positions without every annotation view
+ * having to know those objects exist. A new drag allocates a new origins
+ * object, so a stale snapshot can never leak into the next gesture.
+ */
+const annotationGroupDragOrigins = new WeakMap<
+  object,
+  { atoms: Record<string, Point>; cycles: Record<string, Point> }
+>();
+
+function mirrorAnnotation(
+  annotation: Annotation,
+  center: Point,
+  axis: "horizontal" | "vertical"
+): Annotation {
+  const mx = (x: number, width = 0) => (axis === "horizontal" ? 2 * center.x - x - width : x);
+  const my = (y: number, height = 0) => (axis === "vertical" ? 2 * center.y - y - height : y);
+  if (annotation.kind === "arrow") {
+    return { ...annotation, x1: mx(annotation.x1), y1: my(annotation.y1), x2: mx(annotation.x2), y2: my(annotation.y2) };
+  }
+  const width = "width" in annotation ? annotation.width : 0;
+  const height = "height" in annotation ? annotation.height : 0;
+  if (annotation.kind === "orbital") {
+    return {
+      ...annotation,
+      x: mx(annotation.x),
+      y: my(annotation.y),
+      angle: axis === "horizontal" ? 180 - annotation.angle : -annotation.angle,
+    };
+  }
+  return { ...annotation, x: mx(annotation.x, width), y: my(annotation.y, height) };
+}
+
 
 /** Default size for a shape placed by a near-zero drag (a plain click):
  * a ChemDraw-ish starting box you resize from, not a degenerate sliver. */
@@ -205,6 +285,13 @@ const MAX_SIDEBAR_WIDTH = 280;
 interface Snapshot {
   molecule: Molecule;
   annotations: Record<string, Annotation>;
+  /**
+   * Optional so drag snapshots built by the annotation views (which only
+   * know about the molecule/annotations pair) stay valid. Undo preserves the
+   * current groups when a snapshot omits them, which is correct for the
+   * moves those snapshots come from: moving objects never changes grouping.
+   */
+  groups?: ObjectGroup[];
 }
 
 /**
@@ -226,6 +313,8 @@ interface Snapshot {
 interface TabDocument {
   molecule: Molecule;
   annotations: Record<string, Annotation>;
+  /** Document-level object groups; see ObjectGroup. */
+  groups: ObjectGroup[];
   view: ViewTransform;
   /** Page geometry for this tab (see PageSetup). Unlike `view`, this is not
    * undoable: it describes the paper, not the drawing. */
@@ -248,6 +337,8 @@ export interface SavedTab {
   title: string;
   molecule: Molecule;
   annotations: Record<string, Annotation>;
+  /** Document-level object groups; absent in files saved before grouping. */
+  groups?: ObjectGroup[];
   view: ViewTransform;
   /** Optional so tabs restored from older saves (and the many tests that
    * build a SavedTab by hand) keep working; loadProject substitutes the
@@ -340,6 +431,10 @@ interface MoleculeStore {
   // --- annotation state (reaction arrows / text boxes) ---
   annotations: Record<string, Annotation>;
   selectedAnnotationIds: Set<string>;
+  /** The live catalytic cycle the canvas is treating as selected, if any.
+   * A transient selection like selectedAnnotationIds — the cycle itself
+   * lives in molecule.cycles and is persisted. */
+  selectedCycleId: string | null;
   /** Transient smart-alignment lines shown only while an annotation is
    * being dragged; never saved with a document. */
   alignmentGuides: AlignmentGuide[];
@@ -357,6 +452,8 @@ interface MoleculeStore {
   arrowTailStyle: ArrowTailChoice;
   arrowShaftStyle: ArrowShaftChoice;
   arrowPreview: ArrowPreview | null;
+  /** Live circle shown while the cycle tool is dragged out; transient. */
+  cyclePreview: { centre: Point; radius: number } | null;
   /** Live drag-to-place preview for the paired open/close bracket tool (see addBracketPair). */
   bracketPairPreview: ArrowPreview | null;
   /** Live drag-to-place preview for the shape tool (corners of the dragged rectangle). */
@@ -398,6 +495,14 @@ interface MoleculeStore {
   /** Cursor's current world position, kept live for tools (atom, ring)
    * that show a live preview of where the next thing will be placed. */
   hoverPoint: Point | null;
+  /** Keyboard drawing mode: a keyboard-driven cursor can place atoms and
+   * bonds without a pointer. Kept in the store (rather than the hook) so the
+   * canvas can draw the cursor and the command palette can toggle it. Never
+   * saved or exported. */
+  keyboardDrawing: boolean;
+  /** World position of the keyboard drawing cursor; null while the mode is
+   * off. Arrow keys move it, Enter places at it. */
+  keyboardCursor: Point | null;
   atomLabelRevealTargets: Set<string>;
   ringTemplateId: string;
   functionalGroupTemplateId: string;
@@ -430,6 +535,8 @@ interface MoleculeStore {
   /** Page/paper setup for the active tab (see PageSetup); the inactive tabs'
    * copies live in tabDocuments. */
   page: PageSetup;
+  /** Document-level object groups for the active tab (see ObjectGroup). */
+  groups: ObjectGroup[];
   theme: Theme;
   /** The drawing canvas's own background — separate from the app theme;
    * see CanvasBackground's doc comment. */
@@ -438,6 +545,28 @@ interface MoleculeStore {
    * canvasBackground (works with either a white or themed background).
    * Off by default; purely a visual drawing aid, no effect on the model. */
   showGrid: boolean;
+  /** Millimetre/inch/bond-length rulers along the top and left edges.
+   * Session-only view aids, off by default and excluded from every export. */
+  showRulers: boolean;
+  /** A crosshair through the pointer, for lining objects up with the page
+   * and rulers. Session-only, off by default, excluded from exports. */
+  showCrosshair: boolean;
+  /** Draw the page box (from PageSetup) on the canvas. Off by default. */
+  showPageOutline: boolean;
+  rulerUnit: "mm" | "in" | "bond";
+  setRulerUnit: (unit: "mm" | "in" | "bond") => void;
+  toggleShowRulers: () => void;
+  toggleShowCrosshair: () => void;
+  toggleShowPageOutline: () => void;
+  /** When on, dragging a singly-bonded atom keeps the bond length (the
+   * persistent form of the Ctrl/Cmd-drag lock); Shift still frees it for
+   * one gesture. */
+  fixedBondLength: boolean;
+  /** When on, drawing keeps snapping to snapAngleDegrees even if freeAngle
+   * is also on; Shift still frees the angle for one gesture. */
+  fixedAngle: boolean;
+  toggleFixedBondLength: () => void;
+  toggleFixedAngle: () => void;
   /** When on, the live IUPAC name panel re-resolves the name automatically
    * (debounced) as the molecule/selection changes, instead of requiring a
    * manual lookup via IupacNameButton. Off by default and persisted like
@@ -554,6 +683,16 @@ interface MoleculeStore {
    *  Persisted, like the 3D style preferences. */
   showComputedStereo: boolean;
   toggleComputedStereo: () => void;
+  /** When on, the canvas labels each scheme's reactants, products and
+   * conditions (see components/Canvas/ReactionRoleOverlay.tsx). A transient
+   * view aid like showComputedStereo: not part of the molecule, never
+   * persisted, and excluded from exports. */
+  showReactionInterpretation: boolean;
+  toggleReactionInterpretation: () => void;
+  /** Atoms that were just auto-mapped, highlighted briefly on the canvas.
+   * The map numbers themselves live on the atoms and persist; this set is
+   * only the visual "these are the pairs I found" cue. */
+  reactionMapHighlight: Set<string>;
   /** Current on-screen pixel size of the canvas <svg>, kept in sync by MoleculeCanvas via ResizeObserver. */
   canvasSize: { width: number; height: number };
 
@@ -568,6 +707,11 @@ interface MoleculeStore {
   setHoverAtomId: (id: string | null) => void;
   setHoverBondId: (id: string | null) => void;
   setHoverPoint: (p: Point | null) => void;
+  /** Turns keyboard drawing on/off. Enabling seeds the cursor at the centre
+   * of the visible canvas when there isn't one already; disabling clears it
+   * so a stale crosshair never lingers. */
+  setKeyboardDrawing: (on: boolean) => void;
+  setKeyboardCursor: (p: Point | null) => void;
   setAtomLabelRevealTargets: (targets: Set<string>) => void;
   setRingTemplateId: (id: string) => void;
   setFunctionalGroupTemplateId: (id: string) => void;
@@ -582,6 +726,25 @@ interface MoleculeStore {
   toggleTheme: () => void;
   toggleCanvasBackground: () => void;
   toggleShowGrid: () => void;
+  /** Replaces the active tab's page setup. Not undoable: the paper is not
+   * part of the drawing's edit history. */
+  setPageSetup: (page: PageSetup) => void;
+  /** Groups the current atom/annotation/cycle selection. Returns the new
+   * group's id, or null when fewer than two objects are selected. */
+  groupSelection: () => string | null;
+  /** Removes the groups touched by the current selection. Returns how many
+   * were removed. */
+  ungroupSelection: () => number;
+  bringToFront: () => void;
+  sendToBack: () => void;
+  bringForward: () => void;
+  sendBackward: () => void;
+  /** Shared implementation for the four restack commands. */
+  restackSelection: (mode: RestackMode) => void;
+  /** Polite screen-reader message for actions that don't change the
+   * structure description (grouping, restacking). */
+  announcement: { key: string; params?: Record<string, string | number>; seq: number } | null;
+  announce: (key: string, params?: Record<string, string | number>) => void;
   toggleAutoIupacName: () => void;
   toggleLanguage: () => void;
   setSidebarWidth: (w: number) => void;
@@ -596,6 +759,41 @@ interface MoleculeStore {
    * and clicking an already-numbered atom clears its number instead. */
   handleMapNumberClick: (atomId: string) => void;
   clearAllMapNumbers: () => void;
+  /** Creates reaction schemes from the selected structures and arrows. Returns
+   * how many schemes were created (0 when the selection has no usable row). */
+  createSchemeFromSelection: () => number;
+  removeScheme: (schemeId: string) => void;
+  selectScheme: (schemeId: string) => void;
+  /** Tidies one scheme (or the scheme touched by the selection). One undo
+   * step for every atom and annotation it moves. */
+  cleanReaction: (schemeId?: string, options?: { augmented?: boolean }) => number;
+  /** Derives map numbers for a scheme. Returns how many atoms were mapped. */
+  mapReactionAtoms: (schemeId?: string) => number;
+  clearReactionMap: (schemeId?: string) => void;
+  validateReactionMap: (schemeId?: string) => ReactionMapValidation | null;
+  /** Creates a live catalytic cycle. Without explicit nodes it uses the
+   * connected structures in the current selection; without a centre it
+   * centres the ring on those structures. Returns the new cycle's id, or
+   * null when there is nothing to place. */
+  addCatalyticCycle: (options?: {
+    nodes?: string[][];
+    centre?: Point;
+    radius?: number;
+    clockwise?: boolean;
+  }) => string | null;
+  removeCatalyticCycle: (cycleId: string) => void;
+  selectCatalyticCycle: (cycleId: string | null) => void;
+  /** Adds one selected structure (or explicit atom list) as a new node. */
+  addCycleNode: (cycleId: string, atomIds?: Iterable<string>) => boolean;
+  removeCycleNode: (cycleId: string, nodeIndex: number) => void;
+  setCycleDirection: (cycleId: string, clockwise?: boolean) => void;
+  setCycleScale: (cycleId: string, scale: number) => void;
+  setCycleRadius: (cycleId: string, radius: number) => void;
+  addCycleSide: (cycleId: string, direction: CycleSide["direction"], angle?: number, label?: string) => string | null;
+  removeCycleSide: (cycleId: string, sideId: string) => void;
+  attachCycleLabel: (cycleId: string, label: string) => void;
+  /** Moves the ring and every atom of its nodes together. */
+  moveCatalyticCycle: (cycleId: string, dx: number, dy: number) => void;
   setRotationSession: (s: RotationSession | null) => void;
   /** Rotates the current selection back to its position from the start
    * of the current rotation "streak" (see RotationSession) — a no-op if
@@ -656,6 +854,7 @@ interface MoleculeStore {
   setArrowTailStyle: (s: ArrowTailChoice) => void;
   setArrowShaftStyle: (s: ArrowShaftChoice) => void;
   setArrowPreview: (p: ArrowPreview | null) => void;
+  setCyclePreview: (p: { centre: Point; radius: number } | null) => void;
   setBracketPairPreview: (p: ArrowPreview | null) => void;
   setShapePreview: (p: ArrowPreview | null) => void;
   setOrbitalPreview: (p: OrbitalDragPreview | null) => void;
@@ -773,9 +972,18 @@ interface MoleculeStore {
 
   // --- structural actions (committed to history) ---
   addAtom: (p: Point, element: Element, group?: string, isotope?: number) => string;
+  /**
+   * Places an atom and, when `fromAtomId` points at an existing atom,
+   * draws a single bond from it in the same commit — the keyboard cursor's
+   * equivalent of dragging out with the atom tool. One undo step either way.
+   */
+  addAtomWithBond: (p: Point, element: Element, fromAtomId: string | null, group?: string, isotope?: number) => string;
   /** Places a new atom with a whole REACTIVE_SITE_PRESETS entry applied
    * (label, charge, lone pairs) in one commit/undo step. */
   addReactiveSiteAtom: (p: Point, presetId: string) => string | null;
+  /** Same as addReactiveSiteAtom, plus an optional bond from an existing
+   * atom, committed together. */
+  addReactiveSiteAtomWithBond: (p: Point, presetId: string, fromAtomId: string | null) => string | null;
   addBond: (a1: string, a2: string, order?: BondOrder, stereo?: BondStereo, dative?: boolean) => void;
   /**
    * Adds a whole carbon chain in one undo step. If `fromAtomId` is null, a
@@ -937,6 +1145,11 @@ interface MoleculeStore {
 
   // --- drag support (position updates without spamming history) ---
   moveAtomsTransient: (moves: Record<string, Point>) => void;
+  /** Same transient contract as moveAtomsTransient, for dragging a whole
+   * catalytic cycle: the ring's centre and its node atoms move together. */
+  moveCatalyticCycleTransient: (cycleId: string, centre: Point, moves: Record<string, Point>) => void;
+  /** Transient radius update while the scale handle is dragged. */
+  setCycleRadiusTransient: (cycleId: string, radius: number) => void;
   commitCheckpoint: (before: Snapshot) => void;
 
   // --- history ---
@@ -973,6 +1186,11 @@ function idsUsedByDocuments(
         ids.push(...step.arrowIds);
       }
     }
+    for (const cycle of tb.molecule.cycles ?? []) {
+      ids.push(cycle.id);
+      for (const side of cycle.sides ?? []) ids.push(side.id);
+      for (const node of cycle.nodes) ids.push(...node);
+    }
     // Values, not keys. Annotation records are keyed by the annotation's own
     // id and both come from nextId(), so the keys would work too - but reading
     // the id off the value keeps this correct if the keying ever diverges,
@@ -988,9 +1206,36 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     set((s) => {
       const next = mutate(s.molecule);
       if (next === s.molecule) return s;
+      const groups = pruneObjectGroups(s.groups, next, s.annotations) ?? [];
       return {
         molecule: next,
-        past: [...s.past, { molecule: s.molecule, annotations: s.annotations }].slice(-HISTORY_LIMIT),
+        ...(groups === s.groups ? {} : { groups }),
+        past: [...s.past, { molecule: s.molecule, annotations: s.annotations, groups: s.groups }].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      };
+    });
+  };
+
+  /**
+   * Applies an edit that changes both the molecule and the annotations map
+   * as one undo step. Rotate/mirror (which move grouped annotations with
+   * their atoms) and group/restack (which edit neither) need this; the
+   * separate commit/commitAnnotations helpers would otherwise create two
+   * history entries or leave the other half stale.
+   */
+  const commitDocument = (
+    mutate: (mol: Molecule, anns: Record<string, Annotation>) => { molecule: Molecule; annotations: Record<string, Annotation> }
+  ) => {
+    set((s) => {
+      const next = mutate(s.molecule, s.annotations);
+      if (next.molecule === s.molecule && next.annotations === s.annotations) return s;
+      const groups = pruneObjectGroups(s.groups, next.molecule, next.annotations) ?? [];
+      return {
+        molecule: next.molecule,
+        annotations: next.annotations,
+        ...(groups === s.groups ? {} : { groups }),
+        past: [...s.past, { molecule: s.molecule, annotations: s.annotations, groups: s.groups }].slice(-HISTORY_LIMIT),
         future: [],
         hasUnsavedChanges: true,
       };
@@ -1036,10 +1281,12 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         if (sgroups) molecule.sgroups = sgroups;
         else delete molecule.sgroups;
       }
+      const groups = pruneObjectGroups(s.groups, molecule, next) ?? [];
       return {
         ...(molecule === s.molecule ? {} : { molecule }),
         annotations: next,
-        past: [...s.past, { molecule: s.molecule, annotations: s.annotations }].slice(-HISTORY_LIMIT),
+        ...(groups === s.groups ? {} : { groups }),
+        past: [...s.past, { molecule: s.molecule, annotations: s.annotations, groups: s.groups }].slice(-HISTORY_LIMIT),
         future: [],
         hasUnsavedChanges: true,
       };
@@ -1058,6 +1305,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
   const snapshotActiveDocument = (s: MoleculeStore): TabDocument => ({
     molecule: s.molecule,
     annotations: s.annotations,
+    groups: s.groups,
     view: s.view,
     page: s.page,
     past: s.past,
@@ -1073,9 +1321,12 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
   const transientResetFields = () => ({
     selected: new Set<string>(),
     selectedAnnotationIds: new Set<string>(),
+    selectedCycleId: null,
     hoverAtomId: null,
     hoverBondId: null,
     hoverPoint: null,
+    keyboardDrawing: false,
+    keyboardCursor: null,
     atomEditTarget: null,
     labelEditTarget: null,
     editingTextId: null,
@@ -1083,12 +1334,49 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     bondPreview: null,
     atomMoveAnchor: null,
     arrowPreview: null,
+    cyclePreview: null,
     // The 3D<->2D atom link is a transient view link like the rest of these:
     // it points at an atom id in one specific drawing, so carrying it across
     // a tab switch would point at nothing (or, worse, at an unrelated atom
     // that happens to share the id).
     linkedAtomId: null,
   });
+
+  /** Resolves the cycle a cycle action should operate on, mirroring
+   * findSchemeForAction: explicit id, then the selected cycle, then a cycle
+   * containing a selected atom, then the first cycle. */
+  const findCycleForAction = (cycleId?: string): CatalyticCycle | null => {
+    const s = get();
+    const cycles = s.molecule.cycles ?? [];
+    if (cycleId) return cycles.find((cycle) => cycle.id === cycleId) ?? null;
+    if (s.selectedCycleId) {
+      const found = cycles.find((cycle) => cycle.id === s.selectedCycleId);
+      if (found) return found;
+    }
+    for (const id of s.selected) {
+      const found = cycles.find((cycle) => cycle.nodes.some((node) => node.includes(id)));
+      if (found) return found;
+    }
+    return cycles[0] ?? null;
+  };
+
+  /** Resolves the scheme a reaction action should operate on: an explicit id
+   * when the caller has one (the info panel does), otherwise the scheme that
+   * contains the current selection, otherwise the first scheme. */
+  const findSchemeForAction = (schemeId?: string) => {
+    const s = get();
+    const schemes = s.molecule.schemes ?? [];
+    if (schemeId) return schemes.find((scheme) => scheme.id === schemeId) ?? null;
+    for (const id of s.selected) {
+      const found = findSchemeForAtom(s.molecule, id);
+      if (found) return found;
+    }
+    for (const id of s.selectedAnnotationIds) {
+      const found = findSchemeForAnnotation(s.molecule, id);
+      if (found) return found;
+    }
+    return schemes[0] ?? null;
+  };
 
   return {
     molecule: M.emptyMolecule(),
@@ -1102,6 +1390,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     annotations: {},
     selectedAnnotationIds: new Set(),
+    selectedCycleId: null,
     alignmentGuides: [],
     editingTextId: null,
     arrowVariant: "forward",
@@ -1112,6 +1401,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     arrowTailStyle: "auto",
     arrowShaftStyle: "auto",
     arrowPreview: null,
+    cyclePreview: null,
     bracketPairPreview: null,
     shapePreview: null,
     orbitalPreview: null,
@@ -1133,6 +1423,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     hoverAtomId: null,
     hoverBondId: null,
     hoverPoint: null,
+    keyboardDrawing: false,
+    keyboardCursor: null,
     atomLabelRevealTargets: new Set(),
     ringTemplateId: "benzene",
     functionalGroupTemplateId: "carboxylic-acid",
@@ -1141,12 +1433,20 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     selected: new Set(),
     view: { scale: 1, tx: 0, ty: 0 },
     page: defaultPageSetup(),
+    groups: [],
     theme: detectInitialTheme(),
     // Plain white canvas (screenshot-ready) until someone picks otherwise;
     // "theme" restores the normal themed background + grid. Persisted — see
     // detectInitialCanvasBackground.
     canvasBackground: detectInitialCanvasBackground(),
     showGrid: false,
+    showRulers: false,
+    showCrosshair: false,
+    showPageOutline: false,
+    rulerUnit: "mm",
+    fixedBondLength: false,
+    fixedAngle: false,
+    announcement: null,
     autoIupacName: detectAutoIupacName(),
     language: detectInitialLanguage(),
     sidebarWidth: detectInitialSidebarWidth(),
@@ -1180,6 +1480,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       DEFAULT_STRUCTURE3D_SURFACE_OPACITY
     ),
     showComputedStereo: detectStoredBooleanPreference(COMPUTED_STEREO_STORAGE_KEY, false),
+    showReactionInterpretation: false,
+    reactionMapHighlight: new Set<string>(),
     canvasSize: { width: 800, height: 600 },
 
     setTool: (t) => set((s) => ({ tool: t, pendingMapAtom: s.tool === "map-number" && t !== "map-number" ? null : s.pendingMapAtom })),
@@ -1192,17 +1494,50 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setHoverAtomId: (id) => set({ hoverAtomId: id }),
     setHoverBondId: (id) => set({ hoverBondId: id }),
     setHoverPoint: (p) => set({ hoverPoint: p }),
+    setKeyboardDrawing: (on) =>
+      set((s) => ({
+        keyboardDrawing: on,
+        keyboardCursor: on
+          ? s.keyboardCursor ?? {
+              x: (s.canvasSize.width / 2 - s.view.tx) / s.view.scale,
+              y: (s.canvasSize.height / 2 - s.view.ty) / s.view.scale,
+            }
+          : null,
+        status: on ? "status.keyboardOn" : "status.keyboardOff",
+      })),
+    setKeyboardCursor: (p) => set({ keyboardCursor: p }),
     setAtomLabelRevealTargets: (targets) => set({ atomLabelRevealTargets: targets }),
     setRingTemplateId: (id) => set({ ringTemplateId: id }),
     setFunctionalGroupTemplateId: (id) => set({ functionalGroupTemplateId: id, functionalGroupDesiredAngle: null }),
     setFunctionalGroupDesiredAngle: (angle) => set({ functionalGroupDesiredAngle: angle }),
     setFunctionalGroupPendingPlacement: (p) => set({ functionalGroupPendingPlacement: p }),
-    setSelected: (s) => set({ selected: s }),
+    setSelected: (atoms) =>
+      set((s) => {
+        // Selecting any member of a group selects the whole group, so a
+        // click can never leave a group half-selected and dragging it can
+        // never tear it apart. An empty set is a plain deselect.
+        if (atoms.size === 0) return { selected: atoms };
+        const expanded = expandGroupSelection(s.groups, atoms, [], []);
+        return {
+          selected: expanded.atomIds,
+          selectedAnnotationIds: expanded.annotationIds.size > 0 ? expanded.annotationIds : s.selectedAnnotationIds,
+          selectedCycleId: expanded.cycleIds.size === 1 ? [...expanded.cycleIds][0] : s.selectedCycleId,
+        };
+      }),
     setView: (v) => set((s) => ({ view: typeof v === "function" ? v(s.view) : v })),
     toggleTheme: () => set((s) => persistTheme(nextTheme(s.theme))),
     setTheme: (theme) => set(() => persistTheme(theme)),
     toggleCanvasBackground: () => set((s) => persistCanvasBackground(s.canvasBackground === "white" ? "theme" : "white")),
     toggleShowGrid: () => set((s) => ({ showGrid: !s.showGrid })),
+    toggleShowRulers: () => set((s) => ({ showRulers: !s.showRulers })),
+    toggleShowCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
+    toggleShowPageOutline: () => set((s) => ({ showPageOutline: !s.showPageOutline })),
+    setRulerUnit: (unit) => set({ rulerUnit: unit }),
+    toggleFixedBondLength: () => set((s) => ({ fixedBondLength: !s.fixedBondLength })),
+    toggleFixedAngle: () => set((s) => ({ fixedAngle: !s.fixedAngle })),
+    setPageSetup: (page) => set({ page, hasUnsavedChanges: true }),
+    announce: (key, params) =>
+      set((s) => ({ announcement: { key, params, seq: (s.announcement?.seq ?? 0) + 1 } })),
     toggleAutoIupacName: () =>
       set((s) => {
         const next = !s.autoIupacName;
@@ -1266,6 +1601,294 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     clearAllMapNumbers: () => {
       set({ pendingMapAtom: null });
       commit((mol) => M.clearAllMapNumbers(mol));
+    },
+    createSchemeFromSelection: () => {
+      const { molecule, annotations, selected, selectedAnnotationIds } = get();
+      const schemes = buildSchemesFromSelection(molecule, annotations, selected, selectedAnnotationIds);
+      if (schemes.length === 0) return 0;
+      const before: Snapshot = { molecule, annotations };
+      const next: Molecule = { ...molecule, schemes: [...(molecule.schemes ?? []), ...schemes] };
+      const first = schemes[0];
+      set((s) => ({
+        molecule: next,
+        selected: new Set(schemeAtomIds(first)),
+        selectedAnnotationIds: new Set(schemeArrowIds(first)),
+        past: [...s.past, before].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      }));
+      return schemes.length;
+    },
+    removeScheme: (schemeId) => {
+      const { molecule, annotations } = get();
+      const schemes = molecule.schemes ?? [];
+      if (!schemes.some((scheme) => scheme.id === schemeId)) return;
+      const remaining = schemes.filter((scheme) => scheme.id !== schemeId);
+      const next: Molecule = { ...molecule };
+      if (remaining.length > 0) next.schemes = remaining;
+      else delete next.schemes;
+      const before: Snapshot = { molecule, annotations };
+      set((s) => ({
+        molecule: next,
+        past: [...s.past, before].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      }));
+    },
+    selectScheme: (schemeId) => {
+      const scheme = (get().molecule.schemes ?? []).find((candidate) => candidate.id === schemeId);
+      if (!scheme) return;
+      set({
+        selected: new Set(schemeAtomIds(scheme)),
+        selectedAnnotationIds: new Set(schemeArrowIds(scheme)),
+      });
+    },
+    cleanReaction: (schemeId, options) => {
+      const { molecule, annotations } = get();
+      // With no explicit scheme and several rows on the page, the command
+      // tidies the whole grid: each row is cleaned, then the rows are
+      // aligned and stacked. A single scheme keeps the original one-row
+      // behaviour (including "clean the scheme containing the selection").
+      const allSchemes = molecule.schemes ?? [];
+      const result = !schemeId && allSchemes.length > 1
+        ? layoutSchemeGrid(molecule, annotations, allSchemes, options)
+        : (() => {
+            const scheme = findSchemeForAction(schemeId);
+            return scheme ? cleanReactionImpl(molecule, annotations, scheme, options) : null;
+          })();
+      if (!result || result.count === 0) return 0;
+      const before: Snapshot = { molecule, annotations };
+      set((s) => ({
+        molecule: result.molecule,
+        annotations: result.annotations,
+        past: [...s.past, before].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      }));
+      return result.count;
+    },
+    mapReactionAtoms: (schemeId) => {
+      const scheme = findSchemeForAction(schemeId);
+      if (!scheme) return 0;
+      const { molecule, annotations } = get();
+      const interpretation = interpretReaction(molecule, annotations, scheme);
+      const steps = interpretation.steps.map((step) => ({
+        reactants: step.reactants
+          .filter((part): part is Extract<typeof part, { kind: "structure" }> => part.kind === "structure")
+          .map((part) => part.atomIds),
+        products: step.products
+          .filter((part): part is Extract<typeof part, { kind: "structure" }> => part.kind === "structure")
+          .map((part) => part.atomIds),
+      }));
+      const mapping = mapReactionAtomsImpl(molecule, steps);
+      if (!mapping) return 0;
+
+      let next = molecule;
+      for (const [id, number] of mapping.numbers) {
+        const atom = next.atoms[id];
+        if (!atom || atom.mapNumber === number) continue;
+        next = M.setAtomMapNumber(next, id, number);
+      }
+
+      if (next === molecule) {
+        set({ reactionMapHighlight: new Set(mapping.mappedAtomIds) });
+        return mapping.mappedAtomIds.size;
+      }
+
+      const before: Snapshot = { molecule, annotations };
+      set((s) => ({
+        molecule: next,
+        reactionMapHighlight: new Set(mapping.mappedAtomIds),
+        past: [...s.past, before].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      }));
+      return mapping.mappedAtomIds.size;
+    },
+    clearReactionMap: (schemeId) => {
+      const scheme = findSchemeForAction(schemeId);
+      if (!scheme) return;
+      const { molecule, annotations } = get();
+      const next = clearReactionMapImpl(molecule, schemeAtomIds(scheme));
+      if (next === molecule) {
+        set({ reactionMapHighlight: new Set() });
+        return;
+      }
+      const before: Snapshot = { molecule, annotations };
+      set((s) => ({
+        molecule: next,
+        reactionMapHighlight: new Set(),
+        past: [...s.past, before].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      }));
+    },
+    validateReactionMap: (schemeId) => {
+      const scheme = findSchemeForAction(schemeId);
+      return scheme ? validateReactionMapImpl(get().molecule, scheme) : null;
+    },
+    addCatalyticCycle: (options) => {
+      const s = get();
+      const nodes = options?.nodes ?? fragmentsForNodes(s.molecule, s.selected);
+      if (nodes.length === 0 && !options?.centre) return null;
+      const atomIds = nodes.flat();
+      const centre = options?.centre ?? centroidOf(s.molecule, atomIds, { x: 0, y: 0 });
+      const radius = options?.radius ?? suggestedCycleRadius(s.molecule, centre, nodes);
+      const cycle: CatalyticCycle = {
+        id: `cycle-${nextId()}`,
+        centre,
+        radius,
+        clockwise: options?.clockwise ?? true,
+        nodes,
+      };
+      commit((mol) => ({ ...mol, cycles: [...(mol.cycles ?? []), cycle] }));
+      set({ selectedCycleId: cycle.id });
+      return cycle.id;
+    },
+    removeCatalyticCycle: (cycleId) => {
+      commit((mol) => {
+        const cycles = mol.cycles ?? [];
+        if (!cycles.some((cycle) => cycle.id === cycleId)) return mol;
+        const remaining = cycles.filter((cycle) => cycle.id !== cycleId);
+        const next: Molecule = { ...mol };
+        if (remaining.length > 0) next.cycles = remaining;
+        else delete next.cycles;
+        return next;
+      });
+      if (get().selectedCycleId === cycleId) set({ selectedCycleId: null });
+    },
+    selectCatalyticCycle: (cycleId) =>
+      set((s) => {
+        if (!cycleId) return { selectedCycleId: null };
+        const expanded = expandGroupSelection(s.groups, [], [], [cycleId]);
+        return {
+          selectedCycleId: cycleId,
+          selected: expanded.atomIds.size > 0 ? expanded.atomIds : s.selected,
+          selectedAnnotationIds: expanded.annotationIds.size > 0 ? expanded.annotationIds : s.selectedAnnotationIds,
+        };
+      }),
+    addCycleNode: (cycleId, atomIds) => {
+      const s = get();
+      const cycle = (s.molecule.cycles ?? []).find((candidate) => candidate.id === cycleId);
+      if (!cycle) return false;
+      const source = atomIds ? [...atomIds] : [...s.selected];
+      // A structure already on the ring (or one that shares an atom with a
+      // node) cannot be a second intermediate: adding it again would draw
+      // two overlapping arcs and leave a duplicate that delete/undo cannot
+      // tell apart. Treat the repeat as a no-op instead.
+      const existing = new Set(cycle.nodes.flat());
+      const nodes = fragmentsForNodes(s.molecule, source).filter(
+        (node) => !node.some((id) => existing.has(id))
+      );
+      if (nodes.length === 0) return false;
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) =>
+          candidate.id === cycleId ? { ...candidate, nodes: [...candidate.nodes, ...nodes] } : candidate
+        ),
+      }));
+      return true;
+    },
+    removeCycleNode: (cycleId, nodeIndex) => {
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) =>
+          candidate.id === cycleId
+            ? { ...candidate, nodes: candidate.nodes.filter((_, index) => index !== nodeIndex) }
+            : candidate
+        ),
+      }));
+    },
+    setCycleDirection: (cycleId, clockwise) => {
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) =>
+          candidate.id === cycleId
+            ? { ...candidate, clockwise: clockwise ?? !candidate.clockwise }
+            : candidate
+        ),
+      }));
+    },
+    setCycleScale: (cycleId, scale) => {
+      const clamped = Math.max(0.4, Math.min(3, Number.isFinite(scale) ? scale : 1));
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) =>
+          candidate.id === cycleId ? { ...candidate, scale: clamped } : candidate
+        ),
+      }));
+    },
+    setCycleRadius: (cycleId, radius) => {
+      const clamped = Math.max(20, Math.min(1_000_000, Number.isFinite(radius) ? radius : 100));
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) =>
+          candidate.id === cycleId ? { ...candidate, radius: clamped } : candidate
+        ),
+      }));
+    },
+    addCycleSide: (cycleId, direction, angle, label) => {
+      const cycle = findCycleForAction(cycleId);
+      if (!cycle) return null;
+      const side: CycleSide = {
+        id: `side-${nextId()}`,
+        direction,
+        angle: angle ?? -Math.PI / 4 + ((cycle.sides?.length ?? 0) * Math.PI) / 2,
+        ...(label ? { label } : {}),
+      };
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) =>
+          candidate.id === cycleId ? { ...candidate, sides: [...(candidate.sides ?? []), side] } : candidate
+        ),
+      }));
+      return side.id;
+    },
+    removeCycleSide: (cycleId, sideId) => {
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) => {
+          if (candidate.id !== cycleId) return candidate;
+          const sides = (candidate.sides ?? []).filter((side) => side.id !== sideId);
+          const next: CatalyticCycle = { ...candidate };
+          if (sides.length > 0) next.sides = sides;
+          else delete next.sides;
+          return next;
+        }),
+      }));
+    },
+    attachCycleLabel: (cycleId, label) => {
+      const trimmed = label.trim().slice(0, 120);
+      commit((mol) => ({
+        ...mol,
+        cycles: (mol.cycles ?? []).map((candidate) => {
+          if (candidate.id !== cycleId) return candidate;
+          const next: CatalyticCycle = { ...candidate };
+          if (trimmed) next.label = trimmed;
+          else delete next.label;
+          return next;
+        }),
+      }));
+    },
+    moveCatalyticCycle: (cycleId, dx, dy) => {
+      const cycle = findCycleForAction(cycleId);
+      if (!cycle) return;
+      const moves: Record<string, Point> = {};
+      for (const id of cycleAtomIds(cycle)) {
+        const atom = get().molecule.atoms[id];
+        if (atom) moves[id] = { x: atom.x + dx, y: atom.y + dy };
+      }
+      commit((mol) => {
+        const moved = M.moveAtoms(mol, moves);
+        return {
+          ...moved,
+          cycles: (moved.cycles ?? []).map((candidate) =>
+            candidate.id === cycleId
+              ? { ...candidate, centre: { x: candidate.centre.x + dx, y: candidate.centre.y + dy } }
+              : candidate
+          ),
+        };
+      });
     },
     setRotationSession: (s) => set({ rotationSession: s }),
     resetRotation: () => {
@@ -1385,6 +2008,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         }
         return { showComputedStereo };
       }),
+    toggleReactionInterpretation: () =>
+      set((s) => ({ showReactionInterpretation: !s.showReactionInterpretation })),
     setCanvasSize: (size) => set({ canvasSize: size }),
     // Annotations are part of "everything" — a reaction scheme is mostly
     // arrows and condition text, so selecting only the atoms and leaving
@@ -1400,7 +2025,16 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       })),
     clearSelection: () => set({ selected: new Set() }),
 
-    setSelectedAnnotationIds: (ids) => set({ selectedAnnotationIds: ids }),
+    setSelectedAnnotationIds: (ids) =>
+      set((s) => {
+        if (ids.size === 0) return { selectedAnnotationIds: ids };
+        const expanded = expandGroupSelection(s.groups, [], ids, []);
+        return {
+          selectedAnnotationIds: expanded.annotationIds,
+          selected: expanded.atomIds.size > 0 ? expanded.atomIds : s.selected,
+          selectedCycleId: expanded.cycleIds.size === 1 ? [...expanded.cycleIds][0] : s.selectedCycleId,
+        };
+      }),
     setAlignmentGuides: (guides) =>
       set((s) =>
         guides.length === 0 && s.alignmentGuides.length === 0 ? s : { alignmentGuides: guides },
@@ -1414,6 +2048,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setArrowTailStyle: (s) => set({ arrowTailStyle: s }),
     setArrowShaftStyle: (s) => set({ arrowShaftStyle: s }),
     setArrowPreview: (p) => set({ arrowPreview: p }),
+    setCyclePreview: (p) => set({ cyclePreview: p }),
     setBracketPairPreview: (p) => set({ bracketPairPreview: p }),
     setShapePreview: (p) => set({ shapePreview: p }),
     setOrbitalPreview: (p) => set({ orbitalPreview: p }),
@@ -1431,6 +2066,18 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       return id;
     },
 
+    addAtomWithBond: (p, element, fromAtomId, group, isotope) => {
+      const id = nextId();
+      commit((mol) => {
+        let next = M.addAtom(mol, id, p, element, group, isotope);
+        if (fromAtomId && mol.atoms[fromAtomId]) {
+          next = M.addBond(next, nextId(), fromAtomId, id, 1, "none");
+        }
+        return next;
+      });
+      return id;
+    },
+
     addReactiveSiteAtom: (p, presetId) => {
       const preset = REACTIVE_SITE_PRESETS.find((pr) => pr.id === presetId);
       if (!preset) return null;
@@ -1439,6 +2086,22 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         let next = M.addAtom(mol, id, p, "C", preset.label);
         next = M.setAtomChargeAbsolute(next, id, preset.charge);
         next = M.setAtomLonePairs(next, id, preset.lonePairs);
+        return next;
+      });
+      return id;
+    },
+
+    addReactiveSiteAtomWithBond: (p, presetId, fromAtomId) => {
+      const preset = REACTIVE_SITE_PRESETS.find((pr) => pr.id === presetId);
+      if (!preset) return null;
+      const id = nextId();
+      commit((mol) => {
+        let next = M.addAtom(mol, id, p, "C", preset.label);
+        next = M.setAtomChargeAbsolute(next, id, preset.charge);
+        next = M.setAtomLonePairs(next, id, preset.lonePairs);
+        if (fromAtomId && mol.atoms[fromAtomId]) {
+          next = M.addBond(next, nextId(), fromAtomId, id, 1, "none");
+        }
         return next;
       });
       return id;
@@ -1554,8 +2217,17 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     deleteSelection: () => {
-      const { selected } = get();
-      if (selected.size === 0) return;
+      const { selected, selectedCycleId } = get();
+      if (selected.size === 0) {
+        // Nothing structural is selected, so Delete targets the cycle figure
+        // itself — leaving its intermediates on the canvas, the same result
+        // as Delete on a selected annotation.
+        if (selectedCycleId) {
+          get().removeCatalyticCycle(selectedCycleId);
+          set({ selectedCycleId: null });
+        }
+        return;
+      }
       commit((mol) => {
         let next = mol;
         selected.forEach((id) => { next = M.deleteAtom(next, id); });
@@ -1585,6 +2257,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         tabDocuments[tb.id] = {
           molecule: tb.molecule,
           annotations: tb.annotations,
+          groups: tb.groups ?? [],
           view: tb.view,
           page: tb.page ?? defaultPageSetup(),
           past: [],
@@ -1598,6 +2271,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         tabDocuments,
         molecule: active.molecule,
         annotations: active.annotations,
+        groups: active.groups ?? [],
         view: active.view,
         page: active.page ?? defaultPageSetup(),
         past: [],
@@ -1621,6 +2295,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         activeTabId: id,
         molecule: mol,
         annotations,
+        groups: [],
         view: DEFAULT_VIEW,
         page,
         past: [],
@@ -1643,6 +2318,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         newTabDocuments[newId] = {
           molecule: tb.molecule,
           annotations: tb.annotations,
+          groups: tb.groups ?? [],
           view: tb.view,
           page: tb.page ?? defaultPageSetup(),
           past: [],
@@ -1657,6 +2333,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         activeTabId: newActiveId,
         molecule: activeSaved.molecule,
         annotations: activeSaved.annotations,
+        groups: activeSaved.groups ?? [],
         view: activeSaved.view,
         page: activeSaved.page ?? defaultPageSetup(),
         past: [],
@@ -1669,7 +2346,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       const s = get();
       return s.tabs.map((tb) => {
         if (tb.id === s.activeTabId) {
-          return { id: tb.id, title: tb.title, molecule: s.molecule, annotations: s.annotations, view: s.view, page: s.page };
+          return { id: tb.id, title: tb.title, molecule: s.molecule, annotations: s.annotations, groups: s.groups, view: s.view, page: s.page };
         }
         const doc = s.tabDocuments[tb.id];
         return {
@@ -1677,6 +2354,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
           title: tb.title,
           molecule: doc?.molecule ?? M.emptyMolecule(),
           annotations: doc?.annotations ?? {},
+          groups: doc?.groups ?? [],
           view: doc?.view ?? DEFAULT_VIEW,
           page: doc?.page ?? defaultPageSetup(),
         };
@@ -1691,11 +2369,12 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         tabDocuments: {
           ...s.tabDocuments,
           [s.activeTabId]: snapshotActiveDocument(s),
-          [id]: { molecule: M.emptyMolecule(), annotations: {}, view: DEFAULT_VIEW, page: defaultPageSetup(), past: [], future: [], hasUnsavedChanges: false },
+          [id]: { molecule: M.emptyMolecule(), annotations: {}, groups: [], view: DEFAULT_VIEW, page: defaultPageSetup(), past: [], future: [], hasUnsavedChanges: false },
         },
         activeTabId: id,
         molecule: M.emptyMolecule(),
         annotations: {},
+        groups: [],
         view: DEFAULT_VIEW,
         page: defaultPageSetup(),
         past: [],
@@ -1714,6 +2393,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         activeTabId: id,
         molecule: incoming.molecule,
         annotations: incoming.annotations,
+        groups: incoming.groups,
         view: incoming.view,
         page: incoming.page,
         past: incoming.past,
@@ -1755,6 +2435,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
           activeTabId: neighborId,
           molecule: incoming.molecule,
           annotations: incoming.annotations,
+          groups: incoming.groups,
           view: incoming.view,
           page: incoming.page,
           past: incoming.past,
@@ -1870,7 +2551,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     pasteFragment: (fragment) => {
       const hasAtoms = Object.keys(fragment.molecule.atoms).length > 0;
       const hasAnnotations = fragment.annotations.length > 0;
-      if (!hasAtoms && !hasAnnotations) return;
+      const hasCycles = (fragment.molecule.cycles?.length ?? 0) > 0;
+      if (!hasAtoms && !hasAnnotations && !hasCycles) return;
 
       const { molecule, annotations, view, canvasSize } = get();
 
@@ -1893,6 +2575,12 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
           minX = Math.min(minX, ann.x); maxX = Math.max(maxX, ann.x + ann.width);
           minY = Math.min(minY, ann.y); maxY = Math.max(maxY, ann.y + ann.height);
         }
+      }
+      for (const cycle of fragment.molecule.cycles ?? []) {
+        minX = Math.min(minX, cycle.centre.x - cycle.radius);
+        maxX = Math.max(maxX, cycle.centre.x + cycle.radius);
+        minY = Math.min(minY, cycle.centre.y - cycle.radius);
+        maxY = Math.max(maxY, cycle.centre.y + cycle.radius);
       }
 
       const baseBox = M.boundingBox(molecule);
@@ -1965,9 +2653,109 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       }
     },
 
+    groupSelection: () => {
+      const s = get();
+      const cycleIds = s.selectedCycleId ? [s.selectedCycleId] : [];
+      const expanded = expandGroupSelection(s.groups, s.selected, s.selectedAnnotationIds, cycleIds);
+      const total = expanded.atomIds.size + expanded.annotationIds.size + expanded.cycleIds.size;
+      if (total < 2) return null;
+
+      // Absorbing an existing group re-homes its members rather than
+      // nesting groups, so an object is always in exactly one group.
+      const touched = groupsTouching(s.groups, expanded.atomIds, expanded.annotationIds, expanded.cycleIds);
+      const touchedIds = new Set(touched.map((group) => group.id));
+      const group: ObjectGroup = {
+        id: `group-${nextId()}`,
+        atomIds: [...expanded.atomIds],
+        annotationIds: [...expanded.annotationIds],
+        cycleIds: [...expanded.cycleIds],
+      };
+      set({
+        groups: [...(s.groups ?? []).filter((candidate) => !touchedIds.has(candidate.id)), group],
+        past: [...s.past, { molecule: s.molecule, annotations: s.annotations, groups: s.groups }].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+        selected: expanded.atomIds,
+        selectedAnnotationIds: expanded.annotationIds,
+        selectedCycleId: expanded.cycleIds.size === 1 ? [...expanded.cycleIds][0] : null,
+      });
+      get().announce("a11y.grouped", { count: total });
+      return group.id;
+    },
+
+    ungroupSelection: () => {
+      const s = get();
+      const cycleIds = s.selectedCycleId ? [s.selectedCycleId] : [];
+      const touched = groupsTouching(s.groups, s.selected, s.selectedAnnotationIds, cycleIds);
+      if (touched.length === 0) return 0;
+      const touchedIds = new Set(touched.map((group) => group.id));
+      const groups = (s.groups ?? []).filter((group) => !touchedIds.has(group.id));
+      set({
+        groups,
+        past: [...s.past, { molecule: s.molecule, annotations: s.annotations, groups: s.groups }].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      });
+      get().announce("a11y.ungrouped", { count: touched.length });
+      return touched.length;
+    },
+
+    bringToFront: () => get().restackSelection("front"),
+    sendToBack: () => get().restackSelection("back"),
+    bringForward: () => get().restackSelection("forward"),
+    sendBackward: () => get().restackSelection("backward"),
+    restackSelection: (mode) => {
+      const s = get();
+      const cycleIds = s.selectedCycleId ? [s.selectedCycleId] : [];
+      const expanded = expandGroupSelection(s.groups, s.selected, s.selectedAnnotationIds, cycleIds);
+      if (expanded.annotationIds.size === 0 && expanded.cycleIds.size === 0) return;
+
+      const annotationList = Object.values(s.annotations);
+      const cycleList = s.molecule.cycles ?? [];
+      const annotations = restackByZOrder(annotationList, expanded.annotationIds, mode);
+      const cycles = restackByZOrder(cycleList, expanded.cycleIds, mode);
+      const annotationsChanged = annotations !== annotationList;
+      const cyclesChanged = cycles !== cycleList;
+      if (!annotationsChanged && !cyclesChanged) return;
+
+      const nextAnnotations = annotationsChanged
+        ? Object.fromEntries(annotations.map((annotation) => [annotation.id, annotation]))
+        : s.annotations;
+      let molecule = s.molecule;
+      if (cyclesChanged) {
+        molecule = { ...molecule };
+        if (cycles.length > 0) molecule.cycles = cycles;
+        else delete molecule.cycles;
+      }
+      set({
+        molecule,
+        annotations: nextAnnotations,
+        past: [...s.past, { molecule: s.molecule, annotations: s.annotations, groups: s.groups }].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      });
+      const key =
+        mode === "front"
+          ? "a11y.broughtToFront"
+          : mode === "back"
+            ? "a11y.sentToBack"
+            : mode === "forward"
+              ? "a11y.broughtForward"
+              : "a11y.sentBackward";
+      get().announce(key);
+    },
+
     rotateSelection: (deltaDeg) => {
-      const { molecule, selected } = get();
-      const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+      const { molecule, selected, selectedAnnotationIds, selectedCycleId } = get();
+      const radians = (deltaDeg * Math.PI) / 180;
+      const expanding = selected.size > 0;
+      const expanded = expandGroupSelection(
+        get().groups,
+        expanding ? selected : [],
+        expanding ? selectedAnnotationIds : [],
+        expanding && selectedCycleId ? [selectedCycleId] : []
+      );
+      const ids = expanding ? [...expanded.atomIds] : Object.keys(molecule.atoms);
       if (ids.length === 0) return;
       let sx = 0;
       let sy = 0;
@@ -1976,14 +2764,70 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         sy += molecule.atoms[id].y;
       }
       const center = { x: sx / ids.length, y: sy / ids.length };
-      commit((mol) => M.rotateAtoms(mol, ids, center, (deltaDeg * Math.PI) / 180));
+      commitDocument((mol, anns) => {
+        let nextMol = M.rotateAtoms(mol, ids, center, radians);
+        if (expanded.cycleIds.size > 0) {
+          nextMol = {
+            ...nextMol,
+            cycles: (nextMol.cycles ?? []).map((cycle) =>
+              expanded.cycleIds.has(cycle.id) ? { ...cycle, centre: rotateAround(cycle.centre, center, radians) } : cycle
+            ),
+          };
+        }
+        if (expanded.annotationIds.size === 0) return { molecule: nextMol, annotations: anns };
+        const nextAnns = { ...anns };
+        for (const id of expanded.annotationIds) {
+          if (nextAnns[id]) nextAnns[id] = rotateAnnotation(nextAnns[id], center, radians);
+        }
+        return { molecule: nextMol, annotations: nextAnns };
+      });
     },
 
     mirrorSelection: (axis) => {
-      const { molecule, selected } = get();
-      const ids = selected.size > 0 ? [...selected] : Object.keys(molecule.atoms);
+      const { molecule, selected, selectedAnnotationIds, selectedCycleId } = get();
+      const expanding = selected.size > 0;
+      const expanded = expandGroupSelection(
+        get().groups,
+        expanding ? selected : [],
+        expanding ? selectedAnnotationIds : [],
+        expanding && selectedCycleId ? [selectedCycleId] : []
+      );
+      const ids = expanding ? [...expanded.atomIds] : Object.keys(molecule.atoms);
       if (ids.length === 0) return;
-      commit((mol) => M.mirrorAtoms(mol, ids, axis));
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const id of ids) {
+        const a = molecule.atoms[id];
+        minX = Math.min(minX, a.x);
+        maxX = Math.max(maxX, a.x);
+        minY = Math.min(minY, a.y);
+        maxY = Math.max(maxY, a.y);
+      }
+      const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+      commitDocument((mol, anns) => {
+        let nextMol = M.mirrorAtoms(mol, ids, axis);
+        if (expanded.cycleIds.size > 0) {
+          nextMol = {
+            ...nextMol,
+            cycles: (nextMol.cycles ?? []).map((cycle) =>
+              expanded.cycleIds.has(cycle.id)
+                ? {
+                    ...cycle,
+                    centre:
+                      axis === "horizontal"
+                        ? { x: 2 * center.x - cycle.centre.x, y: cycle.centre.y }
+                        : { x: cycle.centre.x, y: 2 * center.y - cycle.centre.y },
+                  }
+                : cycle
+            ),
+          };
+        }
+        if (expanded.annotationIds.size === 0) return { molecule: nextMol, annotations: anns };
+        const nextAnns = { ...anns };
+        for (const id of expanded.annotationIds) {
+          if (nextAnns[id]) nextAnns[id] = mirrorAnnotation(nextAnns[id], center, axis);
+        }
+        return { molecule: nextMol, annotations: nextAnns };
+      });
     },
 
     // Align/distribute, unlike rotate, don't fall back to "the whole
@@ -2019,7 +2863,90 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     moveAtomsTransient: (moves) => {
-      set((s) => ({ molecule: M.moveAtoms(s.molecule, moves), hasUnsavedChanges: true }));
+      set((s) => {
+        const moved = M.moveAtoms(s.molecule, moves);
+        // Grouped annotations/cycles ride along with the atoms. The delta is
+        // taken from the first moved atom's old -> new position, which is the
+        // same rigid translation for every atom in a move drag.
+        let dx = 0;
+        let dy = 0;
+        for (const id in moves) {
+          const old = s.molecule.atoms[id];
+          if (old) {
+            dx = moves[id].x - old.x;
+            dy = moves[id].y - old.y;
+            break;
+          }
+        }
+        if ((dx === 0 && dy === 0) || !s.groups || s.groups.length === 0) {
+          return { molecule: moved, hasUnsavedChanges: true };
+        }
+        const groups = groupsTouching(s.groups, Object.keys(moves), [], []);
+        if (groups.length === 0) return { molecule: moved, hasUnsavedChanges: true };
+        const annotationIds = new Set(groups.flatMap((group) => group.annotationIds));
+        const cycleIds = new Set(groups.flatMap((group) => group.cycleIds));
+        const annotations = { ...s.annotations };
+        for (const id of annotationIds) {
+          const annotation = annotations[id];
+          if (!annotation) continue;
+          annotations[id] =
+            annotation.kind === "arrow"
+              ? { ...annotation, x1: annotation.x1 + dx, y1: annotation.y1 + dy, x2: annotation.x2 + dx, y2: annotation.y2 + dy }
+              : { ...annotation, x: annotation.x + dx, y: annotation.y + dy };
+        }
+        const cycles = (moved.cycles ?? []).map((cycle) =>
+          cycleIds.has(cycle.id) ? { ...cycle, centre: { x: cycle.centre.x + dx, y: cycle.centre.y + dy } } : cycle
+        );
+        return { molecule: { ...moved, cycles }, annotations, hasUnsavedChanges: true };
+      });
+    },
+
+    moveCatalyticCycleTransient: (cycleId, centre, moves) => {
+      set((s) => {
+        const moved = M.moveAtoms(s.molecule, moves);
+        const original = (s.molecule.cycles ?? []).find((candidate) => candidate.id === cycleId);
+        const dx = original ? centre.x - original.centre.x : 0;
+        const dy = original ? centre.y - original.centre.y : 0;
+        const groups = s.groups ? groupsTouching(s.groups, [], [], [cycleId]) : [];
+        const annotationIds = new Set(groups.flatMap((group) => group.annotationIds));
+        const cycleIds = new Set(groups.flatMap((group) => group.cycleIds));
+        const annotations = { ...s.annotations };
+        for (const id of annotationIds) {
+          const annotation = annotations[id];
+          if (!annotation) continue;
+          annotations[id] =
+            annotation.kind === "arrow"
+              ? { ...annotation, x1: annotation.x1 + dx, y1: annotation.y1 + dy, x2: annotation.x2 + dx, y2: annotation.y2 + dy }
+              : { ...annotation, x: annotation.x + dx, y: annotation.y + dy };
+        }
+        return {
+          molecule: {
+            ...moved,
+            cycles: (moved.cycles ?? []).map((candidate) =>
+              candidate.id === cycleId
+                ? { ...candidate, centre }
+                : cycleIds.has(candidate.id)
+                  ? { ...candidate, centre: { x: candidate.centre.x + dx, y: candidate.centre.y + dy } }
+                  : candidate
+            ),
+          },
+          annotations,
+          hasUnsavedChanges: true,
+        };
+      });
+    },
+
+    setCycleRadiusTransient: (cycleId, radius) => {
+      const clamped = Math.max(20, Math.min(1_000_000, Number.isFinite(radius) ? radius : 100));
+      set((s) => ({
+        molecule: {
+          ...s.molecule,
+          cycles: (s.molecule.cycles ?? []).map((candidate) =>
+            candidate.id === cycleId ? { ...candidate, radius: clamped } : candidate
+          ),
+        },
+        hasUnsavedChanges: true,
+      }));
     },
 
     commitCheckpoint: (before) => {
@@ -2706,8 +3633,51 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
             orig.kind === "arrow"
               ? { ...orig, x1: orig.x1 + dx, y1: orig.y1 + dy, x2: orig.x2 + dx, y2: orig.y2 + dy }
               : { ...orig, x: orig.x + dx, y: orig.y + dy };
+
         }
-        return { annotations: next };
+        // Grouped atoms/cycles move with the annotations. Their drag-start
+        // positions are snapshotted once per origins object (see the
+        // WeakMap's doc comment), so every pointermove applies the same
+        // absolute offset without drift.
+        let groupOrigins = annotationGroupDragOrigins.get(origins);
+        if (!groupOrigins) {
+          const groups = s.groups ? groupsTouching(s.groups, [], Object.keys(origins), []) : [];
+          const atoms: Record<string, Point> = {};
+          const cycles: Record<string, Point> = {};
+          const atomIds = new Set(groups.flatMap((group) => group.atomIds));
+          const cycleIds = new Set(groups.flatMap((group) => group.cycleIds));
+          for (const id of atomIds) {
+            const atom = s.molecule.atoms[id];
+            if (atom) atoms[id] = { x: atom.x, y: atom.y };
+          }
+          for (const cycle of s.molecule.cycles ?? []) {
+            if (cycleIds.has(cycle.id)) cycles[cycle.id] = cycle.centre;
+          }
+          groupOrigins = { atoms, cycles };
+          annotationGroupDragOrigins.set(origins, groupOrigins);
+        }
+        const atomMoves: Record<string, Point> = {};
+        for (const id in groupOrigins.atoms) {
+          atomMoves[id] = { x: groupOrigins.atoms[id].x + dx, y: groupOrigins.atoms[id].y + dy };
+        }
+        const molecule =
+          Object.keys(atomMoves).length > 0 || Object.keys(groupOrigins.cycles).length > 0
+            ? {
+                ...M.moveAtoms(s.molecule, atomMoves),
+                cycles: (s.molecule.cycles ?? []).map((cycle) =>
+                  groupOrigins!.cycles[cycle.id]
+                    ? {
+                        ...cycle,
+                        centre: {
+                          x: groupOrigins!.cycles[cycle.id].x + dx,
+                          y: groupOrigins!.cycles[cycle.id].y + dy,
+                        },
+                      }
+                    : cycle
+                ),
+              }
+            : s.molecule;
+        return { annotations: next, molecule, hasUnsavedChanges: true };
       });
     },
 
@@ -2829,26 +3799,30 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     undo: () => {
-      const { past, molecule, annotations, future } = get();
+      const { past, molecule, annotations, groups, future } = get();
       if (past.length === 0) return;
       const prev = past[past.length - 1];
       set({
         molecule: prev.molecule,
         annotations: prev.annotations,
+        // A drag snapshot omits groups because moving never changes them;
+        // keep the current ones in that case.
+        groups: prev.groups ?? groups,
         past: past.slice(0, -1),
-        future: [{ molecule, annotations }, ...future],
+        future: [{ molecule, annotations, groups }, ...future],
       });
     },
 
     redo: () => {
-      const { future, molecule, annotations, past } = get();
+      const { future, molecule, annotations, groups, past } = get();
       if (future.length === 0) return;
       const next = future[0];
       set({
         molecule: next.molecule,
         annotations: next.annotations,
+        groups: next.groups ?? groups,
         future: future.slice(1),
-        past: [...past, { molecule, annotations }],
+        past: [...past, { molecule, annotations, groups }],
       });
     },
 

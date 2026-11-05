@@ -43,6 +43,15 @@ contextBridge.exposeInMainWorld("electron", {
   // See electron/main.cjs's "dialog:save-project" / "dialog:open-file"
   // handlers, and src/types/electron.d.ts for the return shapes.
   saveProjectFile: (defaultName, content) => ipcRenderer.invoke("dialog:save-project", { defaultName, content }),
+  // Reliable text copy (see src/io/clipboard.ts). The async Clipboard API is
+  // not dependable from a file:// page, so the share link and other text
+  // copies go through Electron's own clipboard instead. Resolves true when
+  // the text was written.
+  writeClipboardText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
+  // Opens a `#view=` share link in a separate, read-only window. Used by the
+  // desktop "Open shared link…" action when the link was copied from another
+  // machine (see electron/main.cjs's "share:open-window" handler).
+  openShareLink: (token) => ipcRenderer.invoke("share:open-window", token),
   // Plain "Save" - writes to the file already chosen this session, no
   // dialog. Takes no path: the main process only ever writes to a path it
   // previously handed out itself, so a compromised renderer can't turn this

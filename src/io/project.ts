@@ -1,4 +1,4 @@
-import type { Annotation, Molecule, PageSetup, ViewTransform } from "../types/chemistry";
+import type { Annotation, Molecule, ObjectGroup, PageSetup, ViewTransform } from "../types/chemistry";
 import { nextId } from "../model/id";
 import { pruneSchemeArrowIds } from "../model/reactionSchemes";
 import { pruneSGroupAnnotationIds } from "../model/sgroups";
@@ -8,6 +8,7 @@ import {
   newRepairReport,
   sanitizeAnnotationRecord,
   sanitizeMolecule,
+  sanitizeObjectGroups,
   sanitizePageSetup,
   sanitizeView,
   type RepairReport,
@@ -37,6 +38,8 @@ export interface ProjectTab {
   view: ViewTransform;
   /** Optional for files written before page setup existed. */
   page?: PageSetup;
+  /** Optional for files written before grouping existed. */
+  groups?: ObjectGroup[];
 }
 
 export interface ProjectFile {
@@ -122,6 +125,9 @@ function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, re
     if (sgroups) cleanedMolecule.sgroups = sgroups;
     else delete cleanedMolecule.sgroups;
   }
+  // Groups name atoms, annotations and cycles, so they can only be checked
+  // once both halves of the tab are clean.
+  const groups = sanitizeObjectGroups(tab.groups, cleanedMolecule, annotations, report);
   return {
     id,
     title,
@@ -129,6 +135,7 @@ function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, re
     annotations,
     view: sanitizeView(tab.view),
     ...(page ? { page } : {}),
+    ...(groups ? { groups } : {}),
   };
 }
 

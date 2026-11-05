@@ -2,6 +2,8 @@ import { useCallback, useRef, type RefObject } from "react";
 import type { Annotation, Molecule, Point, RingAttachment, RingTemplate, FunctionalGroupAttachment, FunctionalGroupTemplate } from "../types/chemistry";
 import { useMoleculeStore, snapStepRadians } from "../store/useMoleculeStore";
 import { atomAt, atomsInRect, bondAt, annotationsInRect, atomsInPolygon, annotationsInPolygon, MIN_HIT_PX_PRECISE, MIN_HIT_PX_TOUCH } from "../engine/hitTest";
+import { cycleAt, cycleHandleAt } from "../engine/cycleLayout";
+import { cycleAtomIds, fragmentsForNodes, suggestedCycleRadius } from "../model/cycles";
 import { bestNewAngle } from "../engine/bondAngles";
 import { neighborIds } from "../model/valence";
 import { computeChainPoints } from "../engine/chainPlacement";
@@ -27,7 +29,10 @@ type DragState =
   | { mode: "bracket-draw"; start: Point }
   | { mode: "shape-draw"; start: Point }
   | { mode: "orbital-draw"; start: Point }
-  | { mode: "tlc-draw"; start: Point };
+  | { mode: "tlc-draw"; start: Point }
+  | { mode: "cycle-draw"; start: Point }
+  | { mode: "cycle-move"; cycleId: string; start: Point; origCentre: Point; origPositions: { id: string; x: number; y: number }[]; before: { molecule: Molecule; annotations: Record<string, Annotation> } }
+  | { mode: "cycle-scale"; cycleId: string; startRadius: number; before: { molecule: Molecule; annotations: Record<string, Annotation> } };
 
 /** The user's angle-snapping preference, in radians, read fresh from the
  * store at each use rather than captured in a hook dependency. Every call
@@ -97,7 +102,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
    * *adds* a 15-degree snap rather than removing one.
    */
   const angleFree = (e: { shiftKey: boolean }): boolean =>
-    e.shiftKey || useMoleculeStore.getState().freeAngle;
+    e.shiftKey || (useMoleculeStore.getState().freeAngle && !useMoleculeStore.getState().fixedAngle);
 
   const pickAtom = useCallback((mol: Molecule, pt: Point, excludeId: string | null = null, worldRadius = 16): string | null => {
     const { view } = useMoleculeStore.getState();
@@ -193,9 +198,10 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     store.setShapePreview(null);
     store.setOrbitalPreview(null);
     store.setTlcPreview(null);
+    store.setCyclePreview(null);
     store.setAtomMoveAnchor(null);
 
-    // Only these three modes mutate the molecule before release, and each
+    // Only these modes mutate the molecule before release, and each
     // already carries the pre-mutation snapshot its own release path uses.
     if (drag.mode === "erase") {
       if (store.molecule !== drag.before.molecule) store.commitCheckpoint(drag.before);
@@ -203,6 +209,10 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       store.commitCheckpoint(drag.before);
     } else if (drag.mode === "rotate") {
       store.commitCheckpoint(drag.before);
+    } else if (drag.mode === "cycle-move" || drag.mode === "cycle-scale") {
+      // A click on the ring that never moved (just selecting the cycle) must
+      // not leave an empty undo step behind.
+      if (store.molecule !== drag.before.molecule) store.commitCheckpoint(drag.before);
     }
     // "bond" and "atom-bond" create their origin atom on pointerdown. There is
     // no snapshot to commit for those (they're single additive actions), and
@@ -353,11 +363,43 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       return;
     }
 
+    if (tool === "cycle") {
+      store.setSelectedAnnotationIds(new Set());
+      store.selectCatalyticCycle(null);
+      dragRef.current = { mode: "cycle-draw", start: pt };
+      return;
+    }
+
     if (tool === "select" || tool === "lasso") {
+      // The selected cycle's own handles win over everything under them:
+      // they sit on the ring, so without this check the ring's own hit test
+      // would swallow the click before the handle could act.
+      const selectedCycle = store.selectedCycleId
+        ? (molecule.cycles ?? []).find((cycle) => cycle.id === store.selectedCycleId) ?? null
+        : null;
+      if (selectedCycle) {
+        const tol = (touchInputRef.current ? 20 : 12) / store.view.scale;
+        const handle = cycleHandleAt(molecule, pt, tol);
+        if (handle && handle.cycle.id === selectedCycle.id) {
+          if (handle.handle === "direction") {
+            store.setCycleDirection(handle.cycle.id);
+            return;
+          }
+          dragRef.current = {
+            mode: "cycle-scale",
+            cycleId: handle.cycle.id,
+            startRadius: selectedCycle.radius,
+            before: { molecule, annotations: store.annotations },
+          };
+          return;
+        }
+      }
+
       if (hitAtom) {
         // Clicking an atom is a different selection target entirely — any
         // active annotation selection is unrelated and gets cleared.
         store.setSelectedAnnotationIds(new Set());
+        store.selectCatalyticCycle(null);
         let newSelected: Set<string>;
         if (e.shiftKey) {
           // Shift+click toggles individual atoms in/out of a multi-selection.
@@ -391,6 +433,7 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         };
       } else if (hitBond) {
         store.setSelectedAnnotationIds(new Set());
+        store.selectCatalyticCycle(null);
         store.setAtomEditTarget(null);
         const b = molecule.bonds[hitBond];
         // Clicking a bond that's already selected (and only that bond, i.e.
@@ -411,7 +454,29 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
           store.setSelected(new Set([b.a1, b.a2]));
         }
       } else {
+        const tol = (touchInputRef.current ? 20 : 12) / store.view.scale;
+        const hitCycle = cycleAt(molecule, pt, tol);
+        if (hitCycle) {
+          store.setAtomEditTarget(null);
+          store.setSelectedAnnotationIds(new Set());
+          store.setSelected(new Set());
+          store.selectCatalyticCycle(hitCycle.id);
+          const atoms = cycleAtomIds(hitCycle);
+          dragRef.current = {
+            mode: "cycle-move",
+            cycleId: hitCycle.id,
+            start: pt,
+            origCentre: hitCycle.centre,
+            origPositions: [...atoms]
+              .map((id) => molecule.atoms[id])
+              .filter((atom): atom is NonNullable<typeof atom> => !!atom)
+              .map((atom) => ({ id: atom.id, x: atom.x, y: atom.y })),
+            before: { molecule, annotations: store.annotations },
+          };
+          return;
+        }
         store.setAtomEditTarget(null);
+        store.selectCatalyticCycle(null);
         // Empty canvas: start a rectangle ("marquee") selection, or with
         // the lasso tool active, a freeform path — instead of panning.
         // Use the dedicated Pan tool, or a middle-mouse drag, to pan.
@@ -651,7 +716,8 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     }
 
     if (drag.mode === "move") {
-      const lockLength = e.ctrlKey || e.metaKey;
+      const persistentLock = useMoleculeStore.getState().fixedBondLength;
+      const lockLength = e.ctrlKey || e.metaKey || persistentLock;
       // freeAngle counts here too: Shift bypasses this snap block, and the
       // snap being bypassed is a 30-degree angle snap like the others.
       if (drag.anchor && (lockLength || !angleFree(e))) {
@@ -662,6 +728,8 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         //    the drag started, and the angle snaps to a finer 15° instead
         //    — for "I like this bond's length, I just want to swing it to
         //    a clean angle" without the length drifting with the cursor.
+        //    The persistent fixedBondLength toggle does the same without
+        //    holding a key.
         //  - Shift: fully free, no snapping of either.
         // Length always just follows the drag in the default case, exactly
         // like the arrow tool: otherwise, lengthening a bond with Shift
@@ -673,7 +741,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         const p = polar(neighborPos.x, neighborPos.y, length, snapAngle(angleOf(neighborPos, pt), step));
         store.moveAtomsTransient({ [atomId]: p });
         store.setAtomMoveAnchor(drag.anchor);
-        store.setStatus(lockLength ? "status.moveAtomSnapLocked" : "status.moveAtomSnap");
+        store.setStatus(
+          lockLength
+            ? persistentLock
+              ? "status.moveAtomFixedLength"
+              : "status.moveAtomSnapLocked"
+            : "status.moveAtomSnap"
+        );
       } else {
         const dx = pt.x - drag.start.x;
         const dy = pt.y - drag.start.y;
@@ -854,6 +928,39 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     if (drag.mode === "tlc-draw") {
       store.setTlcPreview({ x1: drag.start.x, y1: drag.start.y, x2: pt.x, y2: pt.y });
       store.setStatus("status.dragTlc");
+      return;
+    }
+
+    if (drag.mode === "cycle-draw") {
+      const radius = Math.max(20, dist(drag.start, pt));
+      store.setCyclePreview({ centre: drag.start, radius });
+      store.setStatus("status.dragCycle");
+      return;
+    }
+
+    if (drag.mode === "cycle-move") {
+      const dx = pt.x - drag.start.x;
+      const dy = pt.y - drag.start.y;
+      const moves: Record<string, Point> = {};
+      for (const p of drag.origPositions) moves[p.id] = { x: p.x + dx, y: p.y + dy };
+      store.moveCatalyticCycleTransient(drag.cycleId, {
+        x: drag.origCentre.x + dx,
+        y: drag.origCentre.y + dy,
+      }, moves);
+      store.setStatus("status.moveCycle");
+      return;
+    }
+
+    if (drag.mode === "cycle-scale") {
+      const cycle = (store.molecule.cycles ?? []).find((candidate) => candidate.id === drag.cycleId);
+      if (!cycle) return;
+      const scale = cycle.scale ?? 1;
+      const radius = Math.max(
+        20,
+        Math.hypot(pt.x - cycle.centre.x, pt.y - cycle.centre.y) - 30 * scale
+      );
+      store.setCycleRadiusTransient(drag.cycleId, radius);
+      store.setStatus("status.scaleCycle");
     }
   }, [clientToWorld, abortDrag, pickAtom, pickBond, clearLongPress]);
 
@@ -1116,6 +1223,29 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const id = store.addTlcPlate(drag.start, pt);
       store.setSelectedAnnotationIds(new Set([id]));
       store.setTool("select");
+      return;
+    }
+
+    if (drag.mode === "cycle-move" || drag.mode === "cycle-scale") {
+      if (store.molecule !== drag.before.molecule) store.commitCheckpoint(drag.before);
+      store.setStatus("status.ready");
+      return;
+    }
+
+    if (drag.mode === "cycle-draw") {
+      store.setCyclePreview(null);
+      const pt = clientToWorld(e.clientX, e.clientY);
+      const dragged = dist(drag.start, pt);
+      const radius = dragged > 12 ? dragged : 100;
+      // A cycle placed while structures are selected adopts them as its
+      // intermediates; otherwise it is a bare ring to add nodes to later.
+      const nodes = store.selected.size > 0 ? fragmentsForNodes(store.molecule, store.selected) : [];
+      const finalRadius = nodes.length > 0
+        ? Math.max(radius, suggestedCycleRadius(store.molecule, drag.start, nodes))
+        : radius;
+      store.addCatalyticCycle({ centre: drag.start, radius: finalRadius, nodes });
+      store.setTool("select");
+      store.setStatus("status.ready");
     }
   }, [clientToWorld, pickAtom, pickBond, abortDrag, clearLongPress]);
 

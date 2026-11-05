@@ -835,6 +835,68 @@ describe("exportCdxmlDocument / importCdxmlDocument round-trip", () => {
   });
 });
 
+describe("catalytic cycle CDXML round-trip", () => {
+  function cycleMolecule(): Molecule {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "n1", { x: 0, y: -90 }, "C");
+    mol = addAtom(mol, "n2", { x: 90, y: 0 }, "C");
+    mol = addAtom(mol, "n3", { x: -90, y: 0 }, "C");
+    return {
+      ...mol,
+      cycles: [
+        {
+          id: "c1",
+          centre: { x: 0, y: 0 },
+          radius: 100,
+          clockwise: true,
+          nodes: [["n1"], ["n2"], ["n3"]],
+          sides: [{ id: "side1", direction: "in", angle: Math.PI, label: "substrate" }],
+          label: "Catalytic cycle",
+        },
+      ],
+    };
+  }
+
+  test("a live cycle survives export/import as one cycle, not as loose arrows", () => {
+    const xml = exportCdxmlDocument(cycleMolecule(), []);
+    expect(xml).toContain("EnlaceCraftCycle=");
+
+    const doc = importCdxmlDocument(xml);
+    expect(doc.molecule.cycles).toHaveLength(1);
+    const cycle = doc.molecule.cycles![0];
+    expect(cycle.clockwise).toBe(true);
+    expect(cycle.centre.x).toBeCloseTo(0, 0);
+    expect(cycle.centre.y).toBeCloseTo(0, 0);
+    expect(cycle.radius).toBeCloseTo(100, 0);
+    expect(cycle.label).toBe("Catalytic cycle");
+    expect(cycle.nodes).toHaveLength(3);
+    for (const node of cycle.nodes) {
+      expect(node).toHaveLength(1);
+      expect(doc.molecule.atoms[node[0]]).toBeDefined();
+    }
+    expect(cycle.sides).toHaveLength(1);
+    expect(cycle.sides![0].direction).toBe("in");
+    expect(cycle.sides![0].label).toBe("substrate");
+
+    // The group's rendered arcs/captions are the figure itself, not
+    // independent annotations.
+    expect(doc.annotations).toHaveLength(0);
+  });
+
+  test("stripping the private metadata degrades the cycle to static arrows", () => {
+    const xml = exportCdxmlDocument(cycleMolecule(), []);
+    const stripped = xml.replace(/ EnlaceCraftCycle="[^"]*"/g, "");
+    expect(stripped).not.toContain("EnlaceCraftCycle=");
+
+    const doc = importCdxmlDocument(stripped);
+    expect(doc.molecule.cycles ?? []).toHaveLength(0);
+    // Without the attribute the group's graphics import normally, so the
+    // drawing still shows the ring — just no longer as a live cycle.
+    expect(doc.annotations.some((a) => a.kind === "arrow")).toBe(true);
+    expect(doc.annotations.some((a) => a.kind === "text")).toBe(true);
+  });
+});
+
 // A real ChemDraw 22 drawing: a bracketed charged arene, a second fragment
 // with an orbital, a reaction arrow, a long curved arrow, a TLC plate with
 // eight spots, and square/curly bracket pairs. Every object in it used to
