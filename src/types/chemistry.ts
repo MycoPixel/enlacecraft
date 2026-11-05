@@ -341,6 +341,39 @@ export interface Molecule {
    * nodes lose all their atoms are pruned on load and on delete.
    */
   cycles?: CatalyticCycle[];
+  /**
+   * R-group definitions: substituent fragments attached to the drawing's
+   * placeholder R labels ("R", "R1", "R'" — see model/atomLabelParser.ts's
+   * "generic" case and model/valence.ts's isPlaceholderLabel). A definition
+   * is the fragment as drawn: `molecule` holds the substituent's own atoms
+   * and bonds, and `attachmentAtomId` names the fragment atom that bonds
+   * onto the R placeholder at expansion time (model/rgroups.ts).
+   *
+   * Like schemes/sgroups/cycles, rgroups live on the molecule so undo, tabs,
+   * autosave and the native project format carry them without parallel
+   * plumbing. Keyed by definition id; the store's Define action keeps at
+   * most one definition per label (redefining a label replaces it), which
+   * matches the one-definition-per-label convention expansion is written
+   * around while the record shape still allows several. Absent means the
+   * drawing has no R-group definitions (the overwhelmingly common case).
+   */
+  rgroups?: Record<string, RGroupDefinition>;
+}
+
+/** An R-group definition: a substituent fragment bound to one placeholder
+ * label. The fragment is stored exactly as it was drawn on the canvas
+ * (defineRGroup extracts the selected atoms/bonds verbatim); its atom at
+ * `attachmentAtomId` is the point that bonds onto the R placeholder when
+ * the generic structure is expanded. */
+export interface RGroupDefinition {
+  id: string;
+  /** The placeholder label this substituent fills ("R", "R1", …) — matched
+   * exactly against the drawn atoms' `group` text at expansion time. */
+  label: string;
+  /** The fragment atom that bonds onto the R placeholder. */
+  attachmentAtomId: string;
+  /** The substituent fragment as drawn (its own atom/bond id space). */
+  molecule: Molecule;
 }
 
 /** One intermediate of a catalytic cycle: the atoms of a whole structure. */
@@ -901,7 +934,25 @@ export interface ObjectGroup {
  * `filled` solid-fills rectangles/ellipses (ChemDraw's "Filled" toggle) and
  * is ignored by lines. Additional styling: fillPattern, lineStyle, lineCap,
  * lineJoin for full ChemDraw compatibility. */
-export type ShapeVariant = "rectangle" | "ellipse" | "line" | "polygon" | "arc" | "curve" | "polyline" | "roundedRect" | "triangle" | "hexagon";
+export type ShapeVariant =
+  | "rectangle"
+  | "ellipse"
+  | "line"
+  | "polygon"
+  | "arc"
+  | "curve"
+  | "polyline"
+  | "roundedRect"
+  | "triangle"
+  | "hexagon"
+  /** Lab-glassware glyphs (Phase-10 template-library expansion): simple
+   * line-art drawings generated from the shape's bounding box, for
+   * annotating procedures/schemes. Rendered by ShapeAnnotationView via
+   * glasswarePath(); picked from the shape tool's variant grid. */
+  | "beaker"
+  | "erlenmeyerFlask"
+  | "roundBottomFlask"
+  | "testTube";
 
 export interface ShapeAnnotation extends ZOrdered {
   id: string;

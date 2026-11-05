@@ -18,10 +18,12 @@ const electronDir = path.dirname(fileURLToPath(import.meta.url));
 const distIndexUrl = pathToFileURL(path.join(electronDir, "..", "dist", "index.html")).href;
 
 const EXPECTED_CHANNELS = [
+  "clipboard:write-rich",
   "clipboard:write-text",
   "dialog:open-file",
   "dialog:save-project",
   "dialog:save-project-to",
+  "edit:native-command",
   "iupac-fallback-server:get-status",
   "nmr-server:get-status",
   "share:open-window",
@@ -55,6 +57,13 @@ function makeFakeElectron({ singleInstance = true, userData }) {
     constructor() {
       super();
       this.windowOpenHandler = null;
+      this.sent = [];
+      this.editorCommands = [];
+      // The native editor commands the "edit:native-command" handler
+      // dispatches to, recorded so tests can assert which ran.
+      for (const cmd of ["undo", "redo", "cut", "copy", "paste", "selectAll"]) {
+        this[cmd] = () => void this.editorCommands.push(cmd);
+      }
     }
     setWindowOpenHandler(fn) {
       this.windowOpenHandler = fn;
@@ -63,11 +72,17 @@ function makeFakeElectron({ singleInstance = true, userData }) {
     getURL() {
       return "";
     }
+    send(channel, ...args) {
+      this.sent.push([channel, ...args]);
+    }
   }
 
   class BrowserWindow {
     static getAllWindows() {
       return state.windows;
+    }
+    static getFocusedWindow() {
+      return state.windows.find((w) => w.focused) ?? null;
     }
     static fromWebContents() {
       return state.windows[0] ?? null;
@@ -99,7 +114,13 @@ function makeFakeElectron({ singleInstance = true, userData }) {
     app,
     BrowserWindow,
     shell: { openExternal: (url) => void state.opened.push(url) },
-    Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
+    Menu: {
+      buildFromTemplate: (template) => {
+        state.menuTemplate = template;
+        return { template };
+      },
+      setApplicationMenu: () => {},
+    },
     dialog: {
       showMessageBox: async () => ({ response: 1 }),
       showSaveDialog: async (_win, options) => {
@@ -440,5 +461,64 @@ describe("single instance", () => {
     expect(state.quitCalls).toBeGreaterThanOrEqual(1);
     expect(state.windows).toHaveLength(0);
     expect(state.session.request).toBeUndefined();
+  });
+});
+
+describe("Edit menu", () => {
+  /** The single "Edit" submenu's command items (separators have no label). */
+  function editItems(ctx) {
+    const [menu] = ctx.state.menuTemplate;
+    return menu.submenu.filter((item) => item.label);
+  }
+
+  test("every accelerator is unregistered so the keys reach the page's own handlers", async () => {
+    const { state } = await load();
+    const items = editItems({ state });
+    expect(items.map((i) => i.label)).toEqual(["Undo", "Redo", "Cut", "Copy", "Paste", "Select All"]);
+    // A registered accelerator is consumed before the page sees the key and
+    // the roles then only act on DOM text selections (a canvas app has
+    // none) — the exact wiring that made Ctrl+C a silent no-op in the
+    // packaged build. Nothing here may register.
+    for (const item of items) {
+      expect(item.registerAccelerator).toBe(false);
+      expect(typeof item.click).toBe("function");
+    }
+    expect(items.map((i) => i.accelerator)).toEqual([
+      "CmdOrCtrl+Z",
+      "Shift+CmdOrCtrl+Z",
+      "CmdOrCtrl+X",
+      "CmdOrCtrl+C",
+      "CmdOrCtrl+V",
+      "CmdOrCtrl+A",
+    ]);
+  });
+
+  test("click handlers forward the command to the focused window's webContents", async () => {
+    const ctx = await load();
+    const win = ctx.win;
+    win.focus();
+    const items = editItems(ctx);
+    const click = (label) => items.find((i) => i.label === label).click();
+    click("Copy");
+    click("Paste");
+    click("Undo");
+    expect(win.webContents.sent).toEqual([
+      ["edit:command", "copy"],
+      ["edit:command", "paste"],
+      ["edit:command", "undo"],
+    ]);
+  });
+
+  test("edit:native-command runs only whitelisted commands on the sender", async () => {
+    const ctx = await load();
+    for (const cmd of ["undo", "redo", "cut", "copy", "paste", "selectAll"]) {
+      expect(await invoke(ctx, "edit:native-command", frame(distIndexUrl), cmd)).toBe(true);
+    }
+    expect(ctx.win.webContents.editorCommands).toEqual(["undo", "redo", "cut", "copy", "paste", "selectAll"]);
+    // Unknown names and non-strings are refused without touching the sender.
+    expect(await invoke(ctx, "edit:native-command", frame(distIndexUrl), "destroy")).toBe(false);
+    expect(await invoke(ctx, "edit:native-command", frame(distIndexUrl), 42)).toBe(false);
+    expect(await invoke(ctx, "edit:native-command", frame(distIndexUrl), undefined)).toBe(false);
+    expect(ctx.win.webContents.editorCommands).toEqual(["undo", "redo", "cut", "copy", "paste", "selectAll"]);
   });
 });

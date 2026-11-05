@@ -1,6 +1,7 @@
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import { importMol, importSdf } from "../io/molfile";
 import { importCdxmlDocument } from "../io/cdxml";
+import { extractCdxmlFromSvg } from "../io/svgMetadata";
 import type { Annotation } from "../types/chemistry";
 import { importSmiles, detectStructureText, SmilesImportError } from "../io/smilesImport";
 import { importProject, PROJECT_FILE_EXTENSION, ProjectParseError } from "../io/project";
@@ -46,6 +47,7 @@ export function useFileImport() {
     const isCdxml = lower.endsWith(".cdxml");
     const isSmiles = lower.endsWith(".smi") || lower.endsWith(".smiles");
     const isProject = lower.endsWith(PROJECT_FILE_EXTENSION);
+    const isSvg = lower.endsWith(".svg");
     // Belt and braces: the pickers/drop handler check File.size before
     // reading, but the desktop "Open" dialog hands over already-read text.
     if (content.length > LIMITS.maxFileChars) {
@@ -103,6 +105,26 @@ export function useFileImport() {
         } else {
           setStatus(t("status.importedSdf", { count }));
         }
+        return;
+      }
+      // An .svg is only importable when it carries the CDXML metadata block
+      // this app's own SVG exports embed (or a tool preserved) — a plain
+      // vector drawing has no chemistry in it to rebuild. See io/svgMetadata.ts.
+      if (isSvg) {
+        const cdxml = extractCdxmlFromSvg(content);
+        if (!cdxml) {
+          setStatus(t("status.svgNoStructure", { name }));
+          return;
+        }
+        const parsed = importCdxmlDocument(cdxml);
+        const title = name.replace(/\.(mol|cdxml|smi|smiles|svg)$/i, "");
+        forgetSaveDestination();
+        setProjectFileName(null);
+        const annotations: Record<string, Annotation> = {};
+        for (const ann of parsed.annotations) annotations[ann.id] = ann;
+        importMoleculeAsNewTab(parsed.molecule, title, annotations, parsed.page);
+        resetView();
+        setStatus(t("status.imported", { count: Object.keys(parsed.molecule.atoms).length }));
         return;
       }
       const sniffed = isSmiles || isCdxml ? null : detectStructureText(content);

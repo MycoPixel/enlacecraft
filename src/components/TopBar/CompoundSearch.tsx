@@ -8,6 +8,7 @@ import {
   PubChemError,
   type CompoundIdentifierKind,
 } from "../../io/pubchem";
+import { fetchNameToStructureLocal } from "../../io/iupacFallback";
 import { useT } from "../../i18n/useT";
 
 const SUGGESTION_DEBOUNCE_MS = 250;
@@ -149,6 +150,29 @@ export function CompoundSearch() {
       setQuery("");
       setSuggestions([]);
     } catch (err) {
+      // Name → structure has a second, local chance before giving up:
+      // when PubChem has no compound for a *name* (NOT_FOUND only —
+      // network/HTTP failures aren't evidence the name is unresolvable),
+      // the optional OPSIN companion service may still parse it into a
+      // structure (see io/iupacFallback.ts). Availability is decided by
+      // just attempting the call and treating null as "unavailable" —
+      // the same no-probe policy iupacLookup uses for this service — so
+      // nothing changes when it isn't running and the original error
+      // below stays exactly as it was.
+      const isNameNotFound =
+        err instanceof PubChemError && err.code === "NOT_FOUND" && effectiveKind(q) === "name";
+      if (isNameNotFound) {
+        const local = await fetchNameToStructureLocal(q);
+        if (local) {
+          // Same insertion path as a PubChem hit, with a status that
+          // says where the structure actually came from.
+          importCompound(local);
+          setStatus(t("search.statusResolvedLocally", { name: q }));
+          setQuery("");
+          setSuggestions([]);
+          return;
+        }
+      }
       showError(messageForError(err, q));
     } finally {
       setLoading(false);

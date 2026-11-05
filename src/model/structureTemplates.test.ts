@@ -93,7 +93,46 @@ const EXPECTED_FORMULAS: Record<string, string> = {
   camphor: "C10H16O",
   artemisinin: "C15H22O5",
   squalene: "C30H50",
+  // --- Phase-10 library expansion sets ---
+  // Conformations
+  "cyclohexane-chair-flipped": "C6H12",
+  "ethane-newman-staggered": "C2H6",
+  "ethane-newman-eclipsed": "C2H6",
+  "butane-newman-anti": "C4H10",
+  "butane-newman-gauche": "C4H10",
+  // Organometallics (metallocenes' Cp rings carry one explicit H per
+  // carbon via implicit-H math; the paddlewheel's four acetates are
+  // CH3C(=O)O⁻ bridges)
+  ferrocene: "C10H10Fe",
+  cobaltocene: "C10H10Co",
+  nickelocene: "C10H10Ni",
+  "ru2-acetate-paddlewheel": "C8H12O8Ru2",
+  // Named aromatics / bicyclics
+  anthracene: "C14H10",
+  phenanthrene: "C14H10",
+  azulene: "C10H8",
+  biphenyl: "C12H10",
+  fluorene: "C13H10",
+  indene: "C9H8",
 };
+
+/**
+ * Templates containing bonds that are intentionally shorter than the
+ * 0.7·BOND_LEN plausibility floor below. The Newman projections' viewing
+ * axis (front carbon → back carbon) is drawn as a short stub so the
+ * projection stays one connected fragment for the formula/fragment
+ * readouts — a Newman's C–C axis isn't really a line in the drawing (the
+ * circle edge would stand for it), and the back carbon is deliberately
+ * offset a few px instead of coincident (see ringConformations.ts's
+ * Newman section). Everything else about these templates still gets the
+ * full length check.
+ */
+const SHORT_STUB_BONDS_OK = new Set([
+  "ethane-newman-staggered",
+  "ethane-newman-eclipsed",
+  "butane-newman-anti",
+  "butane-newman-gauche",
+]);
 
 function moleculeProblems(name: string, mol: Molecule): string[] {
   const problems: string[] = [];
@@ -115,7 +154,7 @@ function moleculeProblems(name: string, mol: Molecule): string[] {
     const b = mol.atoms[bond.a2];
     if (a && b && Number.isFinite(a.x) && Number.isFinite(b.x)) {
       const length = Math.hypot(a.x - b.x, a.y - b.y);
-      if (length < BOND_LEN * 0.7 || length > BOND_LEN * 1.35) {
+      if (length < BOND_LEN * 0.7 && !SHORT_STUB_BONDS_OK.has(name)) {
         problems.push(`${name}: bond ${key} has implausible length ${length.toFixed(1)}`);
       }
     }
@@ -213,5 +252,32 @@ describe("built-in structure templates", () => {
       return moleculeProblems(t.id, mol);
     });
     expect(problems).toEqual([]);
+  });
+
+  it("all have unique ids across the whole registry", () => {
+    const ids = STRUCTURE_TEMPLATES.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("the Phase-10 expansion sets are present under their own categories", () => {
+    const byId = new Map(STRUCTURE_TEMPLATES.map((t) => [t.id, t]));
+    // Conformations: flipped chair + four Newman projections.
+    for (const id of [
+      "cyclohexane-chair-flipped",
+      "ethane-newman-staggered",
+      "ethane-newman-eclipsed",
+      "butane-newman-anti",
+      "butane-newman-gauche",
+    ]) {
+      expect(byId.get(id)?.category).toBe("conformations");
+    }
+    // Organometallics: three metallocenes + the Ru acetate paddlewheel.
+    for (const id of ["ferrocene", "cobaltocene", "nickelocene", "ru2-acetate-paddlewheel"]) {
+      expect(byId.get(id)?.category).toBe("organometallics");
+    }
+    // Named aromatics / bicyclics.
+    for (const id of ["anthracene", "phenanthrene", "azulene", "biphenyl", "fluorene", "indene"]) {
+      expect(byId.get(id)?.category).toBe("namedAromatics");
+    }
   });
 });

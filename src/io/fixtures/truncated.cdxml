@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >
+<CDXML CreationProgram="EnlaceCraft" Name="truncated" BondLength="30" MarginWidth="2" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10">
+<page>
+<fragment id="1">
+<n id="2" p="100 100" Element="6"/>
+<n id="3" p="142 100" El

@@ -107,4 +107,23 @@ describe("catalytic cycle store actions", () => {
     expect(Object.keys(state().molecule.atoms)).toHaveLength(3);
     expect(state().selectedCycleId).toBeNull();
   });
+
+  test("deleteSelection removes just the figure for a cycle-only selection", () => {
+    state().addCatalyticCycle();
+    // Selecting the ring clears the atom selection and only keeps
+    // selectedCycleId — the state the keyboard Delete path has to handle.
+    state().setSelected(new Set());
+    state().deleteSelection();
+    expect(state().molecule.cycles).toBeUndefined();
+    expect(state().selectedCycleId).toBeNull();
+    expect(Object.keys(state().molecule.atoms)).toHaveLength(3);
+  });
+
+  test("clearSelection (Escape) deselects the cycle too", () => {
+    state().addCatalyticCycle();
+    expect(state().selectedCycleId).toBeTruthy();
+    state().clearSelection();
+    expect(state().selectedCycleId).toBeNull();
+    expect(state().selected.size).toBe(0);
+  });
 });

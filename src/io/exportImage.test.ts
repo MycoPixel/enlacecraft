@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { buildExportClone } from "./exportImage";
+import { buildExportClone, exportSelectionSVGString } from "./exportImage";
 
 /**
  * Cropping for export and copy-to-clipboard.
@@ -188,5 +188,34 @@ describe("export crop", () => {
     // Only the original canvas should remain.
     expect(document.body.childElementCount).toBe(before + 1);
     expect(document.querySelectorAll("svg").length).toBe(1);
+  });
+});
+
+describe("selection copy SVG (the rich copy's HTML flavor)", () => {
+  test("frames only the selected fragment, not the whole canvas", () => {
+    const svg = canvas(content(atom("a1", "0,0,40,40"), atom("a2", "80,0,40,40")));
+    const markup = exportSelectionSVGString(svg, new Set(["a2"]), new Set(), new Set());
+    expect(markup).not.toBeNull();
+    // The unselected atom must be gone from the serialized markup...
+    expect(markup).not.toContain('data-atom-id="a1"');
+    expect(markup).toContain('data-atom-id="a2"');
+    // ...and the frame must be the fragment's, not the full canvas's.
+    expect(markup).toContain('viewBox="');
+    const view = markup!.match(/viewBox="([^"]+)"/)![1].split(/\s+/).map(Number);
+    expect(view[2]).toBeLessThan(100); // a2 alone spans 40 units + margin
+  });
+
+  test("keeps bonds and annotations that belong to the selection", () => {
+    const svg = canvas(
+      content(
+        `<g data-atom-id="a1" data-bbox="0,0,40,40"><circle r="5"/></g>`,
+        `<g data-bond-id="b1" data-bbox="10,10,20,20"><line/></g>`,
+        `<g data-annotation-id="t1" data-bbox="50,50,10,10"><rect/></g>`,
+      ),
+    );
+    const markup = exportSelectionSVGString(svg, new Set(["a1"]), new Set(["b1"]), new Set(["t1"]));
+    expect(markup).toContain('data-bond-id="b1"');
+    expect(markup).toContain('data-annotation-id="t1"');
+    expect(markup).toContain('data-atom-id="a1"');
   });
 });

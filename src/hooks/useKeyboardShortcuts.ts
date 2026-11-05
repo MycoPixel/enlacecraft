@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useMoleculeStore } from "../store/useMoleculeStore";
 import type { Element } from "../types/chemistry";
 import { runProjectSave } from "../io/projectSaver";
+import { nativeEditCommand, isEditableElement, type NativeEditCommand } from "../io/nativeEdit";
 
 /**
  * Keyboard shortcuts (desktop):
@@ -44,14 +45,10 @@ export function useKeyboardShortcuts() {
   const clearSelection = useMoleculeStore((s) => s.clearSelection);
   const toggleShowHydrogens = useMoleculeStore((s) => s.toggleShowHydrogens);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
-  const atomEditTarget = useMoleculeStore((s) => s.atomEditTarget);
-  const selected = useMoleculeStore((s) => s.selected);
-  const hoverAtomId = useMoleculeStore((s) => s.hoverAtomId);
   const setAtomEditTarget = useMoleculeStore((s) => s.setAtomEditTarget);
   const setLabelEditTarget = useMoleculeStore((s) => s.setLabelEditTarget);
   const setAtomLabelRevealTargets = useMoleculeStore((s) => s.setAtomLabelRevealTargets);
   const setAtomElementOf = useMoleculeStore((s) => s.setAtomElementOf);
-  const selectedAnnotationIds = useMoleculeStore((s) => s.selectedAnnotationIds);
   const deleteAnnotations = useMoleculeStore((s) => s.deleteAnnotations);
   const setSelectedAnnotationIds = useMoleculeStore((s) => s.setSelectedAnnotationIds);
   const cleanReaction = useMoleculeStore((s) => s.cleanReaction);
@@ -103,8 +100,21 @@ export function useKeyboardShortcuts() {
       si: "Si",
     };
 
+    // Editing targets (atom under the cursor, atom being edited, current
+    // selection) are read at keypress time via getState() rather than
+    // subscribed to. Subscribing made this hook — and therefore the whole
+    // App tree around it — re-render on every atom hover change, and tore
+    // down/re-added the window keydown listener each time. Store actions are
+    // stable, so nothing in the dependency list below ever changes.
+    const editTargets = (): string[] => {
+      const s = useMoleculeStore.getState();
+      if (s.atomEditTarget) return [s.atomEditTarget];
+      if (s.hoverAtomId) return [s.hoverAtomId];
+      return s.selected.size > 0 ? [...s.selected] : [];
+    };
+
     const applyTypedElement = (symbol: string) => {
-      const targetIds = atomEditTarget ? [atomEditTarget] : hoverAtomId ? [hoverAtomId] : selected.size > 0 ? [...selected] : [];
+      const targetIds = editTargets();
       if (targetIds.length === 0) return;
       const element = elementBySymbol[symbol.toLowerCase()];
       if (!element) return;
@@ -127,7 +137,23 @@ export function useKeyboardShortcuts() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        // The desktop Edit menu deliberately does not register its
+        // accelerators (they would swallow these keys before the canvas
+        // handlers ever see them — see electron/main.cjs), so an editable
+        // focus needs the native command forwarded through the bridge:
+        // Chromium's renderer on Linux/Windows has no built-in binding for
+        // them either. No preventDefault — in the plain browser the
+        // browser's own bindings still handle the key. Copy/cut/paste in
+        // editables are useClipboard's half of the same arrangement.
+        if (e.ctrlKey || e.metaKey) {
+          const key = e.key.toLowerCase();
+          if (key === "z") nativeEditCommand(e.shiftKey ? "redo" : "undo");
+          else if (key === "y") nativeEditCommand("redo");
+          else if (key === "a") nativeEditCommand("selectAll");
+        }
+        return;
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -191,13 +217,18 @@ export function useKeyboardShortcuts() {
       }
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        if (selectedAnnotationIds.size > 0) deleteAnnotations(selectedAnnotationIds);
-        if (selected.size > 0) deleteSelection();
+        const current = useMoleculeStore.getState();
+        if (current.selectedAnnotationIds.size > 0) deleteAnnotations(current.selectedAnnotationIds);
+        // A selected catalytic cycle deliberately leaves the atom and
+        // annotation sets empty (clicking the ring clears both), so the
+        // guard has to let a cycle-only selection through — deleteSelection
+        // owns that case and removes just the ring figure.
+        if (current.selected.size > 0 || current.selectedCycleId) deleteSelection();
         return;
       }
 
       if (e.key === "Enter") {
-        const targetIds = atomEditTarget ? [atomEditTarget] : hoverAtomId ? [hoverAtomId] : selected.size > 0 ? [...selected] : [];
+        const targetIds = editTargets();
         if (targetIds.length === 1) {
           e.preventDefault();
           setLabelEditTarget(targetIds[0]);
@@ -206,7 +237,7 @@ export function useKeyboardShortcuts() {
       }
 
       const isElementKey = !(e.ctrlKey || e.metaKey) && /^[a-zA-Z]$/.test(e.key);
-      const targetIds = atomEditTarget ? [atomEditTarget] : hoverAtomId ? [hoverAtomId] : selected.size > 0 ? [...selected] : [];
+      const targetIds = editTargets();
       if (isElementKey && targetIds.length > 0) {
         e.preventDefault();
         const nextBuffer = (pendingElementBufferRef.current + e.key).toLowerCase();
@@ -262,5 +293,31 @@ export function useKeyboardShortcuts() {
         pendingElementTimerRef.current = null;
       }
     };
-  }, [undo, redo, setTool, deleteSelection, selectAll, duplicateSelection, clearSelection, toggleShowHydrogens, rotateSelection, atomEditTarget, selected, hoverAtomId, setAtomEditTarget, setLabelEditTarget, setAtomLabelRevealTargets, setAtomElementOf, selectedAnnotationIds, deleteAnnotations, setSelectedAnnotationIds, cleanReaction, mapReactionAtoms, groupSelection, ungroupSelection]);
+    // All dependencies are stable store actions (Zustand actions never
+    // change identity), so the listener is attached once per mount instead
+    // of being re-bound on every hover/selection change.
+  }, [undo, redo, setTool, deleteSelection, selectAll, duplicateSelection, clearSelection, toggleShowHydrogens, rotateSelection, setAtomEditTarget, setLabelEditTarget, setAtomLabelRevealTargets, setAtomElementOf, deleteAnnotations, setSelectedAnnotationIds, cleanReaction, mapReactionAtoms, groupSelection, ungroupSelection]);
+
+  // The desktop Edit menu's click handlers (Alt, then Edit → Undo on
+  // Linux/Windows; the macOS menu bar) don't produce a page keydown, so
+  // those commands arrive over IPC. Same routing as the keys above: a
+  // text-field focus gets the native command, the canvas gets the store
+  // action. useClipboard subscribes to the same channel for
+  // copy/cut/paste.
+  useEffect(() => {
+    const bridge = typeof window === "undefined" ? undefined : window.electron;
+    if (!bridge?.onEditCommand) return;
+    const run = (command: NativeEditCommand): void => {
+      if (isEditableElement(document.activeElement)) {
+        if (command === "undo") nativeEditCommand("undo");
+        else if (command === "redo") nativeEditCommand("redo");
+        else if (command === "selectAll") nativeEditCommand("selectAll");
+        return;
+      }
+      if (command === "undo") undo();
+      else if (command === "redo") redo();
+      else if (command === "selectAll") selectAll();
+    };
+    return bridge.onEditCommand(run);
+  }, [undo, redo, selectAll]);
 }

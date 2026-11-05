@@ -152,6 +152,15 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     const pt = clientToWorld(clientX, clientY);
     const atomId = pickAtom(store.molecule, pt);
     const bondId = atomId ? null : pickBond(store.molecule, pt);
+    // Long-pressing (or right-clicking) a catalytic cycle selects it first so
+    // the menu can offer the cycle's own actions — the same "act on what's
+    // under the cursor" behaviour a plain click has. Only reached when no
+    // atom/bond won the hit test: those stay the menu's primary target.
+    if (!atomId && !bondId) {
+      const tol = (touchInputRef.current ? 20 : 12) / store.view.scale;
+      const hitCycle = cycleAt(store.molecule, pt, tol);
+      if (hitCycle) store.selectCatalyticCycle(hitCycle.id);
+    }
     store.setContextMenu({ x: clientX, y: clientY, atomId, bondId });
   }, [clientToWorld, pickAtom, pickBond]);
 
@@ -1090,17 +1099,6 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
       const fromAtom = molecule.atoms[from];
       if (!fromAtom) return;
       const movedEnough = dist(fromAtom, pt) > 12;
-      const hitAtom = pickAtom(molecule, pt);
-
-      let toAtom: string;
-      if (hitAtom && hitAtom !== from) {
-        toAtom = hitAtom;
-      } else {
-        const desired = movedEnough ? angleOf(fromAtom, pt) : null;
-        const ang = bestNewAngle(molecule, from, desired, angleFree(e), snapStep());
-        const p = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
-        toAtom = store.addAtom(p, "C");
-      }
 
       const order = (tool === "bond-2" ? 2 : tool === "bond-3" ? 3 : 1) as BondOrder;
       const stereo: BondStereo = tool === "wedge" ? "wedge"
@@ -1111,7 +1109,25 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         : tool === "bold-hash" ? "boldHash"
         : tool === "dashed" ? "dashed"
         : "none";
-      store.addBond(from, toAtom, stereo === "none" ? order : 1, stereo, tool === "dative");
+      const bondOrder: BondOrder = stereo === "none" ? order : 1;
+      const dative = tool === "dative";
+
+      const hitAtom = pickAtom(molecule, pt);
+      if (hitAtom && hitAtom !== from) {
+        // Bond to an existing atom: no atoms were created, so there is
+        // nothing for "clean as I draw" to place — the stroke is just the
+        // bond, same as before.
+        store.addBond(from, hitAtom, bondOrder, stereo, dative);
+      } else {
+        const desired = movedEnough ? angleOf(fromAtom, pt) : null;
+        const ang = bestNewAngle(molecule, from, desired, angleFree(e), snapStep());
+        const p = polar(fromAtom.x, fromAtom.y, BOND_LEN, ang);
+        // Atom + bond in ONE commit, so the store's "clean as I draw"
+        // polish runs on the atom this stroke just created. The old
+        // addAtom/addBond pair split across two commits never reached it,
+        // which made the toggle look dead for the main drawing gesture.
+        store.addAtomWithBond(p, "C", from, undefined, undefined, { order: bondOrder, stereo, dative });
+      }
       store.setStatus("status.ready");
       return;
     }
@@ -1135,8 +1151,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
         return;
       }
       const hitAtom = pickAtom(molecule, pt, from, 16);
-      const toAtom = hitAtom ?? store.addAtom(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), angleFree(e), snapStep())), "C");
-      store.addBond(from, toAtom, 1, "none");
+      if (hitAtom) {
+        store.addBond(from, hitAtom, 1, "none");
+      } else {
+        // Single commit (atom + bond) so "clean as I draw" polishes the
+        // atom this stroke created — see the "bond" branch above.
+        store.addAtomWithBond(polar(fromAtom.x, fromAtom.y, BOND_LEN, bestNewAngle(molecule, from, angleOf(fromAtom, pt), angleFree(e), snapStep())), "C", from);
+      }
       store.setStatus("status.ready");
       return;
     }
@@ -1352,9 +1373,11 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
    * maps to a "contextmenu" event) — opens the ContextMenu component at
    * the click point, hit-testing what's underneath so it can offer
    * atom/bond-specific actions on top of the always-available
-   * selection/canvas ones. Doesn't itself change tool or selection; it's
-   * purely "figure out what's here and let the menu component decide
-   * what to show for it". */
+   * selection/canvas ones. The one selection change it does make: when the
+   * click lands on a catalytic cycle (and no atom/bond is under the
+   * cursor) that cycle is selected first, so the menu can offer the
+   * cycle's own actions — the same "act on what's under the cursor"
+   * behaviour a plain click has. */
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const store = useMoleculeStore.getState();
@@ -1384,6 +1407,13 @@ export function useCanvasInteractions(svgRef: RefObject<SVGSVGElement>) {
     // the browser's native event — a bigger, separate change from this
     // one.
     if (e.button !== 2 && atomId) return;
+    if (!atomId && !bondId) {
+      // Select a cycle under the cursor so the menu can offer its actions
+      // (mirrors openContextMenuAt's long-press path; see its comment).
+      const tol = (touchInputRef.current ? 20 : 12) / store.view.scale;
+      const hitCycle = cycleAt(store.molecule, pt, tol);
+      if (hitCycle) store.selectCatalyticCycle(hitCycle.id);
+    }
     store.setContextMenu({ x: e.clientX, y: e.clientY, atomId, bondId });
   }, [clientToWorld, pickAtom, pickBond]);
 

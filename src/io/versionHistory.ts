@@ -6,6 +6,9 @@ import { openLocalDb, CHECKPOINTS_STORE } from "./localDb";
  * opportunistically whenever the tab/window is hidden, regardless of this
  * interval, so the last stretch of work before closing isn't lost. */
 export const CHECKPOINT_INTERVAL_MS = 10 * 60 * 1000;
+/** Minimum spacing between hide-triggered (visibilitychange) checkpoints, so
+ * rapid window-switching can't hammer the serialization + rasterization path. */
+export const MIN_HIDDEN_CHECKPOINT_GAP_MS = 30 * 1000;
 /** Oldest checkpoints are pruned once there are more than this many — see
  * saveCheckpoint's doc comment for the storage-size reasoning behind this
  * number. */

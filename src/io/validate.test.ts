@@ -320,6 +320,107 @@ describe("z-order sanitisation", () => {
   });
 });
 
+describe("R-group definition sanitisation", () => {
+  const fragment = {
+    atoms: { fa: atom("fa"), fb: atom("fb", 30, 0, "O") },
+    bonds: { fbond: bond("fbond", "fa", "fb") },
+  };
+  const goodDef = { id: "rg1", label: "R1", attachmentAtomId: "fa", molecule: fragment };
+
+  test("keeps a well-formed definition and sanitizes its fragment", () => {
+    const report = newRepairReport();
+    const mol = sanitizeMolecule({ atoms: { a1: atom("a1") }, bonds: {}, rgroups: { rg1: goodDef } }, report);
+    expect(mol.rgroups?.rg1).toMatchObject({ id: "rg1", label: "R1", attachmentAtomId: "fa" });
+    expect(mol.rgroups?.rg1.molecule.atoms.fb).toMatchObject({ element: "O" });
+    expect(mol.rgroups?.rg1.molecule.bonds.fbond).toBeDefined();
+    expect(totalDropped(report)).toBe(0);
+  });
+
+  test("drops malformed definitions and keeps valid ones", () => {
+    const report = newRepairReport();
+    const mol = sanitizeMolecule(
+      {
+        atoms: { a1: atom("a1") },
+        bonds: {},
+        rgroups: {
+          good: goodDef,
+          badLabel: { ...goodDef, label: "substituent" }, // not an R-shaped label
+          noFragment: { ...goodDef, molecule: undefined },
+          notObject: 42,
+          // Attachment atom is not part of the (sanitized) fragment.
+          badAttach: { ...goodDef, attachmentAtomId: "ghost" },
+          // An attachment atom that sanitizeMolecule dropped along the way.
+          droppedAttach: { ...goodDef, attachmentAtomId: "fb", molecule: { atoms: {}, bonds: {} } },
+        },
+      },
+      report,
+    );
+    expect(Object.keys(mol.rgroups ?? {})).toEqual(["rg1"]);
+    expect(report.droppedOther).toBe(5);
+  });
+
+  test("regenerates missing/duplicate ids and never accepts a hostile id", () => {
+    const mol = sanitizeMolecule({
+      atoms: { a1: atom("a1") },
+      bonds: {},
+      rgroups: {
+        dup: { ...goodDef, id: "same" },
+        dup2: { ...goodDef, id: "same", label: "R2" },
+        hostile: { ...goodDef, id: "__proto__", label: "R3" },
+        noId: { ...goodDef, id: undefined, label: "R4" },
+      },
+    });
+    const defs = Object.values(mol.rgroups ?? {});
+    expect(defs).toHaveLength(4);
+    expect(new Set(defs.map((d) => d.id)).size).toBe(4);
+    for (const def of defs) expect(def.id).not.toBe("__proto__");
+  });
+
+  test("nested rgroups inside a fragment are stripped, not recursed into", () => {
+    const mol = sanitizeMolecule({
+      atoms: { a1: atom("a1") },
+      bonds: {},
+      rgroups: {
+        rg1: { ...goodDef, molecule: { ...fragment, rgroups: { inner: goodDef } } },
+      },
+    });
+    expect(mol.rgroups?.rg1.molecule.rgroups).toBeUndefined();
+  });
+
+  test("too many definitions refuse the whole file; a non-object record does too", () => {
+    const many: Record<string, unknown> = {};
+    for (let i = 0; i <= LIMITS.maxRGroups; i++) many[`r${i}`] = { ...goodDef, label: `R${i % 100}` };
+    expect(() => sanitizeMolecule({ atoms: {}, bonds: {}, rgroups: many })).toThrow(ImportValidationError);
+    expect(() => sanitizeMolecule({ atoms: {}, bonds: {}, rgroups: [goodDef] })).toThrow(ImportValidationError);
+  });
+
+  test("a definition whose fragment has no surviving atoms is dropped", () => {
+    const report = newRepairReport();
+    const mol = sanitizeMolecule(
+      { atoms: { a1: atom("a1") }, bonds: {}, rgroups: { empty: { ...goodDef, molecule: { atoms: { bad: atom("bad", 0, 0, "Zz") }, bonds: {} } } } },
+      report,
+    );
+    expect(mol.rgroups).toBeUndefined();
+    expect(report.droppedOther).toBe(1);
+  });
+
+  test("a project round-trip keeps valid definitions and drops broken ones", () => {
+    const file = (molecule: object) =>
+      JSON.stringify({
+        version: 2,
+        activeTabId: "t1",
+        tabs: [{ id: "t1", title: "x", molecule, annotations: {}, view: { scale: 1, tx: 0, ty: 0 } }],
+      });
+    const restored = importProject(file({ atoms: { a1: atom("a1") }, bonds: {}, rgroups: { rg1: goodDef } }));
+    expect(restored.tabs[0].molecule.rgroups?.rg1.label).toBe("R1");
+
+    const broken = importProject(
+      file({ atoms: { a1: atom("a1") }, bonds: {}, rgroups: { rg1: { ...goodDef, attachmentAtomId: "ghost" } } }),
+    );
+    expect(broken.tabs[0].molecule.rgroups).toBeUndefined();
+  });
+});
+
 describe("importProject on hostile input", () => {
   const tab = (over: object = {}) => ({
     id: "t1",

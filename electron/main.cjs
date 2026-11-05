@@ -1,7 +1,7 @@
 // Electron main process. Kept as plain CommonJS (.cjs) regardless of the
 // rest of the project being ESM ("type": "module" in package.json), since
 // Electron's main process is simplest and most compatible as CJS.
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session, clipboard } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session, clipboard, nativeImage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const nmrServer = require("./server.cjs");
@@ -186,11 +186,47 @@ app.whenReady().then(() => {
   // accelerators tied to the standard "Edit" menu's roles. A null menu
   // has no roles, so it silently kills those shortcuts app-wide (this is
   // how the NMR report's shift table ended up selectable with the mouse
-  // but uncopyable with Ctrl+C on the Linux AppImage build). Building a
-  // menu with just the Edit role restores the shortcuts; autoHideMenuBar
-  // above keeps it invisible day-to-day exactly as before, same as a
-  // null menu looked visually.
-  const editMenu = Menu.buildFromTemplate([{ role: "editMenu" }]);
+  // but uncopyable with Ctrl+C on the Linux AppImage build).
+  //
+  // But the menu's accelerators must NOT be registered either. A
+  // registered accelerator is consumed before the page ever sees the key,
+  // and the roles' native commands (webContents.copy() etc.) only act on
+  // real DOM text selections - which a canvas app never has. That is
+  // exactly how Ctrl+C/V/A/Z went dead for canvas actions in the packaged
+  // build while working in the browser: the menu swallowed the key and
+  // then copied nothing, so the OS clipboard never received anything at
+  // all. registerAccelerator: false keeps the menu (and, on macOS, the
+  // standard menu-bar behavior) while every key reaches the page's own
+  // keydown handlers (useClipboard / useKeyboardShortcuts), which know
+  // whether the focus is the canvas (app-level copy/paste/undo/select-all)
+  // or a text field (forwarded back here via "edit:native-command").
+  // The click handlers below serve the menu itself being clicked
+  // (Alt, then Edit) - clicks never produce a page keydown.
+  const sendEditCommand = (command) => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) win.webContents.send("edit:command", command);
+  };
+  const editMenuItem = (label, command, accelerator) => ({
+    label,
+    accelerator,
+    registerAccelerator: false,
+    click: () => sendEditCommand(command),
+  });
+  const editMenu = Menu.buildFromTemplate([
+    {
+      label: "Edit",
+      submenu: [
+        editMenuItem("Undo", "undo", "CmdOrCtrl+Z"),
+        editMenuItem("Redo", "redo", "Shift+CmdOrCtrl+Z"),
+        { type: "separator" },
+        editMenuItem("Cut", "cut", "CmdOrCtrl+X"),
+        editMenuItem("Copy", "copy", "CmdOrCtrl+C"),
+        editMenuItem("Paste", "paste", "CmdOrCtrl+V"),
+        { type: "separator" },
+        editMenuItem("Select All", "selectAll", "CmdOrCtrl+A"),
+      ],
+    },
+  ]);
   Menu.setApplicationMenu(editMenu);
   createWindow();
   nmrServer.startServer(); // no-op in dev/preview - see server.cjs
@@ -237,6 +273,46 @@ handleTrusted("updater:quit-and-install", () => updater.quitAndInstall());
 handleTrusted("clipboard:write-text", (_event, text) => {
   if (typeof text !== "string" || text.length > security.MAX_SHARE_TOKEN_LENGTH) return false;
   clipboard.writeText(text);
+  return true;
+});
+
+// Rich copy: text + HTML flavor + a native bitmap in one clipboard write,
+// so a copied drawing pastes as a picture into Office/LibreOffice and as
+// editable text (CDXML/MOL/SMILES) into chemistry-aware targets. Every
+// field is optional and validated — the HTML is rendered by pasting apps
+// as an image, never as live markup, and the PNG arrives as raw bytes.
+// Text/html payloads are capped well above the share-token ceiling (a full
+// serialized SVG with inlined fonts can reach hundreds of KB) but still
+// bounded, so a hostile renderer can't wedge the main process with an
+// unbounded string.
+const MAX_CLIPBOARD_TEXT_LENGTH = 2_000_000;
+handleTrusted("clipboard:write-rich", (_event, payload) => {
+  if (!payload || typeof payload !== "object") return false;
+  const { text, html, png } = payload;
+  if (text !== undefined && (typeof text !== "string" || text.length > MAX_CLIPBOARD_TEXT_LENGTH)) return false;
+  if (html !== undefined && (typeof html !== "string" || html.length > MAX_CLIPBOARD_TEXT_LENGTH)) return false;
+  if (png !== undefined && !Buffer.isBuffer(png)) return false;
+  const entry = {};
+  if (typeof text === "string" && text.length > 0) entry.text = text;
+  if (typeof html === "string" && html.length > 0) entry.html = html;
+  if (Buffer.isBuffer(png) && png.length > 0) entry.image = nativeImage.createFromBuffer(png);
+  if (Object.keys(entry).length === 0) return false;
+  clipboard.write(entry);
+  return true;
+});
+
+// Native editor commands for the desktop build - the other half of the Edit
+// menu arrangement at the top of app.whenReady(): with the menu accelerators
+// unregistered, a keydown that lands in a text field reaches the renderer's
+// handlers instead of the menu, and those forward the command here so the
+// focused input actually copies/pastes/undoes (Chromium's renderer on
+// Linux/Windows has no built-in binding for them, which is why the Edit menu
+// had to exist in the first place). Command names are whitelisted; anything
+// else is refused rather than looked up on the sender.
+const NATIVE_EDIT_COMMANDS = new Set(["undo", "redo", "cut", "copy", "paste", "selectAll"]);
+handleTrusted("edit:native-command", (event, command) => {
+  if (typeof command !== "string" || !NATIVE_EDIT_COMMANDS.has(command)) return false;
+  event.sender[command]();
   return true;
 });
 
@@ -321,12 +397,13 @@ handleTrusted("dialog:open-file", async (event) => {
     title: "Open",
     properties: ["openFile"],
     filters: [
-      { name: "All supported files", extensions: ["enlacecraft", "mol", "sdf", "cdxml", "smi", "smiles"] },
+      { name: "All supported files", extensions: ["enlacecraft", "mol", "sdf", "cdxml", "smi", "smiles", "svg"] },
       { name: "EnlaceCraft project", extensions: ["enlacecraft"] },
       { name: "MDL Molfile", extensions: ["mol"] },
       { name: "MDL SD file", extensions: ["sdf"] },
       { name: "ChemDraw XML", extensions: ["cdxml"] },
       { name: "SMILES", extensions: ["smi", "smiles"] },
+      { name: "SVG with embedded structure", extensions: ["svg"] },
     ],
   });
   if (canceled || filePaths.length === 0) return { canceled: true };

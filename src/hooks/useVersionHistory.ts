@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useMoleculeStore } from "../store/useMoleculeStore";
-import { saveCheckpoint, CHECKPOINT_INTERVAL_MS } from "../io/versionHistory";
+import { saveCheckpoint, CHECKPOINT_INTERVAL_MS, MIN_HIDDEN_CHECKPOINT_GAP_MS } from "../io/versionHistory";
 import { hasAnyContent } from "../io/autosave";
 import { exportProject, type ProjectTab } from "../io/project";
 import { exportPNGBlob } from "../io/exportImage";
@@ -80,8 +80,19 @@ export function useVersionHistory(svgRef: React.RefObject<SVGSVGElement | null>)
       lastCheckpointedJson.current = json;
     };
 
+    let lastHiddenCheckpointAt = 0;
     const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") void takeCheckpointIfChanged();
+      if (document.visibilityState !== "hidden") return;
+      // Every alt-tab/minimize used to run the full checkpoint path (project
+      // serialization + SVG rasterization + IndexedDB write) on the main
+      // thread. Someone hopping between windows several times in a row paid
+      // that each time even when almost nothing had changed; keep a minimum
+      // spacing between hide-triggered checkpoints (the periodic interval
+      // checkpoint still covers everything else).
+      const now = Date.now();
+      if (now - lastHiddenCheckpointAt < MIN_HIDDEN_CHECKPOINT_GAP_MS) return;
+      lastHiddenCheckpointAt = now;
+      void takeCheckpointIfChanged();
     };
 
     const interval = window.setInterval(() => void takeCheckpointIfChanged(), CHECKPOINT_INTERVAL_MS);

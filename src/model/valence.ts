@@ -1,4 +1,4 @@
-import type { Atom, Element, Molecule } from "../types/chemistry";
+import type { Atom, Bond, Element, Molecule } from "../types/chemistry";
 import { VALENCE, ATOMIC_WEIGHT, ABBREVIATED_GROUPS, ISOTOPE_PRESETS } from "./constants";
 import { angleOf, largestGapAngle } from "./geometry";
 
@@ -22,8 +22,43 @@ export function parseSimpleFormula(formula: string): Record<string, number> {
 }
 
 export function bondsOfAtom(mol: Molecule, atomId: string) {
-  return Object.values(mol.bonds).filter((b) => b.a1 === atomId || b.a2 === atomId);
+  return atomAdjacency(mol).get(atomId) ?? [];
 }
+
+/**
+ * Per-molecule atom → touching-bonds index, cached on the molecule object
+ * itself via a WeakMap.
+ *
+ * Every consumer below used to answer "which bonds touch this atom" with a
+ * full `Object.values(mol.bonds).filter(...)` scan. Individually that is
+ * fine; collectively it was not — render paths call these helpers per atom
+ * per frame (atom labels, valence badges, hit tests, the TopBar warning
+ * chip), so a drawing with A atoms and B bonds paid O(A×B) work several
+ * times over on every render. As the drawing grows over a session, each
+ * mouse move and drag frame gets proportionally more expensive — the
+ * "app starts lagging, reopening fixes it" report.
+ *
+ * Molecules are treated as immutable once built (the store replaces the
+ * object on every edit; the only in-place builders are the format
+ * importers, which assemble a fresh molecule before anyone reads it), so
+ * caching keyed on object identity is always consistent with the bonds it
+ * was built from.
+ */
+export function atomAdjacency(mol: Molecule): Map<string, Bond[]> {
+  let adj = adjacencyCache.get(mol);
+  if (!adj) {
+    adj = new Map<string, Bond[]>();
+    for (const id in mol.atoms) adj.set(id, []);
+    for (const b of Object.values(mol.bonds)) {
+      adj.get(b.a1)?.push(b);
+      if (b.a2 !== b.a1) adj.get(b.a2)?.push(b);
+    }
+    adjacencyCache.set(mol, adj);
+  }
+  return adj;
+}
+
+const adjacencyCache = new WeakMap<Molecule, Map<string, Bond[]>>();
 
 export function neighborIds(mol: Molecule, atomId: string): string[] {
   return bondsOfAtom(mol, atomId).map((b) => (b.a1 === atomId ? b.a2 : b.a1));
@@ -275,6 +310,49 @@ export function isOverValent(mol: Molecule, atomId: string): boolean {
   if (VALENCE[a.element] === undefined) return false;
   const used = usedValence(mol, atomId);
   return used > resolvedValence(a.element, a.charge, used);
+}
+
+/**
+ * The lone-pair elements where "one bond too many with no charge drawn"
+ * has exactly one chemically standard fix: a formal +1 charge. Nitrogen
+ * with four bonds is an ammonium/nitro-style cation, oxygen with three is
+ * an oxonium, S/Se/Te with three is the corresponding chalcogenium, and
+ * phosphorus with four is a phosphonium — in each case drawing the charge
+ * is what a chemist would actually do, not an ambiguity to guess at.
+ * Everything else (carbon's five bonds, halogens bridge-bonded by a
+ * student, metals) has no single unambiguous repair, so those get an
+ * explanation only — this must never silently restructure the drawing
+ * (plan constraint: no silent geometry/bond edits).
+ *
+ * Returns the suggested CHARGE VALUE (always +1 today), or null when there
+ * is no unambiguous fix. Applied by the caller through the existing
+ * setAtomCharge(id, delta) action, as one undo step.
+ */
+const ONE_PLUS_FIXES_OVER_VALENCE: ReadonlySet<string> = new Set(["N", "P", "O", "S", "Se", "Te"]);
+
+export function suggestValenceFix(mol: Molecule, atomId: string): number | null {
+  const a = mol.atoms[atomId];
+  if (!a || a.group || a.ignoreValence) return null;
+  if (a.charge !== 0) return null;
+  if (!ONE_PLUS_FIXES_OVER_VALENCE.has(a.element)) return null;
+  const used = usedValence(mol, atomId);
+  const resolved = resolvedValence(a.element, a.charge, used);
+  if (used - resolved !== 1) return null;
+  return 1;
+}
+
+/** Atom ids flagged over-valent, in drawing order — the warnings popover's
+ * list. Cheap now that bondsOfAtom is indexed (one O(atoms) pass). */
+export function overValentAtomIds(mol: Molecule): string[] {
+  return Object.keys(mol.atoms).filter((id) => isOverValent(mol, id));
+}
+
+/** Short human summary of why an atom is flagged, for the popover row
+ * title: "4 bonds drawn — usual maximum for N here is 3". */
+export function valenceExplainParams(mol: Molecule, atomId: string): { element: string; used: number; max: number } {
+  const a = mol.atoms[atomId];
+  const used = usedValence(mol, atomId);
+  return { element: a.element, used, max: resolvedValence(a.element, a.charge, used) };
 }
 
 /**

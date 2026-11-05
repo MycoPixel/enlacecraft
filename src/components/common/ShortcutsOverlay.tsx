@@ -77,6 +77,8 @@ const GROUPS: ShortcutGroup[] = [
       { keys: "Shift + click", descKey: "shortcuts.addToSelection" },
       { keys: "Drag on empty canvas", descKey: "shortcuts.marquee" },
       { keys: "?", descKey: "shortcuts.thisOverlay" },
+      { keys: "Command palette", descKey: "shortcuts.rulersCrosshair" },
+      { keys: "Command palette", descKey: "shortcuts.restacking" },
     ],
   },
 ];

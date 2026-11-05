@@ -1,9 +1,12 @@
 import type { Annotation, Molecule } from "../types/chemistry";
 import { AMINO_ACID_TEMPLATES } from "./aminoAcidTemplates";
+import { AROMATIC_TEMPLATES } from "./aromaticTemplates";
 import { CARBOHYDRATE_TEMPLATES } from "./carbohydrateTemplates";
+import { CONFORMATION_TEMPLATES } from "./ringConformations";
 import { FUSED_HETEROCYCLE_TEMPLATES } from "./heterocycleTemplates";
 import { NUCLEOBASE_TEMPLATES } from "./nucleobaseTemplates";
 import { NUCLEOTIDE_TEMPLATES } from "./nucleotideTemplates";
+import { ORGANOMETALLIC_TEMPLATES } from "./organometallicTemplates";
 import { POLYSACCHARIDE_TEMPLATES } from "./polysaccharideTemplates";
 import { STEROID_TEMPLATES } from "./steroidTemplates";
 import { TERPENE_TEMPLATES } from "./terpeneTemplates";
@@ -78,4 +81,13 @@ export const STRUCTURE_TEMPLATES: StructureTemplate[] = [
   ...NUCLEOBASE_TEMPLATES,
   ...STEROID_TEMPLATES,
   ...TERPENE_TEMPLATES,
+  // Phase-10 library expansion sets — conformation projections
+  // (ringConformations.ts), metallocenes/paddlewheel
+  // (organometallicTemplates.ts) and named aromatics/bicyclics
+  // (aromaticTemplates.ts). Same paste-fragment insertion path as every
+  // family above; their categories are listed in TemplatePalette's
+  // CATEGORY_ORDER and labelled in i18n/translations.ts.
+  ...CONFORMATION_TEMPLATES,
+  ...ORGANOMETALLIC_TEMPLATES,
+  ...AROMATIC_TEMPLATES,
 ];

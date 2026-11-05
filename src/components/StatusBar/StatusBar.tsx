@@ -7,6 +7,12 @@ export function StatusBar() {
   const status = useMoleculeStore((s) => s.status);
   const view = useMoleculeStore((s) => s.view);
   const resetView = useMoleculeStore((s) => s.resetView);
+  const fixedBondLength = useMoleculeStore((s) => s.fixedBondLength);
+  const fixedAngle = useMoleculeStore((s) => s.fixedAngle);
+  const snapAngleDegrees = useMoleculeStore((s) => s.snapAngleDegrees);
+  const freeAngle = useMoleculeStore((s) => s.freeAngle);
+  const toggleFixedBondLength = useMoleculeStore((s) => s.toggleFixedBondLength);
+  const toggleFixedAngle = useMoleculeStore((s) => s.toggleFixedAngle);
   const t = useT();
   const updater = useUpdaterStatus();
   const [installing, setInstalling] = useState(false);
@@ -30,6 +36,25 @@ export function StatusBar() {
           already-composed message (e.g. a search result summary); t()
           transparently passes the latter through unchanged. */}
       <span>{t(status)}</span>
+      {/* Drawing-constraint indicators: the same two toggles the sidebar's
+          DrawingConstraints buttons control, mirrored here so the current
+          snapping behaviour is visible no matter how far the sidebar is
+          scrolled. Clicking one here flips it, exactly like the sidebar
+          button. The angle chip also reflects the snap-angle picker's
+          current value, since that's what "fixed angle" locks to. */}
+      {fixedBondLength && (
+        <button type="button" className="status-bar__constraint" onClick={toggleFixedBondLength} title={t("tool.fixedBondLength")}>
+          {t("tool.fixedBondLength")}
+        </button>
+      )}
+      {fixedAngle && (
+        <button type="button" className="status-bar__constraint" onClick={toggleFixedAngle} title={t("tool.fixedAngle")}>
+          {t("tool.fixedAngle")} · {snapAngleDegrees}°
+        </button>
+      )}
+      {!fixedAngle && freeAngle && (
+        <span className="status-bar__constraint status-bar__constraint--muted">{t("snapAngle.freeAngle")}</span>
+      )}
       {updater.state === "downloading" && (
         <span className="status-bar__updater">
           {t("updater.downloading")}

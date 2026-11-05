@@ -132,6 +132,13 @@ export function PasteStructureDialog({ onClose }: PasteStructureDialogProps) {
             </span>
             <span className="paste-dialog__hint">{t("paste.hint")}</span>
           </div>
+          {/* Formats deliberately not supported, so the absence of a
+              ChemDraw-binary (.cdx) or Office-native (EMF/EPS/TIFF) option
+              reads as a documented trade-off rather than an oversight. The
+              open text formats above (and SVG with embedded CDXML) cover
+              the common Word/PowerPoint/Inkscape/ChemDraw workflows without
+              the platform-specific native code those binary formats need. */}
+          <div className="paste-dialog__note">{t("paste.formatsNote")}</div>
           {error && <div className="paste-dialog__error">{error}</div>}
         </div>
         <div className="paste-dialog__footer">

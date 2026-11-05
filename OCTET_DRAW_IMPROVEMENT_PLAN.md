@@ -1,6 +1,6 @@
 # EnlaceCraft × Octet Draw improvement plan
 
-Status: proposed · 3 November 2026
+Status: implemented (Phases 8–10) · 5 November 2026
 
 Benchmark: [Octet Draw](https://github.com/SamChemMan/Octet-Draw), Apache-2.0, commit
 `d5ebf898de3a82bf7549680a171fc4909daae69f` (Version 1.0.29, 2 November 2026).
@@ -281,28 +281,28 @@ angles, grouping and restacking. These are low-risk, high-polish additions.
 
 ### Tasks
 
-- [ ] **Page setup dialog.** Add `src/components/TopBar/PageSetupDialog.tsx` with paper preset
+- [x] **Page setup dialog.** Add `src/components/TopBar/PageSetupDialog.tsx` with paper preset
   (A4, US Letter, ACS single/double column), orientation, margin, bond length and
   margin width. Reuse `src/model/publicationPresets.ts` and `src/model/pageSetup.ts`. Apply
   to the active tab and store the result in `ProjectTab.page`.
-- [ ] **Make page geometry visible.** Draw the page outline in `MoleculeCanvas.tsx` when
+- [x] **Make page geometry visible.** Draw the page outline in `MoleculeCanvas.tsx` when
   enabled, and ensure PDF, print, SVG, PNG and the HTML viewer all use the same
   `pageSetup` / placement math. Keep `autoPageSetup` as the fallback for drawings without an
   explicit page.
-- [ ] **Rulers and crosshair.** Add `src/components/Canvas/Rulers.tsx` with mm/in/bond-length
+- [x] **Rulers and crosshair.** Add `src/components/Canvas/Rulers.tsx` with mm/in/bond-length
   units, zoom-aware ticks, and a crosshair that follows the pointer. Both are View toggles,
   transient, excluded from exports, and off by default. Reuse `src/model/constants.ts`
   (`GRID_STEP`) and the existing page setup for the origin.
-- [ ] **Fixed length / fixed angle.** Extend the existing `snapAngleDegrees` and `freeAngle`
+- [x] **Fixed length / fixed angle.** Extend the existing `snapAngleDegrees` and `freeAngle`
   controls with explicit toolbar/status toggles for "fixed bond length" and "fixed angles",
   matching Octet's discoverability without adding a beginner/pro mode. Shift remains the
   per-gesture bypass.
-- [ ] **Grouping and z-order.** Add a document-level object-group model (atom ids +
+- [x] **Grouping and z-order.** Add a document-level object-group model (atom ids +
   annotation/cycle ids) in the store and project tab, with `groupSelection`,
   `ungroupSelection`, `bringToFront`, `sendToBack`, `bringForward`, `sendBackward`.
   Add optional `zOrder` to annotations and cycles; sort consistently in the renderer and
   sanitize on load. Undo treats a group/ungroup/z-order change as one action.
-- [ ] **Commands and accessibility.** Register all of the above in the command palette and
+- [x] **Commands and accessibility.** Register all of the above in the command palette and
   `ShortcutsOverlay`; add English/Spanish strings; announce group and z-order changes through
   the existing polite live region.
 
@@ -331,29 +331,29 @@ MOL structure copied from another app cannot be pasted directly.
 
 ### Tasks
 
-- [ ] **Rich clipboard write.** Extend `src/io/clipboard.ts` with
+- [x] **Rich clipboard write.** Extend `src/io/clipboard.ts` with
   `writeClipboardPayload({ svg, png, cdxml, molfile, text, json })`. Use `ClipboardItem`
   where the browser supports multiple representations; keep PNG and the private JSON format
   for EnlaceCraft-to-EnlaceCraft paste. In Electron, add a `clipboard:write-rich` IPC channel
   that writes SVG/PNG/CDXML/MOL on platforms that support it, with the existing text bridge
   as fallback.
-- [ ] **Clipboard paste detection.** In `src/hooks/useClipboard.ts`, accept
+- [x] **Clipboard paste detection.** In `src/hooks/useClipboard.ts`, accept
   `image/svg+xml`, `chemical/x-cdxml`, `chemical/x-mdl-molfile`, `chemical/x-mdl-rxnfile` and
   plain text that parses as CDXML/MOL/SMILES. Route through the existing sanitizing importers
   (`src/io/cdxml.ts`, `src/io/molfile.ts`, `src/io/smiles.ts`). Never trust clipboard HTML or
   SVG wrappers.
-- [ ] **Copy As submenu.** Add SVG, PNG, CDXML, MOL V2000/V3000, SMILES and InChI entries to
+- [x] **Copy As submenu.** Add SVG, PNG, CDXML, MOL V2000/V3000, SMILES and InChI entries to
   the export menu and command palette, disabled when the selection is empty. Keep the current
   selection semantics.
-- [ ] **SVG metadata round-trip.** On SVG export, embed the CDXML in an SVG `<metadata>`
+- [x] **SVG metadata round-trip.** On SVG export, embed the CDXML in an SVG `<metadata>`
   block; on SVG import, read it back when present. This gives a portable, editable
   round-trip through Inkscape/Illustrator without inventing a new format.
-- [ ] **CDXML fidelity matrix.** Expand `src/io/fixtures/` from the current 7 files into a
+- [x] **CDXML fidelity matrix.** Expand `src/io/fixtures/` from the current 7 files into a
   matrix covering pages, captions and rich text, reaction schemes, arrows (all variants),
   brackets, S-groups, TLC plates, orbitals, unicode/Spanish text, unusually large coordinates
   and malformed/truncated XML. Add a table-driven round-trip test and a fuzz test that
   asserts the importer never throws on hostile input.
-- [ ] **Defer binary CDX, EMF, EPS and TIFF.** They add platform-specific native code and are
+- [x] **Defer binary CDX, EMF, EPS and TIFF.** They add platform-specific native code and are
   not needed for the common Word/PowerPoint/Inkscape/PDF workflow. State this in the UI help.
 
 ### Tests
@@ -383,33 +383,33 @@ full ChemDraw clone or a nomenclature engine.
 
 ### Tasks
 
-- [ ] **Hybridisation-aware clean-up.** Replace the fixed 30° relaxation in
+- [x] **Hybridisation-aware clean-up.** Replace the fixed 30° relaxation in
   `cleanUpAtoms` (`src/model/molecule.ts`) with a pure engine module
   (`src/engine/clean2d.ts`): ideal angles from hybridisation (180°/120°/109.5°), real bond
   lengths by element, ring templates, cis/trans preservation for double bonds, stereo
   preservation, and a non-bonded overlap penalty. Keep boundary atoms fixed and make it one
   undo step. Offer "Clean structure" and an optional "Clean as I draw" toggle that is off by
   default and never touches manually placed stereochemistry.
-- [ ] **Warnings with fixes.** Surface valence/geometry warnings in the status bar or a small
+- [x] **Warnings with fixes.** Surface valence/geometry warnings in the status bar or a small
   panel, with "Explain" and a one-click local fix where one is unambiguous. Do not silently
   change a structure.
-- [ ] **R-group definitions and expansion.** Add `RGroupDefinition` to
+- [x] **R-group definitions and expansion.** Add `RGroupDefinition` to
   `src/types/chemistry.ts` (label, attachment atom, substituent fragments). Add
   `src/engine/genericExpansion.ts` to enumerate combinations, cap the result, and lay them
   out with a grid helper. Commands: Define R-group, Expand generic structure, Clear
   R-groups. Persist in the native project; export/import in CDXML only where a faithful
   mapping exists, otherwise document the limitation. S-groups already cover polymer/repeat
   cases.
-- [ ] **Template library expansion.** Add sets for ring conformers (chair/flipped/Newman),
+- [x] **Template library expansion.** Add sets for ring conformers (chair/flipped/Newman),
   metallocenes and paddlewheels, named aromatics/bicyclics, and a small lab-glassware set.
   Put data in `src/model/*Templates.ts`, register categories in
   `src/components/Sidebar/TemplatePalette.tsx`, and add tests for unique ids, placement and
   template search. Do not import Octet's library data; author or license it separately.
-- [ ] **Name-to-structure.** Extend the existing compound search with a "Name → structure"
+- [x] **Name-to-structure.** Extend the existing compound search with a "Name → structure"
   path: PubChem first, local OPSIN fallback when the desktop backend is present, and a clear
   error when neither can resolve the name. This complements the existing structure-to-name
   flow without building a namer.
-- [ ] **3D clean-up and flatten (optional, after the above).** Use the existing
+- [x] **3D clean-up and flatten (optional, after the above).** Use the existing
   `src/io/embed3d.ts` / `refineStructure3D` backend to add "3D clean-up" and "Flatten to 2D"
   commands, with depth shading. Keep it desktop-first and fail soft when the backend is
   unavailable. This is a larger, narrower feature; do not block the rest of the phase on it.
@@ -430,6 +430,109 @@ R-group expansion produces editable structures; the new template sets are search
 lookup resolves a structure offline when the backend is available.
 
 ---
+
+## Phases 8–10 completion notes (5 November 2026)
+
+All three remaining phases are implemented in this repository. Verification: `npm run check`
+(oxlint 0 errors; `tsc -b` clean; Vitest 130 files / 4340 passed / 1 expected fail / 12 skipped). Notes beyond
+the per-phase checklists:
+
+**Phase 8.** The page-setup dialog, page outline, rulers/crosshair, fixed length/angle
+toggles, and the group/z-order model were already present from earlier WIP (this plan's
+checkboxes were stale); the gaps closed now: view toggles registered as palette commands
+(`view.rulers`/`view.crosshair`/`view.pageOutline`), a status-bar indicator for the drawing
+constraints, and "Fit SVG/PNG/HTML exports to page" — an opt-in export framing that routes
+those exports through the same `pageSetup` box PDF/print use (default off: the tight crop is
+deliberately kept for paste-a-picture workflows, per constraint 6). Sanitize now always fills
+`PageSetup.margin` (1 cm default), which the CDXML page-setup tests needed updated.
+
+**Phase 9.** `writeClipboardPayload` writes rich copies through the Electron
+`clipboard:write-rich` bridge (text + HTML-as-SVG-img + native bitmap) or one multi-representation
+`ClipboardItem` (png/html/text + the private fragment format), degrading to PNG-only and then
+text. Paste reads chemistry MIME flavors (`chemical/x-cdxml`, molfile/rxnfile), SVG with
+embedded CDXML metadata (`io/svgMetadata.ts` — export embeds whole-canvas CDXML in
+`<metadata>`, import/`useFileImport` read it back), then sniffed plain text via the same
+`detectStructureText` pipeline as the Paste dialog. Copy As (SVG/PNG/CDXML/MOL V2000/V3000/
+SMILES/InChI) lives in the export menu and palette; chemistry formats copy the selection and
+are disabled when it is empty; InChI resolves via PubChem and fails soft. `exportMolV3000`
+covers counts/CHG/MASS/aamap/CFG/dative-type-10 (our own importer stays V2000-only, documented).
+The CDXML fidelity matrix added caption/rich-text, Spanish/unicode and large-coordinate
+fixtures plus a table-driven round-trip suite (`cdxmlFidelity.test.ts`) and a hostile-input
+suite asserting controlled failures. Binary CDX/EMF/EPS/TIFF deferral is stated in the Paste
+dialog help.
+
+**Phase 10.** `engine/clean2d.ts` replaces the fixed 30° zigzag: hybridisation-aware angles,
+element bond-length table, ring templates, double-bond cis/trans verification with subtree
+mirroring, wedge/dash endpoints fixed, non-bonded overlap relaxation, idempotent, boundary
+atoms pinned; "Clean as I draw" (off by default, persisted) polishes only the atoms a stroke
+created inside that stroke's own undo entry. Warnings with fixes: the valence chip opens a
+popover listing over-valent atoms with an explanation and a one-click formal-charge fix
+(N/P/O/S/Se/Te, over-by-one, charge 0 only — never silent). R-groups: `RGroupDefinition` +
+`model/rgroups.ts` (define from selection, clear, cartesian expansion capped at 64, grid
+layout, re-bonded attachment atoms), sanitized like cycles, one undo step per action, no
+CDXML mapping (documented). Templates: flipped chair + Newman conformations, ferrocene/
+cobaltocene/nickelocene + Ru(II) acetate paddlewheel (haptic bonds), named aromatics
+(anthracene, phenanthrene, azulene, biphenyl, fluorene, indene), and lab-glassware shape
+variants (beaker, Erlenmeyer, round-bottom flask, test tube) rendered from the shape's
+bounding box and degrading to polygons in CDXML. Name→structure: PubChem first, local OPSIN
+`/name-to-structure` fallback (desktop backend), clear error otherwise. Flatten to 2D writes
+the 3D panel's geometry back onto the drawing (drawn structures only, one undo step).
+
+**Performance fix (user-reported lag).** Progressive session lag had four compounding causes,
+all fixed: a per-molecule adjacency index in `model/valence.ts` (every `bondsOfAtom` call was
+a full bond scan, and render paths call it per atom per frame — O(atoms×bonds) per render);
+hover state setters bailing when unchanged (every pointer-move re-rendered the canvas shell);
+`useT` returning a fresh closure per render (silently defeating every `useMemo`/`useCallback`
+that depended on `t`, including the structure-description memo); and `useKeyboardShortcuts`
+subscribing App to hover/selection (the whole shell re-rendered and the window keydown
+listener re-bound on every atom hover). Autosave now ignores non-document state changes, blob
+URLs from downloads are revoked, and hide-triggered version checkpoints are rate-limited.
+
+**Cycle deletion fix (user-reported: "catalytic cycles cannot be deleted").** Phase 7's
+`removeCatalyticCycle` store action always worked (and still does — removing the figure leaves
+the intermediates untouched), but the direct UI paths never reached it: clicking the ring
+selects only the figure (`selected` is cleared, only `selectedCycleId` is set), so the Delete
+handler's `selected.size > 0` guard swallowed the key; the context menu had no cycle section;
+and Escape's `clearSelection` left the ring selected. Delete/Backspace now lets a cycle-only
+selection through to `deleteSelection`, right-click/long-press on a ring selects it and offers
+"Delete cycle", and Escape deselects the cycle too. Regression tests cover the keyboard path
+(`useKeyboardShortcuts.test.tsx`) and the store path (`cycles.test.ts`).
+
+**"Clean as I draw" wiring fix (user-reported: "i dont get if it is working or not").** The
+user was right — for the gestures that matter the toggle changed nothing. Two compounding
+defects: the mouse bond tool and atom tool finished their strokes with a bare `addAtom` +
+`addBond` pair in two commits, so `polishDrawn` (which lives inside `addAtomWithBond`/
+`addChain`) never saw them; and the polish set passed only the stroke's NEW atoms, which
+clean2d turns into singleton components that are their own boundary — pinned exactly where
+they landed, a silent no-op even for the chain tool's single-atom cases. Now the bond and
+atom strokes finish through one `addAtomWithBond` commit (extended with bond order/stereo/
+dative attributes so double-bond and stereo tools keep their behaviour), and the polish set
+is the stroke's new atoms PLUS the anchors they attach to (anchor first, so clean2d seeds the
+BFS there): the engine holds the anchors and re-places only the new atoms at ideal angle and
+length, inside the stroke's single undo step. Stereo bonds keep their drawn geometry (the
+engine stereo-fixes the new endpoint), and lone fragments recentre in place exactly as the
+"Clean structure" command does. Regression tests: `src/store/cleanAsIdraw.test.ts`.
+
+**Desktop clipboard fix (user-reported: "i can copy the molecule only inside the same app…
+nothing in the clipboard to copy outside the app", AppImage).** Two stacked wiring bugs, both
+fixed. First, the Edit menu added earlier to restore Linux/Windows text-editing shortcuts was
+built from the stock `editMenu` role, whose accelerators consume Ctrl+C/V/X/Z/A before the
+page's keydown handlers run — and the roles then act only on DOM text selections, which a
+canvas app never has, so canvas copy/paste/undo/select-all were all dead keys in the packaged
+build. The menu now builds explicit items with `registerAccelerator: false`: keys reach the
+app's own handlers, a text-field focus forwards the command back through a whitelisted
+`edit:native-command` IPC (preserving the original inputs-are-copyable behavior), and the
+menu's click handlers deliver the same commands over IPC for the click path. Second, the
+Ctrl+C payload never contained a picture — only the private JSON and CDXML/MOL/SMILES text —
+so the desktop rich-write put text alone on the OS clipboard and image-expecting targets
+found nothing to paste. The payload now carries a selection-scoped SVG (text/html `<img>`
+flavor) and PNG (`exportSelectionSVGString` mirrors `exportSelectionPNGBlob`'s filter), and
+plain Ctrl/Cmd+X cuts the canvas selection (rich copy + delete as one step;
+Ctrl/Cmd+Shift+X stays clean-reaction). Regression tests: `electron/main.test.mjs` (menu
+accelerators unregistered, click→IPC, native-command whitelist), `useClipboard.test.tsx`
+(bridge payload carries text+html+png, canvas Cut, editable-field routing),
+`useKeyboardShortcuts.test.tsx` (menu-command undo/redo/select-all, editable forwarding),
+`exportImage.test.ts` (selection SVG framing).
 
 ## Priority and sequencing
 

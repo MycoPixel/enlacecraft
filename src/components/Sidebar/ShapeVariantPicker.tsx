@@ -1,7 +1,8 @@
 import type { ShapeVariant } from "../../types/chemistry";
+import { GLASSWARE_VARIANTS, type GlasswareVariant, glasswareGlyph } from "../Canvas/ShapeAnnotationView";
 import { useT } from "../../i18n/useT";
 
-const VARIANTS: ShapeVariant[] = ["rectangle", "ellipse", "line"];
+const VARIANTS: ShapeVariant[] = ["rectangle", "ellipse", "line", ...GLASSWARE_VARIANTS];
 
 /** The little glyph shown on each variant button (and on the tool itself). */
 export function MiniShape({ variant }: { variant: ShapeVariant }) {
@@ -10,7 +11,29 @@ export function MiniShape({ variant }: { variant: ShapeVariant }) {
       {variant === "rectangle" && <rect x="3" y="3" width="20" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />}
       {variant === "ellipse" && <ellipse cx="13" cy="9" rx="10" ry="6.5" fill="none" stroke="currentColor" strokeWidth="1.8" />}
       {variant === "line" && <line x1="3" y1="14" x2="23" y2="4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />}
+      {isGlasswareMini(variant) && <GlasswareMini variant={variant} />}
     </svg>
+  );
+}
+
+function isGlasswareMini(v: ShapeVariant): v is GlasswareVariant {
+  return (GLASSWARE_VARIANTS as string[]).includes(v);
+}
+
+/**
+ * Glassware picker glyphs, generated from the same glasswareGlyph geometry
+ * the canvas renders (so button and result can never drift), fitted into
+ * the 26×18 button box with a half-pixel of padding.
+ */
+function GlasswareMini({ variant }: { variant: GlasswareVariant }) {
+  const glyph = glasswareGlyph(variant, 1.5, 0.5, 23, 17);
+  return (
+    <>
+      <path d={glyph.d} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      {glyph.circles.map((c, i) => (
+        <circle key={i} cx={c.cx} cy={c.cy} r={c.r} fill="none" stroke="currentColor" strokeWidth="1.6" />
+      ))}
+    </>
   );
 }
 
@@ -26,8 +49,10 @@ interface ShapeVariantPickerProps {
 
 /**
  * Shape-tool picker: the three graphics primitives (rectangle / ellipse /
- * line) plus the filled/outline toggle ChemDraw's shape tools carry. Picking
- * a variant both sets what the NEXT drag will draw and (mirroring the arrow
+ * line), the lab-glassware set (beaker / Erlenmeyer / round-bottom flask /
+ * test tube — simple line art for procedure and scheme annotations), plus
+ * the filled/outline toggle ChemDraw's shape tools carry. Picking a
+ * variant both sets what the NEXT drag will draw and (mirroring the arrow
  * picker's behavior, via the caller) restyles any shape selected right now.
  */
 export function ShapeVariantPicker({ variant, filled, onChange, onFilledChange, active }: ShapeVariantPickerProps) {

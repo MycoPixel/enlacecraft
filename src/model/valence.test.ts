@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addAtom, addBond, addHapticBond, emptyMolecule } from "./molecule";
+import { addAtom, addBond, addHapticBond, emptyMolecule, setAtomChargeAbsolute, setAtomIgnoreValence } from "./molecule";
 import {
   computeFormula,
   computeMolecularWeight,
@@ -9,7 +9,10 @@ import {
   implicitH,
   isOverValent,
   isPlaceholderLabel,
+  overValentAtomIds,
+  suggestValenceFix,
   usedValence,
+  valenceExplainParams,
 } from "./valence";
 import type { Molecule } from "../types/chemistry";
 
@@ -432,5 +435,71 @@ describe("findConnectedFragments and haptic bonds", () => {
     mol = addBond(mol, "rb0", "c1", "c2");
 
     expect(findConnectedFragments(mol)).toHaveLength(2);
+  });
+});
+
+describe("suggestValenceFix (warnings with fixes)", () => {
+  test("an N with four bonds suggests +1 (ammonium)", () => {
+    const mol = star("N", ["C", "C", "C", "C"]);
+    expect(isOverValent(mol, "c")).toBe(true);
+    expect(suggestValenceFix(mol, "c")).toBe(1);
+  });
+
+  test("an O with three bonds suggests +1 (oxonium)", () => {
+    const mol = star("O", ["C", "C", "C"]);
+    expect(suggestValenceFix(mol, "c")).toBe(1);
+  });
+
+  test("laddered elements only suggest a fix past their top rung", () => {
+    // S with 3 bonds and P with 4 are NOT over-valent: their expanded
+    // valence ladders (S 2/4/6, P 3/5) absorb those counts as
+    // sulfoxide-like / phosphorane-like states, so there is nothing to fix.
+    expect(isOverValent(star("S", ["C", "C", "C"]), "c")).toBe(false);
+    expect(isOverValent(star("P", ["C", "C", "C", "C"]), "c")).toBe(false);
+    // One past the top rung (S with 7 bonds, P with 6) does flag, and the
+    // +1 suggestion fires there.
+    expect(suggestValenceFix(star("S", ["C", "C", "C", "C", "C", "C", "C"]), "c")).toBe(1);
+    expect(suggestValenceFix(star("P", ["C", "C", "C", "C", "C", "C"]), "c")).toBe(1);
+  });
+
+  test("over-by-two and non-lone-pair elements have no unambiguous fix", () => {
+    // Carbon with 5 bonds: no single charge resolves it cleanly.
+    expect(suggestValenceFix(star("C", ["C", "C", "C", "C", "C"]), "c")).toBeNull();
+    // Bridging halogen (Cl with 2 bonds, the classic student mistake,
+    // over its lowest valence) — explain only.
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "Cl");
+    mol = addAtom(mol, "a1", { x: 20, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: -20, y: 0 }, "C");
+    mol = addBond(mol, "b1", "a0", "a1");
+    mol = addBond(mol, "b2", "a0", "a2");
+    expect(suggestValenceFix(mol, "a0")).toBeNull();
+  });
+
+  test("a correctly-bonded atom gets no suggestion at all", () => {
+    expect(suggestValenceFix(star("N", ["C", "C", "C"]), "c")).toBeNull();
+    expect(suggestValenceFix(star("O", ["C", "C"]), "c")).toBeNull();
+    expect(suggestValenceFix(star("C", ["C", "C", "C", "C"]), "c")).toBeNull();
+  });
+
+  test("already-charged and ignoreValence atoms are left alone", () => {
+    let mol = star("N", ["C", "C", "C", "C"]);
+    mol = setAtomChargeAbsolute(mol, "c", -1);
+    expect(suggestValenceFix(mol, "c")).toBeNull();
+    let mol2 = star("N", ["C", "C", "C", "C"]);
+    mol2 = setAtomIgnoreValence(mol2, "c", true);
+    expect(suggestValenceFix(mol2, "c")).toBeNull();
+  });
+
+  test("applying the suggested charge through setAtomCharge clears the flag", () => {
+    const mol = star("N", ["C", "C", "C", "C"]);
+    const fixed = setAtomChargeAbsolute(mol, "c", suggestValenceFix(mol, "c")!);
+    expect(isOverValent(fixed, "c")).toBe(false);
+  });
+
+  test("overValentAtomIds lists exactly the flagged atoms, and explain params report used/max", () => {
+    const mol = star("N", ["C", "C", "C", "C"]);
+    expect(overValentAtomIds(mol)).toEqual(["c"]);
+    expect(valenceExplainParams(mol, "c")).toEqual({ element: "N", used: 4, max: 3 });
   });
 });

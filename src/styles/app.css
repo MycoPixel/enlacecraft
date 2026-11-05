@@ -176,6 +176,102 @@
   flex-shrink: 0;
 }
 
+/* The warning chip as a clickable button (opens the warnings popover). */
+button.valence-warn--button {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+button.valence-warn--button:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+/* Warnings popover: anchored under the chip in the top bar. Positioned
+   absolute against .valence-warn-wrap; the top bar itself is position:
+   static, so this resolves against the nearest positioned ancestor — kept
+   inside the wrap so narrow windows clip it the same way as the chip. */
+.valence-warn-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.valence-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 320px;
+  max-width: 82vw;
+  background: var(--panel, #fff);
+  border: 1px solid var(--panel-border, #ccc);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.valence-popover__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.valence-popover__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink, #222);
+}
+
+.valence-popover__explain {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.valence-popover__fix {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft, #eef);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.valence-popover__fix:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.valence-popover__nofix {
+  font-size: 11px;
+  color: var(--ink-soft, #777);
+  white-space: nowrap;
+}
+
+.valence-popover__hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-soft, #777);
+  border-top: 1px solid var(--panel-border, #eee);
+  padding-top: 6px;
+}
+
 .top-actions {
   display: flex;
   align-items: center;
@@ -2961,6 +3057,34 @@
   color: var(--accent);
 }
 
+/* Drawing-constraint chips in the status bar (fixed bond length / fixed
+   angle / free angle). Active constraints use the accent colour so an
+   unexpectedly locked length or angle is noticeable at a glance. */
+.status-bar__constraint {
+  white-space: nowrap;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+button.status-bar__constraint:hover {
+  background: var(--accent);
+  color: var(--bg, #fff);
+}
+
+.status-bar__constraint--muted {
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  cursor: default;
+  font-weight: 400;
+}
+
 .status-bar__updater {
   white-space: nowrap;
 }
@@ -3275,6 +3399,22 @@
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--ink-soft);
+}
+
+/* "Fit SVG/PNG/HTML exports to page" checkbox in the export dropdown. */
+.export-dropdown__check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px 8px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.export-dropdown__check input {
+  accent-color: var(--accent);
 }
 
 .export-dropdown__divider {
@@ -4261,6 +4401,16 @@
 .paste-dialog__detected--unknown {
   color: var(--ink-soft);
   font-weight: 400;
+}
+
+/* The "which formats are deliberately not supported" note under the
+   paste dialog's textarea. Quiet by design — it answers a question only
+   some readers have, without competing with the input. */
+.paste-dialog__note {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-soft);
 }
 
 .paste-dialog__error {

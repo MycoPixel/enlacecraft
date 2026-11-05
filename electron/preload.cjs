@@ -48,6 +48,27 @@ contextBridge.exposeInMainWorld("electron", {
   // copies go through Electron's own clipboard instead. Resolves true when
   // the text was written.
   writeClipboardText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
+  // Rich copy (see src/io/clipboard.ts writeClipboardPayload): text plus an
+  // HTML flavor and a native bitmap in one write, so a copied drawing pastes
+  // as a picture into Office/LibreOffice and as editable text into
+  // chemistry-aware targets. Resolves true when anything was written.
+  writeClipboardRich: (payload) => ipcRenderer.invoke("clipboard:write-rich", payload),
+  // Runs a native editor command (undo/redo/cut/copy/paste/selectAll) on the
+  // sending WebContents. Part of the Edit menu arrangement in main.cjs: the
+  // menu deliberately does not register its accelerators, so a Ctrl+C/V/X/Z/A
+  // pressed while a text field has focus reaches the renderer's keydown
+  // handlers, which forward here - Chromium's renderer on Linux/Windows has
+  // no built-in binding for these. Resolves true when the command was known.
+  nativeEditCommand: (command) => ipcRenderer.invoke("edit:native-command", command),
+  // Subscribes to commands sent by the application Edit menu's own click
+  // handlers (clicking the menu produces no page keydown). The renderer
+  // routes them exactly like the keys: app-level actions on the canvas,
+  // nativeEditCommand in a text field. Returns an unsubscribe function.
+  onEditCommand: (callback) => {
+    const listener = (_event, command) => callback(command);
+    ipcRenderer.on("edit:command", listener);
+    return () => ipcRenderer.removeListener("edit:command", listener);
+  },
   // Opens a `#view=` share link in a separate, read-only window. Used by the
   // desktop "Open shared link…" action when the link was copied from another
   // machine (see electron/main.cjs's "share:open-window" handler).

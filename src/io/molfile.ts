@@ -173,6 +173,68 @@ export function exportMol(mol: Molecule, name = "molecule"): string {
   return out;
 }
 
+/**
+ * MDL molfile V3000 (extended CTAB) export — the Copy As "MOL V3000"
+ * target. V3000's free-field syntax removes the V2000 column-width ceilings
+ * (999+ atoms/bonds, arbitrary element labels, explicit property names),
+ * which is why RDKit and ChemDraw both prefer writing it.
+ *
+ * Deliberate limitations, mirroring the V2000 writer:
+ *  - 2D coordinates only (z = 0), converted with the same 1.5 Å/BOND_LEN
+ *    scale.
+ *  - No SGroups, no highlight colors (V3000 carries those in collection
+ *    blocks we don't emit), no query features.
+ *  - This app's own importMol parses V2000 only — a V3000 copy is for
+ *    external tools (RDKit/ChemDraw), not for pasting back in.
+ *
+ * Dative bonds: the CTfile spec (BIOVIA, December 2011+ revisions) gives
+ * V3000 bond types 9 = coordination and 10 = dative1/dative2; dative1 is
+ * the metal←donor arrow direction this app's Bond.dative models, so type
+ * 10 it is. Wedge/hash/wavy ride the CFG= bond property (1 up, 2 either,
+ * 3 down), the same information V2000 squeezed into the stereo column.
+ */
+export function exportMolV3000(mol: Molecule, name = "molecule"): string {
+  const atomIds = Object.keys(mol.atoms);
+  const bondList = Object.values(mol.bonds);
+  const index: Record<string, number> = {};
+  atomIds.forEach((id, i) => (index[id] = i + 1));
+  const scale = 1.5 / BOND_LEN;
+
+  // The pre-CTAB header is identical in shape to V2000's (title, program,
+  // comment, counts line carrying the V3000 tag instead of "V2000").
+  let out = `${name}\n  EnlaceCraft\n\n`;
+  out += "  0  0  0  0  0  0  0  0  0  0999 V3000\n";
+  out += "M  V30 BEGIN CTAB\n";
+  out += `M  V30 COUNTS ${atomIds.length} ${bondList.length} 0 0 1\n`;
+  out += "M  V30 BEGIN ATOM\n";
+  for (const id of atomIds) {
+    const a = mol.atoms[id];
+    const x = (a.x * scale).toFixed(4);
+    const y = (-a.y * scale).toFixed(4);
+    const symbol = a.group ? GROUP_BY_ID[a.group]?.label ?? a.element : a.element;
+    // aamap (the 5th field) is the official V3000 carrier for reaction
+    // atom mapping — the formal home the V2000 writer's M  MAP comment
+    // already points at. Default 0 = unmapped.
+    const aamap = typeof a.mapNumber === "number" ? a.mapNumber : 0;
+    const props: string[] = [];
+    if (a.charge) props.push(`CHG=${a.charge}`);
+    if (a.isotope) props.push(`MASS=${a.isotope}`);
+    out += `M  V30 ${index[id]} ${symbol} ${x} ${y} 0.0000 ${aamap}${props.length ? " " + props.join(" ") : ""}\n`;
+  }
+  out += "M  V30 END ATOM\n";
+  out += "M  V30 BEGIN BOND\n";
+  for (let i = 0; i < bondList.length; i++) {
+    const b = bondList[i];
+    const type = b.dative ? 10 : b.order;
+    const cfg = !b.dative && b.stereo === "wedge" ? 1 : !b.dative && b.stereo === "wavy" ? 2 : !b.dative && b.stereo === "dash" ? 3 : 0;
+    out += `M  V30 ${i + 1} ${type} ${index[b.a1]} ${index[b.a2]}${cfg ? ` CFG=${cfg}` : ""}\n`;
+  }
+  out += "M  V30 END BOND\n";
+  out += "M  V30 END CTAB\n";
+  out += "M  END\n";
+  return out;
+}
+
 /** "#rrggbb" -> integer components. Tolerates a missing leading # and
  * short hex; returns black for anything unparseable rather than throwing,
  * since a highlight color is decoration and shouldn't be able to fail an

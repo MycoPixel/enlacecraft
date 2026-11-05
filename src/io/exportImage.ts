@@ -1,10 +1,18 @@
+import { embedCdxmlInSvg } from "./svgMetadata";
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
+  a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
+  // The object URL keeps the whole serialized document (often megabytes for
+  // a PDF or PNG export) alive until revocation. Safari needs the URL to
+  // survive until the click has been processed, hence the deferred revoke —
+  // revoking synchronously before the download settles can cancel it.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 /**
@@ -222,13 +230,20 @@ function inlineFonts(liveSvg: SVGSVGElement, clone: SVGSVGElement): void {
  */
 export function buildExportClone(
   svg: SVGSVGElement,
-  backgroundColor: string | null
+  backgroundColor: string | null,
+  boundsOverride?: ExportBounds | null
 ): { clone: SVGSVGElement; bounds: ExportBounds } {
   const clone = prepareExportClone(svg);
-  // Measured on the stripped clone, so transient UI still on the live canvas
-  // can't inflate the frame — see prepareExportClone's doc comment.
-  const box = measureContentBox(clone);
-  const bounds = box ? padBounds(box) : { ...EMPTY_BOUNDS };
+  // A bounds override (the page-setup box, for "fit export to page" mode)
+  // replaces measurement entirely — the frame is the paper, not the ink.
+  const bounds = boundsOverride
+    ? { ...boundsOverride }
+    : (() => {
+        // Measured on the stripped clone, so transient UI still on the live canvas
+        // can't inflate the frame — see prepareExportClone's doc comment.
+        const box = measureContentBox(clone);
+        return box ? padBounds(box) : { ...EMPTY_BOUNDS };
+      })();
   clone.setAttribute("viewBox", `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
   if (backgroundColor) {
     clone.insertAdjacentHTML(
@@ -239,21 +254,75 @@ export function buildExportClone(
   return { clone, bounds };
 }
 
-export function exportSVG(svg: SVGSVGElement, backgroundColor: string | null, filename = "molecule.svg"): void {
-  const data = serializeExportSVG(svg, backgroundColor);
+export function exportSVG(svg: SVGSVGElement, backgroundColor: string | null, filename = "molecule.svg", boundsOverride?: ExportBounds | null, cdxml?: string): void {
+  const data = serializeExportSVG(svg, backgroundColor, boundsOverride, cdxml);
   downloadBlob(new Blob([data], { type: "image/svg+xml" }), filename);
+}
+
+/**
+ * Serializes just the given atoms/bonds/annotations as standalone SVG
+ * markup, for copy-to-clipboard. The vector twin of exportSelectionPNGBlob:
+ * same selection filter on the cloned `[data-export-content]` group, same
+ * tight crop, so the HTML flavor of a rich copy carries exactly the chosen
+ * fragment (which Word/LibreOffice paste as a picture) rather than the
+ * whole canvas. Returns null when the fragment measures empty — callers
+ * just leave the SVG representation out of the payload then.
+ */
+export function exportSelectionSVGString(
+  svg: SVGSVGElement,
+  atomIds: Set<string>,
+  bondIds: Set<string>,
+  annotationIds: Set<string>,
+  backgroundColor: string | null = null
+): string | null {
+  const clone = prepareExportClone(svg);
+
+  const content = clone.querySelector("[data-export-content]");
+  if (content) {
+    Array.from(content.children).forEach((child) => {
+      const atomId = child.getAttribute("data-atom-id");
+      const bondId = child.getAttribute("data-bond-id");
+      const annotationId = child.getAttribute("data-annotation-id");
+      const keep =
+        (atomId !== null && atomIds.has(atomId)) ||
+        (bondId !== null && bondIds.has(bondId)) ||
+        (annotationId !== null && annotationIds.has(annotationId));
+      if (!keep) child.remove();
+    });
+  }
+
+  const box = measureContentBox(clone);
+  if (!box) return null;
+  const bounds = padBounds(box);
+  clone.setAttribute("viewBox", `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+  clone.setAttribute("width", String(Math.round(bounds.width)));
+  clone.setAttribute("height", String(Math.round(bounds.height)));
+  if (backgroundColor) {
+    clone.insertAdjacentHTML(
+      "afterbegin",
+      `<rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" fill="${backgroundColor}"/>`
+    );
+  }
+  return new XMLSerializer().serializeToString(clone);
 }
 
 /**
  * Same export-ready SVG that `exportSVG` downloads, returned as text. The
  * standalone HTML viewer needs the markup inline rather than as a file, and
  * sharing this path keeps the two exports visually identical.
+ *
+ * `boundsOverride` (the page-setup box) optionally replaces the tight
+ * content crop — see buildExportClone. `cdxml` optionally embeds the
+ * drawing's CDXML in a <metadata> block so the file round-trips as editable
+ * chemistry (see io/svgMetadata.ts) — Inkscape/Illustrator ignore it, and
+ * re-importing the SVG here rebuilds the live structure.
  */
-export function serializeExportSVG(svg: SVGSVGElement, backgroundColor: string | null): string {
-  const { clone, bounds } = buildExportClone(svg, backgroundColor);
+export function serializeExportSVG(svg: SVGSVGElement, backgroundColor: string | null, boundsOverride?: ExportBounds | null, cdxml?: string): string {
+  const { clone, bounds } = buildExportClone(svg, backgroundColor, boundsOverride);
   clone.setAttribute("width", String(Math.round(bounds.width)));
   clone.setAttribute("height", String(Math.round(bounds.height)));
-  return new XMLSerializer().serializeToString(clone);
+  const text = new XMLSerializer().serializeToString(clone);
+  return cdxml ? embedCdxmlInSvg(text, cdxml) : text;
 }
 
 /**
@@ -475,9 +544,10 @@ function renderPNGBlob(
   svg: SVGSVGElement,
   backgroundColor: string | null,
   pixelsPerUnit: number,
-  maxDimension = MAX_RASTER_DIMENSION
+  maxDimension = MAX_RASTER_DIMENSION,
+  boundsOverride?: ExportBounds | null
 ): Promise<Blob | null> {
-  const { clone: measureSvg, bounds } = buildExportClone(svg, backgroundColor);
+  const { clone: measureSvg, bounds } = buildExportClone(svg, backgroundColor, boundsOverride);
 
   const rawWidth = Math.max(1, Math.round(bounds.width * pixelsPerUnit));
   const rawHeight = Math.max(1, Math.round(bounds.height * pixelsPerUnit));
@@ -563,9 +633,10 @@ export function exportPNG(
   svg: SVGSVGElement,
   backgroundColor: string | null,
   filename = "molecule.png",
-  pixelsPerUnit = PIXELS_PER_UNIT
+  pixelsPerUnit = PIXELS_PER_UNIT,
+  boundsOverride?: ExportBounds | null
 ): void {
-  renderPNGBlob(svg, backgroundColor, pixelsPerUnit).then((blob) => {
+  renderPNGBlob(svg, backgroundColor, pixelsPerUnit, MAX_RASTER_DIMENSION, boundsOverride).then((blob) => {
     if (blob) downloadBlob(blob, filename);
   });
 }
@@ -577,7 +648,8 @@ export function exportPNGBlob(
   svg: SVGSVGElement,
   backgroundColor: string | null,
   pixelsPerUnit = PIXELS_PER_UNIT,
-  maxDimension = MAX_RASTER_DIMENSION
+  maxDimension = MAX_RASTER_DIMENSION,
+  boundsOverride?: ExportBounds | null
 ): Promise<Blob | null> {
-  return renderPNGBlob(svg, backgroundColor, pixelsPerUnit, maxDimension);
+  return renderPNGBlob(svg, backgroundColor, pixelsPerUnit, maxDimension, boundsOverride);
 }

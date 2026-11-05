@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { addAtom, addBond, emptyMolecule } from "../model/molecule";
+import * as M from "../model/molecule";
 import { computeFormula } from "../model/valence";
-import { exportMol, importMol, importSdf } from "./molfile";
+import { exportMol, exportMolV3000, importMol, importSdf } from "./molfile";
 import type { Molecule } from "../types/chemistry";
 
 /** A 3-atom chain (C-C-O, single bonds), same shape as ethanol's skeleton —
@@ -402,5 +403,57 @@ describe("importSdf", () => {
 
   test("empty input yields no records and no error", () => {
     expect(importSdf("")).toEqual({ records: [], skipped: 0 });
+  });
+});
+
+describe("exportMolV3000", () => {
+  test("writes the V3000 CTAB skeleton with counts and both blocks", () => {
+    const out = exportMolV3000(ethanolSkeleton(), "eth");
+    expect(out).toContain("V3000\n");
+    expect(out).toContain("M  V30 BEGIN CTAB");
+    expect(out).toContain("M  V30 COUNTS 3 2 0 0 1");
+    expect(out).toContain("M  V30 1 C 0.0000 0.0000 0.0000 0");
+    expect(out).toContain("M  V30 3 O ");
+    expect(out).toContain("M  V30 BEGIN BOND");
+    expect(out).toContain("M  V30 1 1 1 2");
+    expect(out).toContain("M  V30 2 1 2 3");
+    expect(out).toContain("M  V30 END CTAB");
+    expect(out.trimEnd().endsWith("M  END")).toBe(true);
+  });
+
+  test("atom properties ride the V3000 property names (CHG/MASS/aamap)", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "N");
+    mol = M.setAtomChargeAbsolute(mol, "a0", 1);
+    mol = M.setAtomIsotope(mol, "a0", "N", 15);
+    mol = M.setAtomMapNumber(mol, "a0", 7);
+    const out = exportMolV3000(mol);
+    expect(out).toContain("CHG=1");
+    expect(out).toContain("MASS=15");
+    // aamap is the positional 5th field, so the line reads "... 0.0000 7 CHG=1 MASS=15".
+    expect(out).toMatch(/M  V30 1 N -?0\.0000 -?0\.0000 0\.0000 7 CHG=1 MASS=15/);
+  });
+
+  test("stereo bonds use CFG codes and dative bonds use type 10", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 40, y: 0 }, "C");
+    mol = addAtom(mol, "a2", { x: 80, y: 0 }, "Fe");
+    mol = addBond(mol, "b0", "a0", "a1", 1, "wedge");
+    mol = addBond(mol, "b1", "a1", "a2", 1, "none", true);
+    const out = exportMolV3000(mol);
+    expect(out).toContain("M  V30 1 1 1 2 CFG=1");
+    // The dative bond (C→Fe): type 10, no CFG.
+    expect(out).toContain("M  V30 2 10 2 3");
+  });
+
+  test("dash and wavy bonds map to CFG=3 and CFG=2", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a0", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "a1", { x: 40, y: 0 }, "C");
+    mol = addBond(mol, "b0", "a0", "a1", 1, "dash");
+    const out = exportMolV3000(mol);
+    expect(out).toContain("CFG=3");
+    // (wavy covered implicitly by the mapping table; dash exercises the path.)
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import type { Annotation, Molecule, Point, ShapeAnnotation } from "../../types/chemistry";
+import type { Annotation, Molecule, Point, ShapeAnnotation, ShapeVariant } from "../../types/chemistry";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { snapAnnotationMove } from "./annotationSnap";
 
@@ -12,6 +12,115 @@ interface ShapeAnnotationViewProps {
 type Snapshot = { molecule: Molecule; annotations: Record<string, Annotation> };
 
 const MIN_SIZE = 4;
+
+/** The lab-glassware shape variants — see ShapeVariant's doc comment. */
+export type GlasswareVariant = Extract<ShapeVariant, "beaker" | "erlenmeyerFlask" | "roundBottomFlask" | "testTube">;
+
+export const GLASSWARE_VARIANTS: GlasswareVariant[] = ["beaker", "erlenmeyerFlask", "roundBottomFlask", "testTube"];
+
+export function isGlasswareVariant(v: ShapeVariant): v is GlasswareVariant {
+  return (GLASSWARE_VARIANTS as string[]).includes(v);
+}
+
+export interface GlasswareGlyph {
+  /** SVG path data covering the whole glyph (subpaths where the glass has
+   * separate strokes, e.g. a test tube's rim). */
+  d: string;
+  /** Circles the glyph needs on top of the path (only the round-bottom
+   * flask's bulb — a path arc through more than half a circle is fiddly;
+   * a real <circle> is exact and hits the same stroke styling). */
+  circles: { cx: number; cy: number; r: number }[];
+}
+
+/**
+ * Generates the line-art geometry for one glassware glyph fitted into the
+ * box (x, y, width, height). Every fraction below is relative to that box,
+ * so a resize-handle drag re-proportions the glass instead of scaling a
+ * fixed drawing. The shapes are deliberately the simplest conventional
+ * line-art forms used in scheme/procedure annotations:
+ *
+ *  - beaker: straight walls inset 12% with outward pouring lips at the
+ *    rim and softly rounded bottom corners.
+ *  - erlenmeyerFlask: straight-sided neck (41%-59% of the width) opening
+ *    into a conical body that lands on a flat base with rounded corners.
+ *  - roundBottomFlask: a neck whose two lines run from the rim down into
+ *    a spherical bulb of radius min(width/2, 0.34·height) resting on the
+ *    box floor — the neck lines stop exactly at the sphere's surface
+ *    (Pythagoras, so the joint never shows a gap or an overlap).
+ *  - testTube: a U of walls 12% in from the box sides closed by a cubic
+ *    Bézier that bottoms out ≈96% down the box, plus a rim tick across
+ *    the top.
+ */
+export function glasswareGlyph(variant: GlasswareVariant, x: number, y: number, width: number, height: number): GlasswareGlyph {
+  const round = (n: number) => Math.round(n * 100) / 100;
+  // Fraction → absolute point helper; all fractions are (fx of width, fy of height).
+  const p = (fx: number, fy: number) => `${round(x + fx * width)},${round(y + fy * height)}`;
+
+  if (variant === "beaker") {
+    return {
+      d: [
+        `M ${p(0.04, 0)}`,
+        `Q ${p(0.12, 0.01)} ${p(0.12, 0.09)}`,
+        `L ${p(0.12, 0.86)}`,
+        `Q ${p(0.12, 1)} ${p(0.26, 1)}`,
+        `L ${p(0.74, 1)}`,
+        `Q ${p(0.88, 1)} ${p(0.88, 0.86)}`,
+        `L ${p(0.88, 0.09)}`,
+        `Q ${p(0.88, 0.01)} ${p(0.96, 0)}`,
+      ].join(" "),
+      circles: [],
+    };
+  }
+
+  if (variant === "erlenmeyerFlask") {
+    return {
+      d: [
+        `M ${p(0.41, 0)}`,
+        `L ${p(0.41, 0.25)}`,
+        `L ${p(0.05, 0.92)}`,
+        `Q ${p(0.03, 1)} ${p(0.12, 1)}`,
+        `L ${p(0.88, 1)}`,
+        `Q ${p(0.97, 1)} ${p(0.95, 0.92)}`,
+        `L ${p(0.59, 0.25)}`,
+        `L ${p(0.59, 0)}`,
+      ].join(" "),
+      circles: [],
+    };
+  }
+
+  if (variant === "testTube") {
+    return {
+      d: [
+        // Rim tick across the top, then the U: left wall, rounded bottom
+        // (cubic bottoms out at ≈0.96 of the box height), right wall.
+        `M ${p(0.3, 0)} L ${p(0.7, 0)}`,
+        `M ${p(0.36, 0)}`,
+        `L ${p(0.36, 0.78)}`,
+        `C ${p(0.36, 1.02)} ${p(0.64, 1.02)} ${p(0.64, 0.78)}`,
+        `L ${p(0.64, 0)}`,
+      ].join(" "),
+      circles: [],
+    };
+  }
+
+  // roundBottomFlask
+  const r = Math.min(width / 2, height * 0.34);
+  const cx = x + width / 2;
+  const cy = y + height - r;
+  const neckHalf = 0.08 * width;
+  // Where the neck lines meet the sphere: the y on the circle's upper
+  // half at horizontal offset ±neckHalf from its centre.
+  const neckBottom = cy - Math.sqrt(Math.max(r * r - neckHalf * neckHalf, 0));
+  return {
+    d: [
+      `M ${round(x + width / 2 - neckHalf)},${round(y)}`,
+      `L ${round(x + width / 2 - neckHalf)},${round(neckBottom)}`,
+      `M ${round(x + width / 2 + neckHalf)},${round(y)}`,
+      `L ${round(x + width / 2 + neckHalf)},${round(neckBottom)}`,
+    ].join(" "),
+    circles: [{ cx, cy, r }],
+  };
+}
 
 /**
  * A graphics-primitive shape (rectangle, ellipse, or plain line) — the
@@ -270,6 +379,33 @@ export function ShapeAnnotationView({ annotation, selected, viewScale }: ShapeAn
           fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none"
         />
       )}
+
+      {/* Lab glassware — generated line art, one glyph per variant (see
+          glasswareGlyph). "Filled" gives a light wash rather than the
+          solid fill rectangles/ellipses get: solid-filled glass reads as
+          a black blob at annotation sizes, while a translucent fill
+          suggests liquid content the way filled flask icons usually do. */}
+      {isGlasswareVariant(variant) && (() => {
+        const glyph = glasswareGlyph(variant, x, y, width, height);
+        return (
+          <>
+            <path
+              d={glyph.d}
+              fill={filled ? color : "none"}
+              fillOpacity={filled ? 0.15 : undefined}
+              stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none"
+            />
+            {glyph.circles.map((c, i) => (
+              <circle
+                key={i} cx={c.cx} cy={c.cy} r={c.r}
+                fill={filled ? color : "none"}
+                fillOpacity={filled ? 0.15 : undefined}
+                stroke={color} strokeWidth={1.6} pointerEvents="none"
+              />
+            ))}
+          </>
+        );
+      })()}
 
       {selected && variant !== "line" && (
         <rect

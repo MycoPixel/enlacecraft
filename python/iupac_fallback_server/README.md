@@ -87,6 +87,29 @@ Anything that isn't a verified name — invalid SMILES, NISPO producing
 nothing, or a generated name that doesn't round-trip — comes back as
 `404`. Empty input is `400`.
 
+`POST /name-to-structure`
+
+The reverse direction: a chemical name in, OPSIN-parsed canonical SMILES
+out. This backs the compound search box's local fallback — when PubChem
+has no compound for a name (it only resolves names already in its own
+index), the app asks this endpoint to parse the name with OPSIN's grammar
+instead, and a well-formed systematic name PubChem has never heard of can
+still land on the canvas.
+
+```json
+{ "name": "2,4,6-trinitrotoluene" }
+```
+
+→ `200 OK`
+
+```json
+{ "smiles": "Cc1c([N+](=O)[O-])cc([N+](=O)[O-])cc1[N+](=O)[O-]" }
+```
+
+Empty input and names over 512 characters (`naming.py`'s
+`MAX_NAME_CHARS`) are `400`. Anything OPSIN can't parse — or parses into
+something RDKit can't canonicalize — is `404`, same as `/name`.
+
 ## Notes
 
 - Like `structure3d_server` and NMRGraph, this is hardcoded to

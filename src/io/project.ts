@@ -128,6 +128,10 @@ function sanitizeTab(raw: unknown, fallbackId: string, fallbackTitle: string, re
   // Groups name atoms, annotations and cycles, so they can only be checked
   // once both halves of the tab are clean.
   const groups = sanitizeObjectGroups(tab.groups, cleanedMolecule, annotations, report);
+  // R-groups need no equivalent cross-half step here: like cycles, they are
+  // sanitized inside sanitizeMolecule (io/validate.ts's sanitizeRGroups), and
+  // a definition references only atoms inside its own fragment — nothing in
+  // the annotation map — so the molecule-half check is already complete.
   return {
     id,
     title,

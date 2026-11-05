@@ -207,6 +207,21 @@ function bondLen(mol: Molecule, aId: string, bId: string): number {
   return Math.round(Math.hypot(b.x - a.x, b.y - a.y) * 100) / 100;
 }
 
+/** The (0..180] angle at a 2-bonded atom between its two bonds, in degrees —
+ * the interior angle hybridisation-aware cleanup idealizes. */
+function vertexAngleDeg(mol: Molecule, id: string): number {
+  const a = mol.atoms[id];
+  const neighbors = Object.values(mol.bonds)
+    .filter((b) => b.a1 === id || b.a2 === id)
+    .map((b) => (b.a1 === id ? mol.atoms[b.a2] : mol.atoms[b.a1]));
+  if (neighbors.length !== 2) throw new Error(`vertexAngleDeg: atom ${id} has ${neighbors.length} bonds, expected 2`);
+  const a1 = Math.atan2(neighbors[0].y - a.y, neighbors[0].x - a.x);
+  const a2 = Math.atan2(neighbors[1].y - a.y, neighbors[1].x - a.x);
+  let d = Math.abs(a1 - a2);
+  if (d > Math.PI) d = 2 * Math.PI - d;
+  return Math.round(((d * 180) / Math.PI) * 100) / 100;
+}
+
 /** A signed difference between two angles in degrees, wrapped to (-180, 180]
  * - avoids the usual near-360°-vs-near-0° false positive a plain subtraction
  * would give. */
@@ -236,16 +251,20 @@ describe("cleanUpAtoms", () => {
     for (let i = 0; i < ids.length - 1; i++) {
       expect(bondLen(cleaned, ids[i], ids[i + 1])).toBe(BOND_LEN);
     }
-    // The very first transition (bond0 -> bond1) is the one free choice
-    // that picks which side the zigzag starts on - it's ±30°, not a
-    // forced ±60° (see ZigzagState's isSegmentStart doc comment in
-    // cleanUpAtoms). Every transition after that is strictly forced by
-    // alternation, which is the actual "perfect zigzag" guarantee this
-    // test is after.
+    // Geometry note (hybridisation-aware clean-up): every interior angle is
+    // now exactly 120°, including at the chain's second atom. The old
+    // fixed-30° relaxation kept the segment-start bond on the snapped axis
+    // and offset the second bond by only ±30° (a 150° angle there); the
+    // engine places every 2-coordinate sp3 carbon at the conventional
+    // skeletal 120° instead (see engine/clean2d.ts's
+    // twoNeighborInteriorAngle), so consecutive bond directions alternate
+    // by a full 60° throughout — same zigzag look, chemically uniform.
     const angles = ids.slice(0, -1).map((id, i) => bondAngleDeg(cleaned, id, ids[i + 1]));
-    expect(Math.abs(angleDiffDeg(angles[1], angles[0]))).toBe(30);
-    for (let i = 2; i < angles.length; i++) {
+    for (let i = 1; i < angles.length; i++) {
       expect(Math.abs(angleDiffDeg(angles[i], angles[i - 1]))).toBe(60);
+    }
+    for (let i = 1; i < ids.length - 1; i++) {
+      expect(vertexAngleDeg(cleaned, ids[i])).toBe(120);
     }
   });
 
@@ -295,21 +314,25 @@ describe("cleanUpAtoms", () => {
     ]) {
       expect(bondLen(cleaned, x, y)).toBe(BOND_LEN);
     }
-    // Within each arm, the bond straight off the hub (bond 0) to the next
-    // one (bond 1) is that arm's own free ±30° pick; the bond after that
-    // (bond 2) is forced by alternation, so THAT transition is where the
-    // "each arm is its own proper zigzag" guarantee actually shows up.
+    // Within each arm, bond directions alternate by exactly 60° (a 120°
+    // skeletal angle at every 2-coordinate carbon — see the geometry note
+    // in the zigzag test above for why this is 60/60 now rather than the
+    // old 30-then-60), independently per arm off the shared hub.
     const hubA1 = bondAngleDeg(cleaned, "hub", "a1");
     const a1A2 = bondAngleDeg(cleaned, "a1", "a2");
     const a2A3 = bondAngleDeg(cleaned, "a2", "a3");
-    expect(Math.abs(angleDiffDeg(a1A2, hubA1))).toBe(30);
+    expect(Math.abs(angleDiffDeg(a1A2, hubA1))).toBe(60);
     expect(Math.abs(angleDiffDeg(a2A3, a1A2))).toBe(60);
+    expect(vertexAngleDeg(cleaned, "a1")).toBe(120);
+    expect(vertexAngleDeg(cleaned, "a2")).toBe(120);
 
     const hubB1 = bondAngleDeg(cleaned, "hub", "b1");
     const b1B2 = bondAngleDeg(cleaned, "b1", "b2");
     const b2B3 = bondAngleDeg(cleaned, "b2", "b3");
-    expect(Math.abs(angleDiffDeg(b1B2, hubB1))).toBe(30);
+    expect(Math.abs(angleDiffDeg(b1B2, hubB1))).toBe(60);
     expect(Math.abs(angleDiffDeg(b2B3, b1B2))).toBe(60);
+    expect(vertexAngleDeg(cleaned, "b1")).toBe(120);
+    expect(vertexAngleDeg(cleaned, "b2")).toBe(120);
   });
 
   test("a chain hanging off a ring zigzags without moving the ring or its attachment point", () => {
@@ -353,14 +376,16 @@ describe("cleanUpAtoms", () => {
     expect(bondLen(cleaned, "s2", "s3")).toBe(BOND_LEN);
     expect(bondLen(cleaned, "s3", "s4")).toBe(BOND_LEN);
     // ...and s1-s2-s3-s4 zigzags exactly like a freestanding chain would:
-    // s1-s2 establishes the segment's axis (s1 is the fixed anchor, so
-    // this bond isn't part of the alternation itself), s2-s3 is the one
-    // free ±30° pick, and s3-s4 is forced to alternate 60° from it.
+    // s1-s2 keeps the boundary atom's drawn (snapped) direction, and every
+    // bond after that alternates by 60° so each interior angle is the
+    // conventional 120° (see the geometry note in the zigzag test above).
     const bond1 = bondAngleDeg(cleaned, "s1", "s2");
     const bond2 = bondAngleDeg(cleaned, "s2", "s3");
     const bond3 = bondAngleDeg(cleaned, "s3", "s4");
-    expect(Math.abs(angleDiffDeg(bond2, bond1))).toBe(30);
+    expect(Math.abs(angleDiffDeg(bond2, bond1))).toBe(60);
     expect(Math.abs(angleDiffDeg(bond3, bond2))).toBe(60);
+    expect(vertexAngleDeg(cleaned, "s2")).toBe(120);
+    expect(vertexAngleDeg(cleaned, "s3")).toBe(120);
   });
 
   test("a single bond just normalizes length and snaps to the nearest 30°, no alternation to speak of", () => {

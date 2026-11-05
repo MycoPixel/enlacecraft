@@ -22,6 +22,9 @@ const CATEGORY_ORDER = [
   "steroids",
   "terpenes",
   "fusedHeterocycles",
+  "namedAromatics",
+  "conformations",
+  "organometallics",
   "ligands",
 ];
 

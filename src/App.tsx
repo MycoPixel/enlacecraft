@@ -24,6 +24,7 @@ import { OnboardingOverlay } from "./components/common/OnboardingOverlay";
 import { ContextMenu } from "./components/ContextMenu/ContextMenu";
 import { registerCommandGroup, unregisterCommandGroup, type AppCommand } from "./commands/commands";
 import { useStructureDescription } from "./hooks/useStructureDescription";
+import { hasExpandableRGroups, nextUnusedRGroupLabel } from "./model/rgroups";
 
 // Lazy: pulls in 3Dmol.js + OpenChemLib (a few MB combined), which most
 // sketching sessions never need — see vite.config.ts's manualChunks for
@@ -102,7 +103,7 @@ export default function App() {
 
   useKeyboardShortcuts();
   useKeyboardDrawing(svgRef);
-  const { copySelection, pasteFromClipboard } = useClipboard(svgRef);
+  const { copySelection, pasteFromClipboard, copyAs } = useClipboard(svgRef);
   useAutosave();
   useVersionHistory(svgRef);
 
@@ -548,6 +549,34 @@ export default function App() {
         run: () => store().toggleCanvasBackground(),
       },
       {
+        id: "view.rulers",
+        titleKey: "tool.viewOptionsRulers",
+        sectionKey: "palette.section.view",
+        keywords: "measure mm inch rulers toggle",
+        run: () => store().toggleShowRulers(),
+      },
+      {
+        id: "view.crosshair",
+        titleKey: "tool.viewOptionsCrosshair",
+        sectionKey: "palette.section.view",
+        keywords: "pointer guide position toggle",
+        run: () => store().toggleShowCrosshair(),
+      },
+      {
+        id: "view.pageOutline",
+        titleKey: "tool.viewOptionsPageOutline",
+        sectionKey: "palette.section.view",
+        keywords: "paper edge boundary toggle",
+        run: () => store().toggleShowPageOutline(),
+      },
+      {
+        id: "view.cleanAsIdraw",
+        titleKey: "tool.cleanAsIdraw",
+        sectionKey: "palette.section.view",
+        keywords: "clean up polish idealize strokes toggle",
+        run: () => store().toggleCleanAsIdraw(),
+      },
+      {
         id: "view.language",
         titleKey: "tool.language",
         sectionKey: "palette.section.view",
@@ -606,6 +635,33 @@ export default function App() {
         run: () => store().sendBackward(),
       },
       {
+        id: "edit.defineRGroup",
+        titleKey: "tool.defineRGroup",
+        sectionKey: "palette.section.edit",
+        keywords: "R group define substituent generic placeholder",
+        isDisabled: () => store().selected.size === 0,
+        run: () => {
+          const s = store();
+          s.defineRGroupFromSelection(nextUnusedRGroupLabel(s.molecule));
+        },
+      },
+      {
+        id: "edit.expandGeneric",
+        titleKey: "tool.expandGeneric",
+        sectionKey: "palette.section.edit",
+        keywords: "R group expand generic substitute combination",
+        isDisabled: () => !hasExpandableRGroups(store().molecule),
+        run: () => { store().expandGenericStructure(); },
+      },
+      {
+        id: "edit.clearRGroups",
+        titleKey: "tool.clearRGroups",
+        sectionKey: "palette.section.edit",
+        keywords: "R group remove forget definitions",
+        isDisabled: () => Object.keys(store().molecule.rgroups ?? {}).length === 0,
+        run: () => { store().clearRGroups(); },
+      },
+      {
         id: "file.newTab",
         titleKey: "tab.add",
         sectionKey: "palette.section.file",
@@ -620,7 +676,7 @@ export default function App() {
 
   return (
     <div className="app" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-      <TopBar svgRef={svgRef} onOpenShortcuts={() => setShortcutsOpen(true)} onOpenVersionHistory={() => setVersionHistoryOpen(true)} />
+      <TopBar svgRef={svgRef} copyAs={copyAs} onOpenShortcuts={() => setShortcutsOpen(true)} onOpenVersionHistory={() => setVersionHistoryOpen(true)} />
       <TabBar />
       <div className="body">
         {!isMobile && <Sidebar />}

@@ -20,6 +20,18 @@ interface ExportMenuProps {
   onReactionSmiles: () => void;
   onCDXML: () => void;
   onSmiles: () => void;
+  /** Copy As: puts ONE format directly on the OS clipboard (the download
+   * entries above always write files). SVG/PNG copy the whole canvas; the
+   * chemistry formats copy the current selection, or the whole molecule
+   * when nothing is selected — matching the download entries' semantics. */
+  onCopyAs: (format: "svg" | "png" | "cdxml" | "mol" | "molV3000" | "smiles" | "inchi") => void;
+  /** Copy As entries need something to copy — chemistry formats are
+   * disabled on an empty canvas, SVG/PNG copy the (empty) frame either way. */
+  copyAsDisabled: boolean;
+  /** When on, SVG/PNG/HTML exports are framed on the page-setup paper
+   * (the same box PDF/print use) instead of tightly cropping to the ink. */
+  fitExportsToPage: boolean;
+  onToggleFitExportsToPage: () => void;
   onSaveProject: () => void;
   onSaveProjectAs: () => void;
   onCopyShareLink: () => void;
@@ -57,6 +69,10 @@ export function ExportMenu({
   onReactionSmiles,
   onCDXML,
   onSmiles,
+  onCopyAs,
+  copyAsDisabled,
+  fitExportsToPage,
+  onToggleFitExportsToPage,
   onSaveProject,
   onSaveProjectAs,
   onCopyShareLink,
@@ -154,11 +170,36 @@ export function ExportMenu({
                 />
               ))}
             </div>
+            <label className="export-dropdown__check">
+              <input type="checkbox" checked={fitExportsToPage} onChange={onToggleFitExportsToPage} />
+              {t("tool.fitExportsToPage")}
+            </label>
             <button className="export-dropdown__item" onClick={() => { onPNG(background); setOpen(false); }}>{t("tool.exportPNG")}</button>
             <button className="export-dropdown__item" onClick={() => { onSVG(background); setOpen(false); }}>{t("tool.exportSVG")}</button>
             <button className="export-dropdown__item" onClick={() => { onPageSetup(); setOpen(false); }}>{t("tool.pageSetup")}</button>
             <button className="export-dropdown__item" onClick={() => { onPDF(background); setOpen(false); }}>{t("tool.exportPDF")}</button>
             <button className="export-dropdown__item" onClick={() => { onPrint(background); setOpen(false); }}>{t("tool.exportPrintPDF")}</button>
+            <div className="export-dropdown__divider" />
+            <div className="export-dropdown__section-label">{t("tool.copyAs")}</div>
+            {([
+              ["svg", "tool.copyAsSvg"],
+              ["png", "tool.copyAsPng"],
+              ["cdxml", "tool.copyAsCdxml"],
+              ["mol", "tool.copyAsMol"],
+              ["molV3000", "tool.copyAsMolV3000"],
+              ["smiles", "tool.copyAsSmiles"],
+              ["inchi", "tool.copyAsInchi"],
+            ] as const).map(([format, titleKey]) => (
+              <button
+                key={format}
+                className="export-dropdown__item"
+                disabled={copyAsDisabled && format !== "svg" && format !== "png"}
+                title={copyAsDisabled && format !== "svg" && format !== "png" ? t("tool.copyAsDisabled") : undefined}
+                onClick={() => { onCopyAs(format); setOpen(false); }}
+              >
+                {t(titleKey)}
+              </button>
+            ))}
             <div className="export-dropdown__divider" />
             <button className="export-dropdown__item" onClick={() => { onMOL(); setOpen(false); }}>{t("tool.exportMOL")}</button>
             <button className="export-dropdown__item" onClick={() => { onSDF(); setOpen(false); }}>{t("tool.exportSDF")}</button>

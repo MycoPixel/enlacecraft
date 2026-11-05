@@ -67,6 +67,7 @@ export function useKeyboardDrawing(svgRef: RefObject<SVGSVGElement | null>) {
         if (
           state.selected.size > 0 ||
           state.selectedAnnotationIds.size > 0 ||
+          state.selectedCycleId ||
           state.atomEditTarget ||
           state.labelEditTarget
         ) {

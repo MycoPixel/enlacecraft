@@ -760,6 +760,15 @@ export function exportCdxmlDocument(
         roundedRect: "RoundRect",
         triangle: "Triangle",
         hexagon: "Hexagon",
+        // Lab-glassware glyphs have no ChemDraw graphic-type equivalent —
+        // they degrade to a polygon outline on export (the same "figure
+        // survives, editing semantics don't" trade the rest of the shape
+        // set makes). EnlaceCraft-to-EnlaceCraft round-trips keep the
+        // variant via the project format instead.
+        beaker: "Polygon",
+        erlenmeyerFlask: "Polygon",
+        roundBottomFlask: "Polygon",
+        testTube: "Polygon",
       };
       const graphicType = graphicTypeMap[ann.variant] ?? "Rectangle";
       let attrs = `id="${nextId()}" BoundingBox="${u(ann.x)} ${u(ann.y)} ${u(ann.x + ann.width)} ${u(ann.y + ann.height)}" GraphicType="${graphicType}"`;
@@ -2373,7 +2382,17 @@ function importCycles(
  * own project format is the lossless round trip for those).
  */
 export function importCdxmlDocument(text: string): CdxmlDocument {
-  const doc = new DOMParser().parseFromString(text, "application/xml");
+  // Parsing is the one step this importer cannot bound itself: a hostile
+  // file (absurd nesting, a pathological entity graph) makes some
+  // DOMParser implementations *throw* instead of reporting <parsererror>.
+  // Fold any such throw into the same controlled parse error as the
+  // parsererror path, so hostile input has exactly one failure mode.
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(text, "application/xml");
+  } catch {
+    throw new Error("Not a valid CDXML file");
+  }
   if (doc.querySelector("parsererror")) {
     throw new Error("Not a valid CDXML file");
   }

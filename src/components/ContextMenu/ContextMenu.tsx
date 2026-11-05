@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Trash2, Copy, ClipboardPaste, CopyPlus, Combine, Plus, Minus, Zap, Palette,
-  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit, Circle, Tag,
+  RotateCcw, RotateCw, Undo2, Wand2, MousePointer2, CheckSquare, Maximize, ChevronLeft, ShieldOff, Check, Brackets, Orbit, Circle, Tag, Puzzle, Eraser,
   FlipHorizontal2, FlipVertical2,
 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { findCollapsibleGroups } from "../../model/groupCollapse";
+import { hasExpandableRGroups } from "../../model/rgroups";
 import { useT } from "../../i18n/useT";
 import { HighlightColorPicker } from "../Sidebar/HighlightColorPicker";
 import type { BondOrder, BondStereo } from "../../types/chemistry";
@@ -60,6 +61,23 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const highlightSelection = useMoleculeStore((s) => s.highlightSelection);
   const duplicateSelection = useMoleculeStore((s) => s.duplicateSelection);
   const collapseSelectionToGroups = useMoleculeStore((s) => s.collapseSelectionToGroups);
+  const defineRGroupFromSelection = useMoleculeStore((s) => s.defineRGroupFromSelection);
+  const expandGenericStructure = useMoleculeStore((s) => s.expandGenericStructure);
+  const clearRGroups = useMoleculeStore((s) => s.clearRGroups);
+  // Whether Expand/Clear have anything to do, computed once per render for
+  // the same reason as canCollapseToGroup below: the menu hides inapplicable
+  // actions rather than showing them disabled.
+  const canExpandGeneric = useMoleculeStore((s) => hasExpandableRGroups(s.molecule));
+  const hasRGroupDefinitions = useMoleculeStore((s) => Object.keys(s.molecule.rgroups ?? {}).length > 0);
+  // Candidate labels for the Define submenu: the first few conventional R
+  // labels (R, R1…) that don't have a definition yet. Redefining an already
+  // defined label is possible from the palette's generated pick, but the
+  // menu only offers free ones so a click can't silently replace a
+  // substituent the user may have forgotten about.
+  const definedRGroupLabels = new Set(Object.values(molecule.rgroups ?? {}).map((def) => def.label));
+  const rgroupCandidates = ["R", ...Array.from({ length: 9 }, (_, i) => `R${i + 1}`)]
+    .filter((label) => !definedRGroupLabels.has(label))
+    .slice(0, 5);
   // Whether the collapse item should be enabled at all: matching walks the
   // selection's graph on every render of this menu, so it's computed once
   // here rather than left to the click handler to discover there's nothing
@@ -78,11 +96,13 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
   const toggleAromaticRingDisplay = useMoleculeStore((s) => s.toggleAromaticRingDisplay);
   const selectAll = useMoleculeStore((s) => s.selectAll);
   const resetView = useMoleculeStore((s) => s.resetView);
+  const selectedCycleId = useMoleculeStore((s) => s.selectedCycleId);
+  const removeCatalyticCycle = useMoleculeStore((s) => s.removeCatalyticCycle);
   const language = useMoleculeStore((s) => s.language);
   const setStatus = useMoleculeStore((s) => s.setStatus);
 
   const menuRef = useRef<HTMLDivElement>(null);
-  const [submenu, setSubmenu] = useState<"atom-highlight" | "bond-highlight" | "selection-highlight" | "sgroup" | null>(null);
+  const [submenu, setSubmenu] = useState<"atom-highlight" | "bond-highlight" | "selection-highlight" | "sgroup" | "rgroup" | null>(null);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
 
   const close = () => setContextMenu(null);
@@ -242,6 +262,27 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
         </>
       )}
 
+      {submenu === "rgroup" && (
+        <>
+          <button className="context-menu__item" onClick={() => setSubmenu(null)}>
+            <ChevronLeft size={15} /> {t("contextMenu.back")}
+          </button>
+          <div className="context-menu__label">{t("contextMenu.rgroupLabel")}</div>
+          {rgroupCandidates.map((label) => (
+            <button
+              key={label}
+              className="context-menu__item"
+              onClick={() => {
+                defineRGroupFromSelection(label);
+                close();
+              }}
+            >
+              <Puzzle size={15} /> {label}
+            </button>
+          ))}
+        </>
+      )}
+
       {submenu === null && (
         <>
           {atom && (
@@ -300,6 +341,16 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
             </>
           )}
 
+          {selectedCycleId && (
+            <>
+              <div className="context-menu__label">{t("contextMenu.cycle")}</div>
+              <button className="context-menu__item context-menu__item--danger" onClick={() => { removeCatalyticCycle(selectedCycleId); close(); }}>
+                <Trash2 size={15} /> {t("contextMenu.deleteCycle")}
+              </button>
+              <div className="context-menu__divider" />
+            </>
+          )}
+
           {hasSelection && (
             <>
               <div className="context-menu__label">{t("contextMenu.selection", { count: String(selected.size) })}</div>
@@ -346,6 +397,11 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
               <button className="context-menu__item" onClick={() => setSubmenu("sgroup")}>
                 <Brackets size={15} /> {t("contextMenu.groupAsSGroup")} &rsaquo;
               </button>
+              {rgroupCandidates.length > 0 && (
+                <button className="context-menu__item" onClick={() => setSubmenu("rgroup")}>
+                  <Puzzle size={15} /> {t("contextMenu.defineRGroup")} &rsaquo;
+                </button>
+              )}
               {hapticSelection && (
                 <button className="context-menu__item" onClick={() => { toggleHapticBond(selected); close(); }}>
                   <Orbit size={15} /> {t(existingHapticBond ? "contextMenu.removeHapticBond" : "contextMenu.addHapticBond")}
@@ -367,6 +423,16 @@ export function ContextMenu({ copySelection, pasteFromClipboard }: ContextMenuPr
           <button className="context-menu__item" onClick={() => { resetView(); close(); }}>
             <Maximize size={15} /> {t("contextMenu.zoomToFit")}
           </button>
+          {canExpandGeneric && (
+            <button className="context-menu__item" onClick={() => { expandGenericStructure(); close(); }}>
+              <Wand2 size={15} /> {t("contextMenu.expandGeneric")}
+            </button>
+          )}
+          {hasRGroupDefinitions && (
+            <button className="context-menu__item context-menu__item--danger" onClick={() => { clearRGroups(); close(); }}>
+              <Eraser size={15} /> {t("contextMenu.clearRGroups")}
+            </button>
+          )}
           {canGetIupacName && (
             <button className="context-menu__item" onClick={() => { close(); void runIupacNameLookup(); }}>
               <Tag size={15} /> {t("contextMenu.getIupacName")}

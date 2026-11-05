@@ -186,6 +186,51 @@ describe("useKeyboardShortcuts - duplicate", () => {
   });
 });
 
+describe("useKeyboardShortcuts - delete", () => {
+  /**
+   * Regression coverage for "catalytic cycles cannot be deleted": selecting
+   * a cycle's ring clears the atom selection and only sets selectedCycleId,
+   * so the Delete handler's old `selected.size > 0` guard swallowed the key
+   * and the cycle survived every Delete press.
+   */
+  function cycleOnlySelection() {
+    const mol = addAtom(emptyMolecule(), "a1", { x: 0, y: 0 }, "C");
+    act(() => {
+      useMoleculeStore.setState({ molecule: mol, selected: new Set(), atomEditTarget: null });
+    });
+    act(() => {
+      useMoleculeStore.getState().addCatalyticCycle({ centre: { x: 0, y: 0 }, radius: 80, nodes: [["a1"]] });
+    });
+  }
+
+  test("Delete removes a cycle-only selection", () => {
+    cycleOnlySelection();
+    expect(useMoleculeStore.getState().molecule.cycles).toHaveLength(1);
+    press("Delete");
+    expect(useMoleculeStore.getState().molecule.cycles ?? []).toHaveLength(0);
+    expect(useMoleculeStore.getState().selectedCycleId).toBeNull();
+  });
+
+  test("Backspace removes a cycle-only selection the same way", () => {
+    cycleOnlySelection();
+    press("Backspace");
+    expect(useMoleculeStore.getState().molecule.cycles ?? []).toHaveLength(0);
+  });
+
+  test("deleting a cycle is undoable as a single step", () => {
+    cycleOnlySelection();
+    press("Delete");
+    act(() => useMoleculeStore.getState().undo());
+    expect(useMoleculeStore.getState().molecule.cycles).toHaveLength(1);
+  });
+
+  test("Escape deselects the cycle too", () => {
+    cycleOnlySelection();
+    press("Escape");
+    expect(useMoleculeStore.getState().selectedCycleId).toBeNull();
+  });
+});
+
 describe("useKeyboardShortcuts - project save", () => {
   function pressWith(init: KeyboardEventInit) {
     const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
@@ -224,5 +269,146 @@ describe("useKeyboardShortcuts - project save", () => {
   test("bare s is unaffected — it is not a save shortcut", () => {
     pressWith({ key: "s" });
     expect(savedWithDialog).toEqual([]);
+  });
+});
+
+/**
+ * The desktop Edit-menu arrangement (see electron/main.cjs): the menu does
+ * not register its accelerators, so Ctrl+Z/Y/A reach this hook's keydown
+ * handler even when a text field has focus — where the hook forwards them
+ * to the native editor commands through the bridge — and the menu's own
+ * click handlers deliver undo/redo/select-all over IPC instead.
+ */
+describe("useKeyboardShortcuts - desktop Edit menu routing", () => {
+  const originalElectron = (window as unknown as { electron?: unknown }).electron;
+  const nativeCommands: string[] = [];
+  const editCommandListeners = new Set<(command: string) => void>();
+
+  function installBridge() {
+    nativeCommands.length = 0;
+    editCommandListeners.clear();
+    Object.defineProperty(window, "electron", {
+      value: {
+        nativeEditCommand: async (command: string) => {
+          nativeCommands.push(command);
+          return true;
+        },
+        onEditCommand: (callback: (command: string) => void) => {
+          editCommandListeners.add(callback);
+          return () => editCommandListeners.delete(callback);
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  afterEach(() => {
+    Object.defineProperty(window, "electron", { value: originalElectron, configurable: true, writable: true });
+  });
+
+  /** Mounts a fresh harness AFTER the bridge exists, since the
+   * subscription effect only registers when the bridge is present. */
+  function mountWithBridge() {
+    installBridge();
+    const container2 = document.createElement("div");
+    document.body.appendChild(container2);
+    const root2 = createRoot(container2);
+    act(() => {
+      root2.render(<Harness />);
+    });
+    return () =>
+      act(() => {
+        root2.unmount();
+        container2.remove();
+      });
+  }
+
+  test("Ctrl+A in a text field forwards select-all to the native editor, not the canvas", () => {
+    installBridge();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true }));
+    });
+    expect(nativeCommands).toEqual(["selectAll"]);
+    input.remove();
+  });
+
+  test("Ctrl+Shift+Z / Ctrl+Y in a text field forward redo, Ctrl+Z undo", () => {
+    installBridge();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, shiftKey: true, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "y", ctrlKey: true, bubbles: true }));
+    });
+    expect(nativeCommands).toEqual(["undo", "redo", "redo"]);
+    input.remove();
+  });
+
+  test("the Edit menu's undo/redo/select-all commands drive the store actions", () => {
+    const mol = (() => {
+      let m = emptyMolecule();
+      m = addAtom(m, "a1", { x: 0, y: 0 }, "C");
+      m = addAtom(m, "a2", { x: 40, y: 0 }, "C");
+      return m;
+    })();
+    act(() => {
+      useMoleculeStore.setState({
+        molecule: mol,
+        annotations: {},
+        selected: new Set(["a1", "a2"]),
+        selectedAnnotationIds: new Set(),
+        selectedCycleId: null,
+        past: [],
+        future: [],
+        hoverAtomId: null,
+        atomEditTarget: null,
+        labelEditTarget: null,
+      });
+    });
+    const unmount = mountWithBridge();
+
+    act(() => {
+      for (const listener of editCommandListeners) listener("selectAll");
+    });
+    expect(useMoleculeStore.getState().selected.size).toBe(2);
+
+    // A committed edit to undo (selection changes themselves carry no
+    // history entry, so delete the selection to push one).
+    act(() => {
+      useMoleculeStore.getState().deleteSelection();
+    });
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(0);
+
+    act(() => {
+      for (const listener of editCommandListeners) listener("undo");
+    });
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(2);
+
+    act(() => {
+      for (const listener of editCommandListeners) listener("redo");
+    });
+    expect(Object.keys(useMoleculeStore.getState().molecule.atoms)).toHaveLength(0);
+
+    unmount();
+  });
+
+  test("menu undo/redo/select-all in a text field forward to the native editor", () => {
+    const unmount = mountWithBridge();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    act(() => {
+      for (const listener of editCommandListeners) listener("selectAll");
+      for (const listener of editCommandListeners) listener("undo");
+    });
+    expect(nativeCommands).toEqual(["selectAll", "undo"]);
+    input.remove();
+    unmount();
   });
 });

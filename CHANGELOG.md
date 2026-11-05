@@ -7,8 +7,142 @@ tagged with it.
 
 ## 1.17.0
 
-CDXML import is fixed and widened — opening a ChemDraw drawing now lands what
-was actually drawn on the canvas:
+Completes the Octet Draw improvement plan (Phases 6–10: reaction
+intelligence, catalytic cycles, page/workspace control, Office
+interoperability and chemistry assistance — see
+`OCTET_DRAW_IMPROVEMENT_PLAN.md` for the full notes), fixes the reported
+progressive session lag, and fixes and widens CDXML import — opening a
+ChemDraw drawing now lands what was actually drawn on the canvas.
+
+### Performance — the "app starts lagging, reopen fixes it" report
+
+- A per-molecule **adjacency index** replaces full bond-map scans: every
+  `bondsOfAtom` call used to filter all bonds, and render paths call it per
+  atom per frame — O(atoms × bonds) per render that grew as the drawing
+  grew. Mouse-move and drag frames now stay flat as drawings get bigger.
+- **Hover churn removed**: hover setters bail when the point/atom/bond is
+  unchanged (previously every pointer move re-rendered the canvas shell),
+  the keyboard-shortcut hook no longer re-subscribes the whole app on every
+  atom hover, and the shared `t()` translator is now referentially stable,
+  so structure descriptions and other memos actually memoize again.
+- **Autosave** only re-arms on real document changes instead of every store
+  touch (it used to re-serialize every tab after any pause in mouse
+  movement), downloaded files no longer leak blob URLs, and version-history
+  checkpoints taken when the window hides are rate-limited.
+
+### Phase 8 — page, workspace and object control (finished)
+
+- View toggles (rulers, crosshair, page outline) and the new drawing-behavior
+  toggles are **command-palette commands**; the status bar shows active
+  drawing constraints as clickable chips.
+- New opt-in **"Fit SVG/PNG/HTML exports to page"** framing routes those
+  exports through the same page-setup box PDF/print use (default stays the
+  tight crop that pasting pictures wants).
+
+### Phase 9 — Office and editor interoperability
+
+- **Rich copy**: Ctrl+C / Copy puts a picture *and* editable chemistry on
+  the clipboard — PNG, HTML (SVG), CDXML, MOL, SMILES and the private
+  editable fragment, via the web Clipboard API or a new native Electron
+  `clipboard:write-rich` bridge. Paste understands CDXML / MOL / RXN
+  flavors from ChemDraw, SVGs carrying embedded CDXML metadata, and plain
+  SMILES — all through the same sanitizing importers as opened files.
+- **Copy As** menu and palette entries: SVG, PNG, CDXML, MOL V2000, MOL
+  V3000 (new `exportMolV3000` writer), SMILES and InChI; SVG export embeds
+  the drawing's CDXML in an SVG `<metadata>` block so an Inkscape/
+  Illustrator round trip keeps the structure editable.
+- **CDXML fidelity matrix**: new caption/rich-text, Spanish/unicode and
+  large-coordinate fixtures, table-driven round-trip coverage
+  (`cdxmlFidelity.test.ts`) and a hostile-input suite for the importer.
+- Binary CDX and EMF/EPS/TIFF stay deliberately unsupported — now stated in
+  the Paste Structure dialog's help.
+
+### Desktop: copies actually reach the OS clipboard now
+
+The packaged builds (AppImage/Windows) had two stacked wiring bugs that made
+"Copy" look dead outside the app — nothing paste-shaped ever arrived in
+Word, LibreOffice or an image editor, and in-app paste only worked through
+the private in-memory fallback:
+
+- **The Edit menu swallowed the canvas shortcuts.** The packaged build must
+  register an Edit menu (without one, Linux/Windows have no copy/paste
+  bindings at all — that earlier fix stands), but a registered menu
+  accelerator is consumed before the page's keydown handlers ever run, and
+  the menu roles' native commands only act on DOM text selections, which a
+  canvas app never has. Ctrl+C therefore did nothing at all: the menu
+  swallowed the key and then copied nothing. The menu's items now use
+  `registerAccelerator: false` — every key reaches the app's own handlers
+  (app-level copy/paste/cut/undo/redo/select-all on the canvas), while a
+  text-field focus forwards the command back to the native editor through a
+  new `edit:native-command` IPC with whitelisted command names, keeping the
+  original "text is copyable in inputs" behavior. The menu's own click
+  handlers (Alt, then Edit → Copy) send the same commands to the focused
+  window over IPC, so the visible menu works too.
+- **The rich copy never carried a picture.** The Ctrl+C payload held only
+  the private JSON plus CDXML/MOL/SMILES text — and the desktop clipboard
+  bridge writes exactly what the payload holds, so the OS clipboard got
+  text alone and image-expecting targets found nothing to paste. The
+  payload now also includes a selection-scoped SVG (carried as the
+  text/html `<img>` flavor) and a selection-scoped PNG, so a copied
+  fragment pastes as a picture into Office/LibreOffice/image editors and
+  as editable chemistry into chemistry-aware targets.
+- **Canvas Cut**: plain Ctrl/Cmd+X now cuts the selection — the same rich
+  copy followed by deleting it as one undo step. Ctrl/Cmd+Shift+X stays
+  the clean-reaction command.
+
+### Phase 10 — chemistry assistance and library
+
+- **Hybridisation-aware clean-up** (`engine/clean2d.ts`): ideal angles from
+  hybridisation, element bond-length table, ring templates, cis/trans
+  preservation, fixed wedge/dash endpoints, non-bonded overlap relaxation.
+  The "Clean structure" command uses it, and an optional off-by-default
+  **"Clean as I draw"** toggle idealizes each new stroke — bond tool, atom
+  tool, chain tool and keyboard drawing — without ever moving existing
+  atoms or placed stereochemistry: the stroke's new atoms relax onto ideal
+  angle and length while the atoms they attach to are held as fixed
+  anchors, all inside the stroke's own undo step.
+- **Valence warnings with fixes**: the warning chip opens a popover listing
+  every over-valent atom with an explanation and — where one exists — a
+  one-click formal-charge fix (e.g. ammonium N+). Nothing is changed
+  automatically.
+- **R-groups**: define a substituent fragment against an R label, then
+  **Expand generic structure** enumerates combinations (capped at 64) as
+  editable copies laid out on a grid; definitions persist in the project.
+- **Template library**: flipped chair and Newman conformations, ferrocene/
+  cobaltocene/nickelocene and a Ru(II) acetate paddlewheel (haptic bonds),
+  named aromatics (anthracene, phenanthrene, azulene, biphenyl, fluorene,
+  indene), and lab-glassware shape variants (beaker, Erlenmeyer, round-
+  bottom flask, test tube).
+- **Name → structure**: PubChem first, with the desktop OPSIN backend as a
+  local fallback (`/name-to-structure`) when offline or when PubChem misses.
+- **Flatten to 2D**: the 3D panel can write its current geometry (including
+  a rotated conformation) back onto the drawing as one undo step.
+
+### Catalytic cycles
+
+The Octet plan's Phase 7 figure ships in this release: a catalytic cycle is a
+live ring drawn around a selection of intermediates — direction and scale
+handles, in/out side arrows, a caption, drag-to-move the whole figure, and a
+CDXML round trip (arcs, side arrows and captions export with a rebuild
+marker our importer reads back; ChemDraw sees the drawn graphics). Phase 6's
+reaction intelligence ships with it: create a scheme from a selection,
+interpret reactant/product roles, map atoms, and clean up the whole scheme.
+
+Deleting a cycle used to be impossible from the canvas — only the command
+palette's "Remove cycle" worked. Fixed on every path:
+
+- **Delete / Backspace removes a selected cycle.** Clicking the ring selects
+  only the figure (the atom selection is cleared on purpose), and the Delete
+  handler's old "something must be selected" guard swallowed the key before
+  the store's cycle-only branch could run. The guard now lets a cycle-only
+  selection through; `deleteSelection` removes just the ring figure, leaves
+  the intermediates on the canvas, and undoes as one step.
+- **Right-click / long-press a ring** now selects it and the context menu
+  offers "Delete cycle" (the menu had no cycle section at all before).
+- **Escape deselects the cycle too** — it used to leave the ring selected
+  (and still targeted by the next Delete) while clearing everything else.
+
+### CDXML import
 
 - **`<arrow>` elements from current ChemDraw** (which write `Head3D`/`Tail3D`,
   `ArrowheadHead`/`ArrowheadTail`, and `AngularSize` instead of `x1/y1/x2/y2`)

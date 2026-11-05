@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >
+<CDXML CreationProgram="EnlaceCraft" Name="unicode-text" BondLength="30" MarginWidth="2" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10">
+<colortable>
+<color r="1" g="1" b="1"/>
+<color r="0" g="0" b="0"/>
+</colortable>
+<fonttable>
+<font id="3" charset="iso-8859-1" name="Arial"/>
+</fonttable>
+<page BoundingBox="0 0 540 720" HeaderPosition="36" FooterPosition="36" PrintTrimMarks="yes" HeightPages="1" WidthPages="1">
+<fragment id="1">
+<n id="2" p="100 100" Element="11"/>
+<n id="3" p="142 100" Element="17"/>
+<b id="4" B="2" E="3"/>
+</fragment>
+<t id="5" p="60 160" Justification="Left"><s font="3" size="10">¿Por qué esta reacción es exotérmica? á é í ó ú ñ — averígüalo con NaCl &amp; agua.</s></t>
+<t id="6" p="60 200" Justification="Left"><s font="3" size="10">ΔG = ΔH − TΔS &lt; 0 para α, β y γ; equilibrio: ²³Na⁺ ⇌ Cl⁻.</s></t>
+</page>
+</CDXML>

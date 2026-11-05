@@ -35,6 +35,12 @@ _name_to_structure = None
 # these requests from a threadpool.
 _opsin_lock = threading.Lock()
 
+# Upper bound on a name either direction will accept. Real systematic
+# names are rarely over ~200 characters; anything near this is more
+# likely a pasted paragraph than a molecule, and a definition-of-insanity
+# input is exactly what you don't want to hand to a parser.
+MAX_NAME_CHARS = 512
+
 
 def _opsin_jar_path() -> str:
     """Locates the OPSIN jar bundled inside the installed py2opsin
@@ -162,3 +168,44 @@ def name_and_verify(smiles: str) -> dict:
         raise NamingError("roundtrip_mismatch")
 
     return {"smiles": input_canonical, "name": candidate_name}
+
+
+def name_to_smiles(name: str) -> str:
+    """Parses a chemical name into canonical SMILES with OPSIN -- the
+    reverse direction of name_and_verify above, and the local half of the
+    app's compound search (see main.py's /name-to-structure): PubChem
+    resolves most names, but only ones already in its own index, while a
+    perfectly well-formed systematic name it has never heard of is still
+    parseable by OPSIN's grammar.
+
+    Follows name_and_verify's all-failures-are-NamingError contract (which
+    main.py maps to a single 404): empty or over-long input, OPSIN
+    producing nothing, or an OPSIN result that RDKit can't canonicalize
+    all raise NamingError rather than returning a partial answer.
+    """
+    if _name_to_structure is None:
+        raise RuntimeError("start_jvm() must be called before name_to_smiles()")
+
+    trimmed = name.strip()
+    if not trimmed:
+        raise NamingError("empty_name")
+    if len(trimmed) > MAX_NAME_CHARS:
+        raise NamingError("name_too_long")
+
+    with _opsin_lock:
+        try:
+            smiles = _name_to_structure.parseToSmiles(trimmed)
+        except Exception as exc:
+            raise NamingError(f"opsin_error: {exc}") from exc
+    if not smiles:
+        # Like name_and_verify's roundtrip check: OPSIN signals "not a name
+        # I understand" with an empty result rather than an exception.
+        raise NamingError("name_did_not_parse")
+
+    # Sanity check that OPSIN's output is actually something this app's own
+    # importer would accept before handing it on -- defensive against a
+    # parser bug surfacing as a corrupt structure on the canvas.
+    canonical = _canonical_smiles(str(smiles))
+    if not canonical:
+        raise NamingError("unparseable_structure")
+    return canonical

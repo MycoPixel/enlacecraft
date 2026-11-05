@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { writeClipboardText } from "./clipboard";
+import { writeClipboardText, writeClipboardPayload, CLIPBOARD_FRAGMENT_FORMAT } from "./clipboard";
 
 const originalElectron = (window as unknown as { electron?: unknown }).electron;
 const originalExecCommand = document.execCommand;
@@ -70,5 +70,158 @@ describe("writeClipboardText", () => {
     document.execCommand = vi.fn(() => false);
 
     await expect(writeClipboardText("nope")).rejects.toThrow("Clipboard is not available");
+  });
+});
+
+/** Minimal ClipboardItem stand-in — jsdom doesn't provide the real one.
+ * Matches the surface writeClipboardPayload uses: constructor with a
+ * representations record, `types`, and getType(). */
+class FakeClipboardItem {
+  private entries: Record<string, Blob | Promise<Blob>>;
+  constructor(entries: Record<string, Blob | Promise<Blob>>) {
+    this.entries = entries;
+  }
+  get types(): string[] {
+    return Object.keys(this.entries);
+  }
+  getType(type: string): Promise<Blob> {
+    const entry = this.entries[type];
+    if (!entry) return Promise.reject(new Error(`no representation: ${type}`));
+    return Promise.resolve(entry);
+  }
+}
+
+const originalClipboardItem = (globalThis as { ClipboardItem?: unknown }).ClipboardItem;
+
+/** Installs a fake async Clipboard API (write + ClipboardItem) for the rich
+ * payload tests, returning the spies. */
+function setRichClipboard() {
+  (globalThis as { ClipboardItem?: unknown }).ClipboardItem = FakeClipboardItem;
+  const written: { types: string[]; item: FakeClipboardItem }[] = [];
+  const write = vi.fn(async (items: FakeClipboardItem[]) => {
+    for (const item of items) written.push({ types: [...item.types], item });
+  });
+  Object.defineProperty(navigator, "clipboard", {
+    value: { write, writeText: vi.fn(async () => {}) },
+    configurable: true,
+  });
+  return { write, written };
+}
+
+describe("writeClipboardPayload", () => {
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    (globalThis as { ClipboardItem?: unknown }).ClipboardItem = originalClipboardItem;
+  });
+
+  test("writes every requested representation through one ClipboardItem", async () => {
+    const { write, written } = setRichClipboard();
+    const png = new Blob(["png"], { type: "image/png" });
+
+    const result = await writeClipboardPayload({ png, svg: "<svg/>", cdxml: "<CDXML/>", json: "{}" });
+
+    expect(result).toBe("web-rich");
+    expect(write).toHaveBeenCalledTimes(1);
+    const types = written[0].types.sort();
+    expect(types).toEqual(["image/png", "text/html", "text/plain", CLIPBOARD_FRAGMENT_FORMAT].sort());
+  });
+
+  test("the HTML flavor carries the SVG as a data-URI img, not live markup", async () => {
+    const { written } = setRichClipboard();
+    await writeClipboardPayload({ svg: `<svg><script>alert(1)</script></svg>`, text: "fallback" });
+    const item = written[0].item;
+    const html = await item.getType("text/html").then((b) => b.text());
+    expect(html).toContain(`<img `);
+    expect(html).toContain(`src="data:image/svg+xml;base64,`);
+    // The script tag survives only inside the inert base64 payload — it is
+    // never emitted as an HTML element of its own.
+    expect(html.trim().startsWith("<img")).toBe(true);
+  });
+
+  test("text/plain defaults to cdxml → molfile → smiles", async () => {
+    const { written } = setRichClipboard();
+    await writeClipboardPayload({ cdxml: "<CDXML/>", molfile: "MOL", smiles: "CCO" });
+    const text = await written[0].item.getType("text/plain").then((b) => b.text());
+    expect(text).toBe("<CDXML/>");
+
+    await writeClipboardPayload({ molfile: "MOL", smiles: "CCO" });
+    expect(await written[1].item.getType("text/plain").then((b) => b.text())).toBe("MOL");
+
+    await writeClipboardPayload({ smiles: "CCO" });
+    expect(await written[2].item.getType("text/plain").then((b) => b.text())).toBe("CCO");
+  });
+
+  test("falls back to PNG-only when the rich write rejects", async () => {
+    (globalThis as { ClipboardItem?: unknown }).ClipboardItem = FakeClipboardItem;
+    const write = vi
+      .fn<(items: FakeClipboardItem[]) => Promise<void>>()
+      .mockRejectedValueOnce(new DOMException("bad type", "NotAllowedError"))
+      .mockResolvedValueOnce(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { write }, configurable: true });
+    const png = new Blob(["png"], { type: "image/png" });
+
+    const result = await writeClipboardPayload({ png, text: "x" });
+
+    expect(result).toBe("png");
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
+  test("falls back to plain text when no ClipboardItem path works", async () => {
+    (globalThis as { ClipboardItem?: unknown }).ClipboardItem = FakeClipboardItem;
+    const write = vi.fn(async () => { throw new Error("denied"); });
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { write, writeText }, configurable: true });
+
+    const result = await writeClipboardPayload({ cdxml: "<CDXML/>" });
+
+    expect(result).toBe("text");
+    expect(writeText).toHaveBeenCalledWith("<CDXML/>");
+  });
+
+  test("throws when there is nothing at all to write", async () => {
+    setRichClipboard();
+    await expect(writeClipboardPayload({})).rejects.toThrow("Clipboard is not available");
+  });
+
+  test("prefers the Electron rich bridge when present", async () => {
+    const rich = vi.fn(async (_payload: { text?: string; html?: string; png?: Uint8Array }) => true);
+    Object.defineProperty(window, "electron", {
+      value: { writeClipboardText: vi.fn(), writeClipboardRich: rich },
+      configurable: true,
+      writable: true,
+    });
+    const { write } = setRichClipboard();
+    const png = new Blob(["png"], { type: "image/png" });
+
+    const result = await writeClipboardPayload({ png, text: "CCO" });
+
+    expect(result).toBe("electron-rich");
+    const arg = rich.mock.calls[0][0];
+    expect(arg.text).toBe("CCO");
+    expect(arg.png?.[0]).toBe("p".charCodeAt(0));
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  test("the electron-rich write carries text, HTML and PNG together — the desktop copy must land as a picture AND editable text", async () => {
+    // Regression: a canvas copy used to write text alone through this
+    // bridge (no png/svg in the payload), so pasting outside the app
+    // found nothing picture-shaped. All three flavors must ride along.
+    const rich = vi.fn(async (_payload: { text?: string; html?: string; png?: Uint8Array }) => true);
+    Object.defineProperty(window, "electron", {
+      value: { writeClipboardText: vi.fn(), writeClipboardRich: rich },
+      configurable: true,
+      writable: true,
+    });
+    const { write } = setRichClipboard();
+    const png = new Blob(["png-bytes"], { type: "image/png" });
+
+    const result = await writeClipboardPayload({ png, svg: "<svg><g/></svg>", cdxml: "<CDXML/>" });
+
+    expect(result).toBe("electron-rich");
+    const arg = rich.mock.calls[0][0];
+    expect(arg.text).toBe("<CDXML/>");
+    expect(arg.html).toContain("data:image/svg+xml;base64,");
+    expect(new TextDecoder().decode(arg.png!)).toBe("png-bytes");
+    expect(write).not.toHaveBeenCalled();
   });
 });

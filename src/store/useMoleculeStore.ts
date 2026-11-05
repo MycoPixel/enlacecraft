@@ -10,6 +10,7 @@ import { nextId, reserveIds } from "../model/id";
 import { placeRing as placeRingImpl } from "../engine/ringPlacement";
 import { placeFunctionalGroup as placeFunctionalGroupImpl } from "../engine/functionalGroupPlacement";
 import { addExplicitHydrogens } from "../engine/explicitHydrogens";
+import { cleanStructure2D } from "../engine/clean2d";
 import { bracketPairLayout, tlcPointToFractions, tlcSpotPosition, pointInRect, dist } from "../model/geometry";
 import { DEFAULT_BRACKET_WIDTH, DEFAULT_BRACKET_HEIGHT, BOND_LEN, ISOTOPE_PRESETS, REACTIVE_SITE_PRESETS } from "../model/constants";
 import { type UserTemplate, loadUserTemplates, addUserTemplate, removeUserTemplate, addImportedUserTemplates } from "../model/userTemplates";
@@ -33,6 +34,11 @@ import {
 } from "../engine/reactionMapping";
 import { DEFAULT_SGROUP_SUBSCRIPT, pruneSGroupAnnotationIds, sgroupBondIds, sgroupBondsTouching } from "../model/sgroups";
 import { centroidOf, cycleAtomIds, fragmentsForNodes, suggestedCycleRadius } from "../model/cycles";
+import {
+  clearRGroups as clearRGroupsImpl,
+  defineRGroup as defineRGroupImpl,
+  expandGeneric as expandGenericImpl,
+} from "../model/rgroups";
 import { defaultPageSetup } from "../model/pageSetup";
 import { expandGroupSelection, groupsTouching, pruneObjectGroups, restackByZOrder, type RestackMode } from "../model/groups";
 import type { ArrowHeadChoice, ArrowShaftChoice, ArrowTailChoice } from "../model/arrowStyle";
@@ -151,6 +157,8 @@ const STRUCTURE3D_COLOR_STORAGE_KEY = "enlacecraft-structure3d-color";
 const STRUCTURE3D_SURFACE_STORAGE_KEY = "enlacecraft-structure3d-surface";
 const STRUCTURE3D_SURFACE_OPACITY_STORAGE_KEY = "enlacecraft-structure3d-surface-opacity";
 const COMPUTED_STEREO_STORAGE_KEY = "enlacecraft-computed-stereo";
+const FIT_EXPORTS_STORAGE_KEY = "enlacecraft-fit-exports-to-page";
+const CLEAN_AS_I_DRAW_STORAGE_KEY = "enlacecraft-clean-as-i-draw";
 const SNAP_ANGLE_STORAGE_KEY = "enlacecraft-snap-angle";
 const THEME_STORAGE_KEY = "enlacecraft-theme";
 const CANVAS_BG_STORAGE_KEY = "enlacecraft-canvas-bg";
@@ -553,11 +561,17 @@ interface MoleculeStore {
   showCrosshair: boolean;
   /** Draw the page box (from PageSetup) on the canvas. Off by default. */
   showPageOutline: boolean;
+  /** When on, SVG/PNG/HTML-viewer exports are framed on the page-setup paper
+   * box (same placement math PDF/print use) instead of tightly cropped
+   * around the drawing. Off by default — the tight crop is what pasting a
+   * picture into a document wants, so page framing is an explicit choice. */
+  fitExportsToPage: boolean;
   rulerUnit: "mm" | "in" | "bond";
   setRulerUnit: (unit: "mm" | "in" | "bond") => void;
   toggleShowRulers: () => void;
   toggleShowCrosshair: () => void;
   toggleShowPageOutline: () => void;
+  toggleFitExportsToPage: () => void;
   /** When on, dragging a singly-bonded atom keeps the bond length (the
    * persistent form of the Ctrl/Cmd-drag lock); Shift still frees it for
    * one gesture. */
@@ -567,6 +581,14 @@ interface MoleculeStore {
   fixedAngle: boolean;
   toggleFixedBondLength: () => void;
   toggleFixedAngle: () => void;
+  /** Optional “clean as I draw” polish (off by default, persisted): after
+   * each bond/chain/atom-with-bond stroke, just the atoms the stroke CREATED
+   * relax onto hybridisation-ideal geometry (engine/clean2d), with every
+   * pre-existing atom fixed — existing work never moves, and the engine's
+   * stereo anchoring means a placed wedge/dash is never touched. Folds into
+   * the drawing's own undo entry, so one stroke is still one undo step. */
+  cleanAsIdraw: boolean;
+  toggleCleanAsIdraw: () => void;
   /** When on, the live IUPAC name panel re-resolves the name automatically
    * (debounced) as the molecule/selection changes, instead of requiring a
    * manual lookup via IupacNameButton. Off by default and persisted like
@@ -816,6 +838,20 @@ interface MoleculeStore {
    * stay silent when there was nothing to do). See model/groupCollapse.ts —
    * matching is by topology *and* implicit-hydrogen count, never by formula. */
   collapseSelectionToGroups: () => number;
+  /** Extracts the current atom selection into an R-group definition under
+   * `label` (model/rgroups.ts's defineRGroup): the substituent atoms move
+   * into the definition in one undo step and the selection clears. No-ops
+   * with a status message when nothing is selected or the label isn't an
+   * R-shaped placeholder ("R", "R1"…). */
+  defineRGroupFromSelection: (label: string) => void;
+  /** Forgets every R-group definition in one undo step. Does not restore
+   * the substituent atoms — see model/rgroups.ts's clearRGroups. */
+  clearRGroups: () => void;
+  /** Expands the drawing's defined R placeholders into concrete structures
+   * laid out in a grid to the right of the original (model/rgroups.ts's
+   * expandGeneric). One undo step; announces the number of copies. No-ops
+   * with a status message when nothing is expandable. */
+  expandGenericStructure: () => void;
   toggleShowHydrogens: () => void;
   /** See showAromaticityOverlay. */
   toggleAromaticityOverlay: () => void;
@@ -974,10 +1010,20 @@ interface MoleculeStore {
   addAtom: (p: Point, element: Element, group?: string, isotope?: number) => string;
   /**
    * Places an atom and, when `fromAtomId` points at an existing atom,
-   * draws a single bond from it in the same commit — the keyboard cursor's
+   * draws a bond from it in the same commit — the keyboard cursor's
    * equivalent of dragging out with the atom tool. One undo step either way.
+   * `bond` carries the new bond's attributes so the bond tools can use this
+   * same single-commit path (atom + bond + "clean as I draw" polish) instead
+   * of a bare addAtom/addBond pair that polish can never see.
    */
-  addAtomWithBond: (p: Point, element: Element, fromAtomId: string | null, group?: string, isotope?: number) => string;
+  addAtomWithBond: (
+    p: Point,
+    element: Element,
+    fromAtomId: string | null,
+    group?: string,
+    isotope?: number,
+    bond?: { order?: BondOrder; stereo?: BondStereo; dative?: boolean }
+  ) => string;
   /** Places a new atom with a whole REACTIVE_SITE_PRESETS entry applied
    * (label, charge, lone pairs) in one commit/undo step. */
   addReactiveSiteAtom: (p: Point, presetId: string) => string | null;
@@ -985,6 +1031,11 @@ interface MoleculeStore {
    * atom, committed together. */
   addReactiveSiteAtomWithBond: (p: Point, presetId: string, fromAtomId: string | null) => string | null;
   addBond: (a1: string, a2: string, order?: BondOrder, stereo?: BondStereo, dative?: boolean) => void;
+  /** Phase-10 "Flatten to 2D": replaces the drawn atoms' positions with the
+   * 3D panel's current geometry projected onto the canvas plane (one undo
+   * step). Only ids present in the molecule move — a stale 3D mapping for
+   * atoms that were since deleted is ignored. */
+  applyFlatCoordinates: (moves: Record<string, Point>) => void;
   /**
    * Adds a whole carbon chain in one undo step. If `fromAtomId` is null, a
    * fresh unbonded carbon is first created at `anchor` (this alone is what
@@ -1201,6 +1252,23 @@ function idsUsedByDocuments(
 }
 
 export const useMoleculeStore = create<MoleculeStore>((set, get) => {
+  /**
+   * "Clean as I draw" polish, applied INSIDE the drawing stroke's own
+   * commit so one stroke stays one undo step. The id set passed here is the
+   * stroke's new atoms PLUS the existing atoms they attach to: clean2d pins
+   * a component's boundary atoms (or, for a lone anchor with no other
+   * bonds, seeds the BFS at the first id), so only the new atoms ever move
+   * and polishing can never rearrange existing work; the engine's own
+   * stereo anchoring keeps a placed wedge/dash untouched. Passing only the
+   * new atoms would make each one a singleton, self-boundary component
+   * pinned exactly where it landed — a silent no-op. Off by default (see
+   * cleanAsIdraw).
+   */
+  const polishDrawn = (mol: Molecule, ids: string[]): Molecule => {
+    if (!get().cleanAsIdraw || ids.length === 0) return mol;
+    return cleanStructure2D(mol, ids).mol;
+  };
+
   /** Applies a structural edit, pushing the previous state onto the undo stack. */
   const commit = (mutate: (mol: Molecule) => Molecule) => {
     set((s) => {
@@ -1443,9 +1511,11 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     showRulers: false,
     showCrosshair: false,
     showPageOutline: false,
+    fitExportsToPage: detectStoredBooleanPreference(FIT_EXPORTS_STORAGE_KEY, false),
     rulerUnit: "mm",
     fixedBondLength: false,
     fixedAngle: false,
+    cleanAsIdraw: detectStoredBooleanPreference(CLEAN_AS_I_DRAW_STORAGE_KEY, false),
     announcement: null,
     autoIupacName: detectAutoIupacName(),
     language: detectInitialLanguage(),
@@ -1491,9 +1561,16 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setAtomReactiveSite: (presetId) => set({ atomReactiveSite: presetId, atomGroup: null, atomIsotope: null }),
     setAtomEditTarget: (id) => set({ atomEditTarget: id }),
     setLabelEditTarget: (id) => set({ labelEditTarget: id }),
-    setHoverAtomId: (id) => set({ hoverAtomId: id }),
-    setHoverBondId: (id) => set({ hoverBondId: id }),
-    setHoverPoint: (p) => set({ hoverPoint: p }),
+    // Hover state updates fire per pointer-move, so each setter bails when
+    // the value is unchanged (same coordinates / same id). Returning the
+    // state object itself keeps zustand from notifying subscribers at all —
+    // without the guard every mouse move allocated a fresh point/id and
+    // re-rendered every subscriber (the canvas shell, rulers) even when
+    // nothing visible moved.
+    setHoverAtomId: (id) => set((s) => (s.hoverAtomId === id ? s : { hoverAtomId: id })),
+    setHoverBondId: (id) => set((s) => (s.hoverBondId === id ? s : { hoverBondId: id })),
+    setHoverPoint: (p) =>
+      set((s) => (p && s.hoverPoint && s.hoverPoint.x === p.x && s.hoverPoint.y === p.y ? s : { hoverPoint: p })),
     setKeyboardDrawing: (on) =>
       set((s) => ({
         keyboardDrawing: on,
@@ -1532,9 +1609,29 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     toggleShowRulers: () => set((s) => ({ showRulers: !s.showRulers })),
     toggleShowCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
     toggleShowPageOutline: () => set((s) => ({ showPageOutline: !s.showPageOutline })),
+    toggleFitExportsToPage: () =>
+      set((s) => {
+        const fitExportsToPage = !s.fitExportsToPage;
+        try {
+          localStorage.setItem(FIT_EXPORTS_STORAGE_KEY, fitExportsToPage ? "1" : "0");
+        } catch {
+          // localStorage unavailable — persistence is a nicety, not a requirement
+        }
+        return { fitExportsToPage };
+      }),
     setRulerUnit: (unit) => set({ rulerUnit: unit }),
     toggleFixedBondLength: () => set((s) => ({ fixedBondLength: !s.fixedBondLength })),
     toggleFixedAngle: () => set((s) => ({ fixedAngle: !s.fixedAngle })),
+    toggleCleanAsIdraw: () =>
+      set((s) => {
+        const cleanAsIdraw = !s.cleanAsIdraw;
+        try {
+          localStorage.setItem(CLEAN_AS_I_DRAW_STORAGE_KEY, cleanAsIdraw ? "1" : "0");
+        } catch {
+          // localStorage unavailable — persistence is a nicety, not a requirement
+        }
+        return { cleanAsIdraw, status: cleanAsIdraw ? "status.cleanAsIdrawOn" : "status.cleanAsIdrawOff" };
+      }),
     setPageSetup: (page) => set({ page, hasUnsavedChanges: true }),
     announce: (key, params) =>
       set((s) => ({ announcement: { key, params, seq: (s.announcement?.seq ?? 0) + 1 } })),
@@ -1954,6 +2051,58 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       set({ molecule: next, selected: new Set<string>(), linkedAtomId: null, past: [...get().past, before], future: [] });
       return matches.length;
     },
+    defineRGroupFromSelection: (label) => {
+      const { molecule, selected } = get();
+      const ids = [...selected].filter((id) => !!molecule.atoms[id]);
+      if (ids.length === 0) {
+        set({ status: "status.rgroupEmptySelection" });
+        return;
+      }
+      const next = defineRGroupImpl(molecule, label, ids);
+      if (next === molecule) {
+        // The only refusal left at this point is a non-R-shaped label (the
+        // empty-selection case is handled above).
+        set({ status: "status.rgroupLabelInvalid" });
+        return;
+      }
+      // One undo step for the whole user intent (extraction + registration);
+      // `next` was computed from this same synchronous state, so handing it
+      // to commit directly keeps commit's object-group pruning in the loop.
+      commit(() => next);
+      // The selection's atoms now live inside the definition — nothing on
+      // the canvas left to keep selected.
+      set({
+        selected: new Set<string>(),
+        status: translate(get().language, "status.rgroupDefined", { label }),
+      });
+      get().announce("a11y.rgroupDefined", { label });
+    },
+    clearRGroups: () => {
+      const { molecule } = get();
+      if (!molecule.rgroups || Object.keys(molecule.rgroups).length === 0) {
+        set({ status: "status.rgroupNothingDefined" });
+        return;
+      }
+      commit((mol) => clearRGroupsImpl(mol));
+      set({ status: "status.rgroupCleared" });
+      get().announce("a11y.rgroupCleared");
+    },
+    expandGenericStructure: () => {
+      const { molecule } = get();
+      const result = expandGenericImpl(molecule);
+      if (result.count === 0) {
+        set({
+          status:
+            Object.keys(molecule.rgroups ?? {}).length > 0
+              ? "status.rgroupNoLabels"
+              : "status.rgroupNothingDefined",
+        });
+        return;
+      }
+      commit(() => result.mol);
+      set({ status: translate(get().language, "status.rgroupExpanded", { count: result.count }) });
+      get().announce("a11y.rgroupExpanded", { count: result.count });
+    },
     setProjectFileName: (name) => set({ projectFileName: name }),
     setLinkedAtomId: (id) => set({ linkedAtomId: id }),
     setSnapAngleDegrees: (deg) => {
@@ -2023,7 +2172,10 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         selected: new Set(Object.keys(s.molecule.atoms)),
         selectedAnnotationIds: new Set(Object.keys(s.annotations)),
       })),
-    clearSelection: () => set({ selected: new Set() }),
+    // Escape's "deselect everything": the ring figure selection lives in its
+    // own field, so it has to be cleared here too or a cycle would stay
+    // selected (and stay the next Delete's target) after Escape.
+    clearSelection: () => set({ selected: new Set(), selectedCycleId: null }),
 
     setSelectedAnnotationIds: (ids) =>
       set((s) => {
@@ -2066,14 +2218,17 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       return id;
     },
 
-    addAtomWithBond: (p, element, fromAtomId, group, isotope) => {
+    addAtomWithBond: (p, element, fromAtomId, group, isotope, bond) => {
       const id = nextId();
       commit((mol) => {
         let next = M.addAtom(mol, id, p, element, group, isotope);
         if (fromAtomId && mol.atoms[fromAtomId]) {
-          next = M.addBond(next, nextId(), fromAtomId, id, 1, "none");
+          next = M.addBond(next, nextId(), fromAtomId, id, bond?.order ?? 1, bond?.stereo ?? "none", bond?.dative ?? false);
         }
-        return next;
+        // Anchor first: clean2d seeds each component's BFS at the first id,
+        // so the anchor (not the new atom) is what gets held in place when
+        // the anchor has no other bonds to pin it as a boundary atom.
+        return polishDrawn(next, fromAtomId && mol.atoms[fromAtomId] ? [fromAtomId, id] : [id]);
       });
       return id;
     },
@@ -2102,7 +2257,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         if (fromAtomId && mol.atoms[fromAtomId]) {
           next = M.addBond(next, nextId(), fromAtomId, id, 1, "none");
         }
-        return next;
+        // Anchor-first polish set — see addAtomWithBond.
+        return polishDrawn(next, fromAtomId && mol.atoms[fromAtomId] ? [fromAtomId, id] : [id]);
       });
       return id;
     },
@@ -2110,6 +2266,8 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     addBond: (a1, a2, order = 1, stereo = "none", dative = false) => {
       commit((mol) => M.addBond(mol, nextId(), a1, a2, order, stereo, dative));
     },
+
+    applyFlatCoordinates: (moves) => commit((mol) => M.moveAtoms(mol, moves)),
 
     addChain: (fromAtomId, anchor, points) => {
       if (fromAtomId === null && points.length === 0) {
@@ -2119,20 +2277,28 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         return;
       }
       if (fromAtomId !== null && points.length === 0) return; // click on an existing atom with no drag: no-op
+      const drawnIds: string[] = [];
       commit((mol) => {
         let next = mol;
         let prevId = fromAtomId;
         if (prevId === null) {
           prevId = nextId();
+          drawnIds.push(prevId);
           next = M.addAtom(next, prevId, anchor, "C");
         }
         for (const p of points) {
           const atomId = nextId();
+          drawnIds.push(atomId);
           next = M.addAtom(next, atomId, p, "C");
           next = M.addBond(next, nextId(), prevId, atomId, 1, "none");
           prevId = atomId;
         }
-        return next;
+        // Include the existing anchor (anchor-first) so the chain's first
+        // atom idealizes its attachment angle too — see addAtomWithBond.
+        return polishDrawn(
+          next,
+          fromAtomId !== null && mol.atoms[fromAtomId] ? [fromAtomId, ...drawnIds] : drawnIds
+        );
       });
     },
 

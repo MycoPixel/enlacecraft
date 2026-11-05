@@ -1,11 +1,17 @@
 import type { Atom, AromaticRingDisplay, Bond, BondOrder, BondStereo, DoubleBondSide, Element, HapticBond, Molecule, Point } from "../types/chemistry";
 import { nextId } from "./id";
 import { BOND_LEN } from "./constants";
-import { angleDelta, angleOf, dist, polar, snapAngle } from "./geometry";
 import { isMetalLike } from "./valence";
+import { cleanStructure2D, connectedComponents } from "../engine/clean2d";
 import { pruneSchemesForAtoms } from "./reactionSchemes";
 import { pruneCyclesForAtoms } from "./cycles";
 import { pruneSgroups } from "./sgroups";
+
+// The 2D clean-up engine lives in src/engine/clean2d.ts (hybridisation-aware
+// angles, element bond lengths, ring templates, cis/trans + stereo
+// preservation, overlap penalty). Re-exported here so every existing
+// importer of connectedComponents keeps working unchanged.
+export { connectedComponents };
 
 export function emptyMolecule(): Molecule {
   return { atoms: {}, bonds: {}, hapticBonds: {}, aromaticRingDisplays: {} };
@@ -20,6 +26,7 @@ export function cloneMolecule(mol: Molecule): Molecule {
     ...(mol.schemes ? { schemes: mol.schemes } : {}),
     ...(mol.sgroups ? { sgroups: mol.sgroups } : {}),
     ...(mol.cycles ? { cycles: mol.cycles } : {}),
+    ...(mol.rgroups ? { rgroups: mol.rgroups } : {}),
   };
 }
 
@@ -491,6 +498,9 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
   const schemes = pruneSchemesForAtoms(mol.schemes, new Set(Object.keys(atoms)));
   const sgroups = pruneSgroups(mol.sgroups, new Set(Object.keys(atoms)), new Set(Object.keys(bonds)));
   const cycles = pruneCyclesForAtoms(mol.cycles, atoms);
+  // R-group definitions are keyed by label, not by atom id, so deleting an
+  // atom never invalidates one (an R placeholder's deletion just means its
+  // label is no longer drawn, i.e. not expandable) — they ride along as-is.
   return {
     atoms,
     bonds,
@@ -499,6 +509,7 @@ export function deleteAtom(mol: Molecule, id: string): Molecule {
     ...(schemes ? { schemes } : {}),
     ...(sgroups ? { sgroups } : {}),
     ...(cycles ? { cycles } : {}),
+    ...(mol.rgroups ? { rgroups: mol.rgroups } : {}),
   };
 }
 
@@ -635,6 +646,9 @@ export function stripExplicitHydrogens(mol: Molecule): Molecule {
     ...(schemes ? { schemes } : {}),
     ...(sgroups ? { sgroups } : {}),
     ...(cycles ? { cycles } : {}),
+    // R-group definitions are label-keyed document metadata — nothing here
+    // references an atom id — so they ride along untouched.
+    ...(mol.rgroups ? { rgroups: mol.rgroups } : {}),
   };
 }
 
@@ -686,6 +700,13 @@ export function subMolecule(mol: Molecule, atomIds: Iterable<string>): Molecule 
       cycle.nodes.length > 0 &&
       cycle.nodes.every((node) => node.every((id) => idSet.has(id)))
   );
+  // R-group definitions deliberately do NOT travel with fragments
+  // (subMolecule feeds copy/paste and share/export snapshots): a pasted
+  // generic keeps its R labels as plain placeholders, while the definitions
+  // stay with the document they were drawn in. Definitions reference
+  // fragments whose ids only mean something inside the source document, and
+  // silently duplicating them into every pasted fragment would multiply the
+  // same substituent under ids no other half of the paste agrees on.
   return {
     atoms,
     bonds,
@@ -803,6 +824,10 @@ export function insertMolecule(
     });
   }
 
+  // R-group definitions never merge with the incoming fragment (see the
+  // matching comment on subMolecule): the base document keeps its own
+  // definitions, and an incoming fragment's R labels paste as plain
+  // placeholders. `incoming.rgroups`, if somehow present, is dropped.
   return {
     mol: {
       atoms,
@@ -811,6 +836,7 @@ export function insertMolecule(
       aromaticRingDisplays,
       ...(base.schemes ? { schemes: base.schemes } : {}),
       ...(cycles.length > 0 ? { cycles } : {}),
+      ...(base.rgroups ? { rgroups: base.rgroups } : {}),
     },
     newAtomIds,
   };
@@ -849,6 +875,9 @@ export function extractFragment(mol: Molecule, atomIds: Iterable<string>): Molec
       cycle.nodes.length > 0 &&
       cycle.nodes.every((node) => node.every((id) => idSet.has(id)))
   );
+  // Like subMolecule above: fragments never carry R-group definitions — the
+  // pasted/saved generic keeps its R labels, definitions stay with the
+  // document (see model/rgroups.ts).
   return {
     atoms,
     bonds,
@@ -858,50 +887,9 @@ export function extractFragment(mol: Molecule, atomIds: Iterable<string>): Molec
   };
 }
 
-/**
- * Groups the given atom ids into connected components, using only bonds
- * whose both ends are also in the given id set — i.e. "connected via the
- * current selection." Two selected atoms that are only connected through
- * an *unselected* atom count as separate components here.
- *
- * This is what lets align/distribute treat a whole bonded structure as one
- * rigid piece (see alignAtoms/distributeAtoms) instead of moving individual
- * atoms independently — the latter is what design tools do for independent
- * shapes, but for atoms joined by bonds of a fixed, meaningful length it
- * collapses the structure instead of arranging it. When every selected atom
- * happens to be its own component (e.g. several separate lone atoms), this
- * naturally reduces to the old atom-by-atom behavior.
- */
-export function connectedComponents(mol: Molecule, atomIds: string[]): string[][] {
-  const idSet = new Set(atomIds);
-  const seen = new Set<string>();
-  const components: string[][] = [];
-
-  const neighborsWithin = (id: string): string[] => {
-    const out: string[] = [];
-    for (const b of Object.values(mol.bonds)) {
-      if (b.a1 === id && idSet.has(b.a2)) out.push(b.a2);
-      else if (b.a2 === id && idSet.has(b.a1)) out.push(b.a1);
-    }
-    return out;
-  };
-
-  for (const id of atomIds) {
-    if (seen.has(id) || !mol.atoms[id]) continue;
-    const comp: string[] = [];
-    const queue = [id];
-    seen.add(id);
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
-      comp.push(cur);
-      for (const nb of neighborsWithin(cur)) {
-        if (!seen.has(nb)) { seen.add(nb); queue.push(nb); }
-      }
-    }
-    components.push(comp);
-  }
-  return components;
-}
+// connectedComponents used to be defined here; it now lives in
+// engine/clean2d.ts (which needs it for the clean-up engine) and is
+// re-exported at the top of this file under the same name and signature.
 
 interface Fragment { ids: string[]; atoms: Atom[]; minX: number; maxX: number; minY: number; maxY: number }
 
@@ -1065,192 +1053,14 @@ export function separateOverlappingFragments(
 }
 
 /**
- * Detects rings within `componentIds` (assumed to already be one connected
- * fragment) as the fundamental cycles of a breadth-first spanning tree:
- * for every bond not used by the tree, the cycle it closes is the tree
- * path between its two atoms plus that bond itself. This finds every ring
- * exactly for the common case — one or more simple rings, optionally fused
- * (sharing an edge) or spiro-joined (sharing one atom) to each other or to
- * plain chains. For a bridged polycyclic system (two rings sharing more
- * than one edge), which atoms end up on which fundamental cycle can depend
- * on the arbitrary spanning tree — a true SSSR algorithm would be needed
- * to always recover the chemist's-eye "smallest rings" there. That's an
- * acceptable gap: bridged systems are rare in a 2D sketch tool, and this
- * still terminates and produces *some* reasonable ring, just possibly not
- * the visually smallest one.
- */
-function detectRings(mol: Molecule, componentIds: string[]): string[][] {
-  if (componentIds.length === 0) return [];
-  const idSet = new Set(componentIds);
-  const neighborsWithin = (id: string): string[] => {
-    const out: string[] = [];
-    for (const b of Object.values(mol.bonds)) {
-      if (b.a1 === id && idSet.has(b.a2)) out.push(b.a2);
-      else if (b.a2 === id && idSet.has(b.a1)) out.push(b.a1);
-    }
-    return out;
-  };
-
-  const parent = new Map<string, string>();
-  const treeEdge = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
-  const treeEdges = new Set<string>();
-  const root = componentIds[0];
-  const seen = new Set([root]);
-  const bfsQueue = [root];
-  while (bfsQueue.length > 0) {
-    const cur = bfsQueue.shift()!;
-    for (const nb of neighborsWithin(cur)) {
-      if (seen.has(nb)) continue;
-      seen.add(nb);
-      parent.set(nb, cur);
-      treeEdges.add(treeEdge(cur, nb));
-      bfsQueue.push(nb);
-    }
-  }
-
-  const pathToRoot = (start: string): string[] => {
-    const path = [start];
-    let cur = start;
-    while (parent.has(cur)) { cur = parent.get(cur)!; path.push(cur); }
-    return path;
-  };
-
-  const rings: string[][] = [];
-  const seenRingKey = new Set<string>();
-  for (const b of Object.values(mol.bonds)) {
-    if (!idSet.has(b.a1) || !idSet.has(b.a2)) continue;
-    if (treeEdges.has(treeEdge(b.a1, b.a2))) continue;
-
-    const pathA = pathToRoot(b.a1);
-    const pathB = pathToRoot(b.a2);
-    const indexInA = new Map(pathA.map((id, i): [string, number] => [id, i]));
-    let lcaIdxA = -1, lcaIdxB = -1;
-    for (let j = 0; j < pathB.length; j++) {
-      if (indexInA.has(pathB[j])) { lcaIdxA = indexInA.get(pathB[j])!; lcaIdxB = j; break; }
-    }
-    if (lcaIdxA < 0) continue;
-
-    const ring = [...pathA.slice(0, lcaIdxA + 1), ...pathB.slice(0, lcaIdxB).reverse()];
-    if (ring.length < 3) continue;
-    const key = [...ring].sort().join(",");
-    if (seenRingKey.has(key)) continue;
-    seenRingKey.add(key);
-    rings.push(ring);
-  }
-  return rings;
-}
-
-/** Signed area (shoelace formula) of a ring's *current* positions, walked
- * in `ringWalk` order — its sign encodes which way the ring currently
- * turns (clockwise vs counter-clockwise), so a regenerated regular polygon
- * can be walked the same way instead of coming out mirror-flipped. */
-function signedRingArea(ringWalk: string[], posOf: (id: string) => Point): number {
-  let sum = 0;
-  for (let i = 0; i < ringWalk.length; i++) {
-    const p1 = posOf(ringWalk[i]);
-    const p2 = posOf(ringWalk[(i + 1) % ringWalk.length]);
-    sum += p1.x * p2.y - p2.x * p1.y;
-  }
-  return sum;
-}
-
-/**
- * Computes regular-polygon target positions for one ring, honoring
- * whichever of its atoms are already fixed (from `fixed`) — 0, 1, or 2
- * (adjacent) of them — the same three cases ringPlacement.ts's ring *tool*
- * already handles for placing a brand-new ring on the canvas:
- *  - Two adjacent fixed atoms (a shared/fused edge): the rest of the
- *    polygon is built off that edge, bulging toward whichever side is
- *    closer to the ring's own pre-cleanup center (so it doesn't flip to
- *    the opposite side of the shared bond).
- *  - One fixed atom (a spiro junction, or a boundary atom): the polygon is
- *    centered along the same direction that atom's current position
- *    already sits from the ring's own current center.
- *  - None fixed: the polygon is centered on the ring's own current
- *    centroid, oriented to match its current first-atom direction.
- * All three preserve the ring's current handedness via signedRingArea, so
- * it's never mirror-flipped from how it was drawn.
- */
-function regularRingTargets(mol: Molecule, ringWalk: string[], fixed: Map<string, Point>): Map<string, Point> {
-  const n = ringWalk.length;
-  const r = BOND_LEN / (2 * Math.sin(Math.PI / n));
-  const step = (2 * Math.PI) / n;
-  const origPos = (id: string) => mol.atoms[id];
-  const dirSign = signedRingArea(ringWalk, origPos) >= 0 ? 1 : -1;
-
-  const origCentroid = (): Point => {
-    let cx = 0, cy = 0;
-    for (const id of ringWalk) { const p = origPos(id); cx += p.x; cy += p.y; }
-    return { x: cx / n, y: cy / n };
-  };
-
-  const targets = new Map<string, Point>();
-  const fixedIndices = ringWalk.map((id, i) => (fixed.has(id) ? i : -1)).filter((i) => i >= 0);
-
-  // Two fixed atoms adjacent in the ring walk — build off that shared edge.
-  for (const i0 of fixedIndices) {
-    const i1 = (i0 + 1) % n;
-    if (!fixed.has(ringWalk[i1])) continue;
-    const p1 = fixed.get(ringWalk[i0])!;
-    const p2 = fixed.get(ringWalk[i1])!;
-    const apothem = r * Math.cos(Math.PI / n);
-    const bondAngle = angleOf(p1, p2);
-    const midX = (p1.x + p2.x) / 2;
-    const midY = (p1.y + p2.y) / 2;
-    const centerA = { x: midX + apothem * Math.cos(bondAngle + Math.PI / 2), y: midY + apothem * Math.sin(bondAngle + Math.PI / 2) };
-    const centerB = { x: midX + apothem * Math.cos(bondAngle - Math.PI / 2), y: midY + apothem * Math.sin(bondAngle - Math.PI / 2) };
-    const refCenter = origCentroid();
-    const center = dist(centerA, refCenter) <= dist(centerB, refCenter) ? centerA : centerB;
-    const angle1 = angleOf(center, p1);
-    const angle2 = angleOf(center, p2);
-    const norm = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-    const dir = Math.abs(norm(angle1 + step) - norm(angle2)) < 1e-6 ? 1 : -1;
-    for (let k = 0; k < n; k++) {
-      const idx = (i0 + k) % n;
-      targets.set(ringWalk[idx], idx === i0 ? p1 : idx === i1 ? p2 : polar(center.x, center.y, r, angle1 + dir * k * step));
-    }
-    return targets;
-  }
-
-  // One fixed atom, or none — anchor via that atom (or the current
-  // centroid), oriented to match the ring's current layout.
-  const i0 = fixedIndices.length > 0 ? fixedIndices[0] : 0;
-  const anchorId = ringWalk[i0];
-  const centroid = origCentroid();
-  let center: Point;
-  let startAngle: number;
-  if (fixed.has(anchorId)) {
-    const anchorPos = fixed.get(anchorId)!;
-    const curAnchor = origPos(anchorId);
-    const dirAngle = dist(curAnchor, centroid) < 1e-6 ? -Math.PI / 2 : angleOf(curAnchor, centroid);
-    center = { x: anchorPos.x + r * Math.cos(dirAngle), y: anchorPos.y + r * Math.sin(dirAngle) };
-    startAngle = angleOf(center, anchorPos);
-  } else {
-    center = centroid;
-    startAngle = angleOf(centroid, origPos(anchorId));
-  }
-  for (let k = 0; k < n; k++) {
-    const idx = (i0 + k) % n;
-    targets.set(ringWalk[idx], idx === i0 && fixed.has(anchorId) ? fixed.get(anchorId)! : polar(center.x, center.y, r, startAngle + dirSign * k * step));
-  }
-  return targets;
-}
-
-/**
- * "Clean Up": redraws each ring found in the given atoms (see
- * detectRings) as a proper regular polygon of its own size — a pentagon
- * stays a pentagon with 108° interior angles, a hexagon a hexagon, etc.,
- * each with every edge exactly the standard bond length — then relaxes
- * every remaining chain atom/substituent outward from there. Each chain
- * segment comes out as a proper zigzag: every bond is the standard bond
- * length, and consecutive bonds alternate by exactly 60° (the usual
- * ±30°-from-horizontal look of a drawn structure), rather than each bond
- * just independently landing on the nearest 30° of wherever it happened
- * to already point — a chain drawn (or dragged) into a wobbly, uneven
- * shape comes out straight, not merely grid-aligned-but-still-uneven.
- * See the ZigzagState type inside the loop below for exactly how a
- * segment's axis and alternation are tracked, and how a branch point
- * resets to a fresh axis for each of its own arms.
+ * "Clean Up": redraws the given atoms' structure in place, delegating to
+ * the hybridisation-aware engine in engine/clean2d.ts — every ring comes
+ * out a regular polygon, chains come out as proper skeletal zigzags at
+ * hybridisation-ideal angles (sp 180°, sp2 120°, sp3 120° for the 2-coordinate
+ * zigzag convention / 109.5°-clamped fans where degree allows), bond lengths
+ * follow the elements and bond orders, double-bond cis/trans arrangements are
+ * preserved, and the endpoints of any wedge/dash bond stay exactly where
+ * they were so manually drawn stereochemistry is never reinterpreted.
  *
  * Each connected fragment (see connectedComponents) is handled on its own,
  * anchored so it doesn't drift or detach in a way the user didn't ask for:
@@ -1261,158 +1071,17 @@ function regularRingTargets(mol: Molecule, ringWalk: string[], fixed: Map<string
  *    fragment's attachment point to the rest of the molecule never moves.
  *  - Otherwise (the fragment is entirely self-contained in the selection —
  *    including the common case of cleaning up with nothing selected, i.e.
- *    the whole molecule) the first ring (or, if there's no ring at all,
- *    the whole chain) has to anchor on *some* arbitrarily-chosen atom, but
- *    the whole fragment is then shifted back so its center of mass lands
- *    exactly where it started — so Clean Up only straightens things in
- *    place rather than relocating the structure elsewhere.
+ *    the whole molecule) the whole fragment is shifted back so its center
+ *    of mass lands exactly where it started — so Clean Up only straightens
+ *    things in place rather than relocating the structure elsewhere.
  *
- * Two rings that share no atoms but are joined only by a floppy chain (or
- * a ring plus a separately-anchored ring elsewhere in the same fragment)
- * are each individually regularized but not reconciled against each other
- * — same honest gap as an irregular bridged ring above: a full
- * constraint solver is out of scope here.
+ * The signature and return shape are unchanged from the pre-engine
+ * implementation (Molecule in, new Molecule out, positions only — bond
+ * orders/connectivity/annotations never touched) so the store action and
+ * the existing tests keep working untouched. `snapStep` threads the user's
+ * snap-angle preference into the engine; a non-positive value disables
+ * snapping (see Clean2DOptions.snapStep).
  */
 export function cleanUpAtoms(mol: Molecule, atomIds: string[], snapStep: number = Math.PI / 6): Molecule {
-  const atoms = { ...mol.atoms };
-
-  for (const component of connectedComponents(mol, atomIds)) {
-    const compSet = new Set(component);
-    const neighborsWithin = (id: string): string[] => {
-      const out: string[] = [];
-      for (const b of Object.values(mol.bonds)) {
-        if (b.a1 === id && compSet.has(b.a2)) out.push(b.a2);
-        else if (b.a2 === id && compSet.has(b.a1)) out.push(b.a1);
-      }
-      return out;
-    };
-    const isBoundary = (id: string): boolean => {
-      for (const b of Object.values(mol.bonds)) {
-        if (b.a1 === id && !compSet.has(b.a2)) return true;
-        if (b.a2 === id && !compSet.has(b.a1)) return true;
-      }
-      return false;
-    };
-
-    const boundary = component.filter(isBoundary);
-    const fixed = new Map<string, Point>();
-    for (const id of boundary) fixed.set(id, { x: mol.atoms[id].x, y: mol.atoms[id].y });
-
-    const rings = detectRings(mol, component).sort((a, b) => a.length - b.length);
-    for (const ringWalk of rings) {
-      if (ringWalk.every((id) => fixed.has(id))) continue; // already fully placed by a smaller, earlier ring
-      for (const [id, p] of regularRingTargets(mol, ringWalk, fixed)) fixed.set(id, p);
-    }
-
-    // A fragment with neither a boundary atom nor any ring (a plain chain,
-    // or a lone atom) still needs *some* starting point for the relax-
-    // outward pass below.
-    if (fixed.size === 0) fixed.set(component[0], { x: mol.atoms[component[0]].x, y: mol.atoms[component[0]].y });
-
-    for (const [id, p] of fixed) {
-      const a = atoms[id];
-      if (a) atoms[id] = { ...a, x: p.x, y: p.y };
-    }
-
-    // Relaxes every remaining (non-ring, non-boundary) atom outward from
-    // `fixed`, one bond at a time, snapping each new bond to the nearest
-    // 30° grid direction the rest of the drawing tools already use — but
-    // a plain chain gets more than that: consecutive bonds *alternate*
-    // by a fixed 60° (see ZigzagState below), so a straightened chain
-    // comes out as a proper zigzag rather than a sequence of
-    // independently-snapped segments that each just happen to be
-    // grid-aligned. A ring or boundary atom always starts a brand new
-    // zigzag "segment" for whatever hangs off it (zigzag: null below),
-    // and so does a branch point mid-chain (degree ≥ 3 within this
-    // fragment) for each of its own children — each arm coming off a
-    // branch gets its own independent zigzag rather than trying to
-    // reconcile axes across the branch.
-    type ZigzagState = {
-      /** This segment's base direction (always a multiple of 30°) — the
-       * very first bond out of whatever anchored this segment (a ring/
-       * boundary atom, or a branch point) keeps this exact direction;
-       * every bond after that is offset from it by ±30°. */
-      axis: number;
-      /** This atom's own incoming bond's offset from `axis` — 0 for the
-       * segment's first atom (no offset yet: an unbroken continuation of
-       * axis), otherwise ±30°. */
-      deviation: number;
-      /** True only for the segment's first atom (the one whose incoming
-       * bond has deviation 0) — its outgoing bond is the one bond in the
-       * whole segment that isn't forced by alternation, since there's no
-       * established zigzag phase yet to alternate against. That one
-       * choice (+30° or −30°) is picked by whichever candidate is
-       * closer to how this bond was actually drawn, so a chain that's
-       * already roughly zigzagging keeps its original up/down sense
-       * rather than getting flipped arbitrarily; every bond after it
-       * strictly alternates with no further such comparisons, which is
-       * what actually guarantees a perfect zigzag regardless of how
-       * messy the rest of the original chain was. */
-      isSegmentStart: boolean;
-    };
-    const ZIGZAG_STEP = Math.PI / 6; // 30° — same grid snapAngle already snaps to
-
-    const visited = new Set(fixed.keys());
-    const queue: { id: string; zigzag: ZigzagState | null }[] = [...visited].map((id) => ({ id, zigzag: null }));
-    while (queue.length > 0) {
-      const { id: cur, zigzag } = queue.shift()!;
-      const neighbors = neighborsWithin(cur);
-      for (const nb of neighbors) {
-        if (visited.has(nb)) continue;
-        visited.add(nb);
-        const curAtom = atoms[cur];
-        const nbAtom = atoms[nb];
-        let angle: number;
-        let nextZigzag: ZigzagState;
-
-        if (zigzag === null || neighbors.length >= 3) {
-          // A ring/boundary anchor, or a branch point — this neighbor
-          // starts a brand new segment, axis taken from this bond's own
-          // current direction exactly as every bond was placed before
-          // zigzag alternation existed.
-          const axis = snapAngle(angleOf(curAtom, nbAtom), snapStep);
-          angle = axis;
-          nextZigzag = { axis, deviation: 0, isSegmentStart: true };
-        } else if (zigzag.isSegmentStart) {
-          const original = angleOf(curAtom, nbAtom);
-          const plus = zigzag.axis + ZIGZAG_STEP;
-          const minus = zigzag.axis - ZIGZAG_STEP;
-          const deviation = Math.abs(angleDelta(plus, original)) <= Math.abs(angleDelta(minus, original)) ? ZIGZAG_STEP : -ZIGZAG_STEP;
-          angle = zigzag.axis + deviation;
-          nextZigzag = { axis: zigzag.axis, deviation, isSegmentStart: false };
-        } else {
-          // Strict alternation - flip the previous bond's deviation,
-          // no comparison against the original drawing here at all.
-          const deviation = -zigzag.deviation;
-          angle = zigzag.axis + deviation;
-          nextZigzag = { axis: zigzag.axis, deviation, isSegmentStart: false };
-        }
-
-        const p = polar(curAtom.x, curAtom.y, BOND_LEN, angle);
-        atoms[nb] = { ...nbAtom, x: p.x, y: p.y };
-        queue.push({ id: nb, zigzag: nextZigzag });
-      }
-    }
-
-    if (boundary.length === 0) {
-      let origSumX = 0, origSumY = 0, newSumX = 0, newSumY = 0;
-      for (const id of component) {
-        origSumX += mol.atoms[id].x;
-        origSumY += mol.atoms[id].y;
-        newSumX += atoms[id].x;
-        newSumY += atoms[id].y;
-      }
-      const n = component.length;
-      const dx = origSumX / n - newSumX / n;
-      const dy = origSumY / n - newSumY / n;
-      if (dx !== 0 || dy !== 0) {
-        for (const id of component) {
-          const a = atoms[id];
-          atoms[id] = { ...a, x: a.x + dx, y: a.y + dy };
-        }
-      }
-    }
-  }
-
-  return { ...mol, atoms };
+  return cleanStructure2D(mol, atomIds, { snapStep }).mol;
 }

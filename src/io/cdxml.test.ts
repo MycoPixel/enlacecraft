@@ -9,7 +9,7 @@ import { addAtom, addBond, emptyMolecule, setAtomCustomGroup } from "../model/mo
 import { exportCdxml, exportCdxmlDocument, importCdxml, importCdxmlDocument } from "./cdxml";
 import chemdrawScheme from "./fixtures/chemdraw-scheme.cdxml?raw";
 import rdkitSgroups from "./fixtures/rdkit-sgroups.cdxml?raw";
-import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from "../model/pageSetup";
+import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH, DEFAULT_PAGE_MARGIN } from "../model/pageSetup";
 import type { ArrowAnnotation, BracketAnnotation, Molecule, OrbitalAnnotation, ShapeAnnotation, TextAnnotation, TlcPlateAnnotation } from "../types/chemistry";
 
 function dist(mol: Molecule, id1: string, id2: string): number {
@@ -1077,11 +1077,14 @@ describe("CDXML page setup", () => {
       height: 769.92,
       bondLength: 30,
       marginWidth: 2,
+      // Not a CDXML attribute — sanitizePageSetup fills the printable margin
+      // (1 cm) that the page dialog and PDF placement use.
+      margin: DEFAULT_PAGE_MARGIN,
     });
   });
 
   test("writes a supplied page and reads it back unchanged", () => {
-    const page = { x: 0, y: 0, width: 523.32, height: 769.92, bondLength: 36, marginWidth: 3 };
+    const page = { x: 0, y: 0, width: 523.32, height: 769.92, bondLength: 36, marginWidth: 3, margin: DEFAULT_PAGE_MARGIN };
     const xml = exportCdxmlDocument(emptyMolecule(), [], "page", page);
     expect(xml).toContain('BondLength="36"');
     expect(xml).toContain('MarginWidth="3"');
@@ -1098,6 +1101,7 @@ describe("CDXML page setup", () => {
       height: A4_PAGE_HEIGHT,
       bondLength: 30,
       marginWidth: 2,
+      margin: DEFAULT_PAGE_MARGIN,
     });
   });
 

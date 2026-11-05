@@ -20,6 +20,7 @@ import type {
   BondQueryProps,
   CatalyticCycle,
   CycleSide,
+  RGroupDefinition,
   ReactionScheme,
   ReactionStep,
   PageSetup,
@@ -27,6 +28,7 @@ import type {
   ObjectGroup,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
+import { RGROUP_LABEL_PATTERN } from "../model/rgroups";
 import { PERIODIC_TABLE } from "../model/constants";
 import { DEFAULT_BOND_LENGTH, DEFAULT_MARGIN_WIDTH, DEFAULT_PAGE_MARGIN } from "../model/pageSetup";
 import { nextId } from "../model/id";
@@ -73,6 +75,7 @@ export const LIMITS = {
   maxReactionSteps: 5_000,
   maxSgroups: 500,
   maxCycles: 100,
+  maxRGroups: 100,
   maxObjectGroups: 200,
   maxCycleNodes: 200,
   maxCycleSides: 20,
@@ -798,6 +801,85 @@ function sanitizeCycles(
   return out.length > 0 ? out : undefined;
 }
 
+/**
+ * Validates `Molecule.rgroups` (R-group definitions — substituent fragments
+ * attached to drawn placeholder R labels; see model/rgroups.ts). Mirrors
+ * sanitizeCycles' style: a definition that can't be meant (bad label, missing
+ * fragment, attachment atom outside the fragment) is dropped and counted,
+ * while the record as a whole must at least be an object. Definitions are
+ * keyed by their own id, regenerated when missing/duplicated; the label has
+ * to match the same R-shaped pattern the model defines against, and the
+ * attachment atom must exist inside the *sanitized* fragment (so a hostile
+ * file can't point it at an atom that was dropped along with it). The
+ * fragment itself goes through the full molecule sanitizer, minus any nested
+ * `rgroups` — definitions never nest (a fragment is a plain structure), and
+ * not recursing here also keeps a hostile deeply-nested file from turning
+ * into unbounded sanitizer recursion.
+ */
+function sanitizeRGroups(
+  raw: unknown,
+  report: RepairReport
+): Record<string, RGroupDefinition> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isPlainObject(raw)) throw new ImportValidationError("rgroups: expected an object");
+  const keys = Object.keys(raw);
+  if (keys.length > LIMITS.maxRGroups) {
+    throw new ImportValidationError(`rgroups: too many entries (${keys.length} > ${LIMITS.maxRGroups})`);
+  }
+
+  const usedIds = new Set<string>();
+  const out: Record<string, RGroupDefinition> = {};
+
+  for (const key of keys) {
+    const rawDef = raw[key];
+    if (!isPlainObject(rawDef)) {
+      report.droppedOther++;
+      continue;
+    }
+    const label = rawDef.label;
+    if (typeof label !== "string" || !RGROUP_LABEL_PATTERN.test(label)) {
+      report.droppedOther++;
+      continue;
+    }
+    if (!isPlainObject(rawDef.molecule)) {
+      report.droppedOther++;
+      continue;
+    }
+    const fragmentRaw = { ...rawDef.molecule };
+    delete fragmentRaw.rgroups;
+    const fragment = sanitizeMolecule(fragmentRaw, report);
+    if (Object.keys(fragment.atoms).length === 0) {
+      report.droppedOther++;
+      continue;
+    }
+    const attach = rawDef.attachmentAtomId;
+    if (
+      typeof attach !== "string" ||
+      attach.length === 0 ||
+      attach.length > LIMITS.maxIdChars ||
+      !hasOwn(fragment.atoms, attach)
+    ) {
+      report.droppedOther++;
+      continue;
+    }
+
+    let id =
+      typeof rawDef.id === "string" &&
+      rawDef.id.length > 0 &&
+      rawDef.id.length <= LIMITS.maxIdChars &&
+      !usedIds.has(rawDef.id) &&
+      keyOk(rawDef.id)
+        ? rawDef.id
+        : "";
+    while (!id || usedIds.has(id)) id = `rgroup-${nextId()}`;
+    usedIds.add(id);
+
+    out[id] = { id, label, attachmentAtomId: attach, molecule: fragment };
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairReport()): Molecule {
   if (!isPlainObject(raw)) throw new ImportValidationError("molecule: expected an object");
 
@@ -878,6 +960,7 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
 
   const schemes = sanitizeReactionSchemes(raw.schemes, atoms, report);
   const cycles = sanitizeCycles(raw.cycles, atoms, report);
+  const rgroups = sanitizeRGroups(raw.rgroups, report);
   return {
     atoms,
     bonds,
@@ -886,6 +969,7 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
     ...(Object.keys(sgroups).length > 0 ? { sgroups } : {}),
     ...(schemes ? { schemes } : {}),
     ...(cycles ? { cycles } : {}),
+    ...(rgroups ? { rgroups } : {}),
   };
 }
 

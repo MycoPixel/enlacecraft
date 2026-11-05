@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >
+<CDXML CreationProgram="EnlaceCraft" Name="large-coordinates" BondLength="30" MarginWidth="2" LabelFont="3" LabelSize="10" CaptionFont="3" CaptionSize="10">
+<colortable>
+<color r="1" g="1" b="1"/>
+<color r="0" g="0" b="0"/>
+</colortable>
+<fonttable>
+<font id="3" charset="iso-8859-1" name="Arial"/>
+</fonttable>
+<page HeaderPosition="36" FooterPosition="36" PrintTrimMarks="yes" HeightPages="1" WidthPages="1">
+<fragment id="1">
+<n id="2" p="96000 -72000" Element="6"/>
+<n id="3" p="96042 -72000" Element="8"/>
+<n id="4" p="-96000 -72000" Element="7"/>
+<n id="5" p="-95958 -72000" Element="6"/>
+<b id="6" B="2" E="3" Order="2"/>
+<b id="7" B="4" E="5"/>
+</fragment>
+</page>
+</CDXML>

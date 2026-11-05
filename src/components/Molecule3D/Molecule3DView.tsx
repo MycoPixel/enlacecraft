@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser, Rotate3d, Activity, Play, Pause, Repeat, Download, Palette, Shuffle, Link2, Upload } from "lucide-react";
+import { X, RotateCcw, Loader2, AlertTriangle, Ruler, Triangle, Eraser, Rotate3d, Activity, Play, Pause, Repeat, Download, Palette, Shuffle, Link2, Upload, Minimize2 } from "lucide-react";
 import * as $3Dmol from "3dmol";
 import type { GLShape } from "3dmol/build/types/GLShape";
 import type { Label } from "3dmol/build/types/Label";
@@ -31,6 +31,8 @@ import {
 } from "./structureStyle";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useT } from "../../i18n/useT";
+import { BOND_LEN } from "../../model/constants";
+import type { Point } from "../../types/chemistry";
 
 // How long to wait after the last molecule edit before (re)generating the
 // 3D structure. Conformer generation + MMFF94 minimisation is real work
@@ -171,6 +173,8 @@ function applyCurrentSurface(
  */
 export function Molecule3DView({ onClose }: { onClose: () => void }) {
   const molecule = useMoleculeStore((s) => s.molecule);
+  const applyFlatCoordinates = useMoleculeStore((s) => s.applyFlatCoordinates);
+  const setStatus = useMoleculeStore((s) => s.setStatus);
   const theme = useMoleculeStore((s) => s.theme);
   const method = useMoleculeStore((s) => s.embed3DMethod);
   const setMethod = useMoleculeStore((s) => s.setEmbed3DMethod);
@@ -1021,6 +1025,49 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     downloadBlob(new Blob([molfile], { type: "chemical/x-mdl-molfile" }), "molecule_3d.mol");
   }
 
+  /**
+   * Phase-10 "Flatten to 2D": writes the geometry currently shown in the
+   * viewport (including any active bond rotation) back onto the 2D drawing
+   * as x/y positions — one undo step. Only available when the 3D structure
+   * was generated FROM the drawing (an imported file has no serial mapping
+   * back to drawn atoms, so there is nothing to write onto).
+   */
+  function doFlattenTo2D() {
+    const molfile = currentMolfile();
+    const serialMap = serialToAtomIdRef.current;
+    if (!molfile || serialMap.length === 0) return;
+    const { atoms } = parseV2000(molfile);
+    // Molfile coordinates are Ångströms with y pointing up; canvas world
+    // units are the standard 1.5 Å-per-bond convention (same scale the
+    // molfile exporter uses), with y pointing down.
+    const flat: Record<string, Point> = {};
+    let cx = 0;
+    let cy = 0;
+    let count = 0;
+    for (let i = 0; i < atoms.length && i < serialMap.length; i++) {
+      const atomId = serialMap[i];
+      if (!atomId || !molecule.atoms[atomId]) continue;
+      const worldX = atoms[i].x * (BOND_LEN / 1.5);
+      const worldY = -atoms[i].y * (BOND_LEN / 1.5);
+      flat[atomId] = { x: worldX, y: worldY };
+      cx += worldX;
+      cy += worldY;
+      count++;
+    }
+    if (count === 0) return;
+    // Re-centre on where the drawing currently sits, so flattening doesn't
+    // fling the structure to wherever the 3D embed's origin happened to be.
+    const drawnCx = Object.keys(flat).reduce((sum, id) => sum + molecule.atoms[id].x, 0) / count;
+    const drawnCy = Object.keys(flat).reduce((sum, id) => sum + molecule.atoms[id].y, 0) / count;
+    const offsetX = drawnCx - cx / count;
+    const offsetY = drawnCy - cy / count;
+    for (const id of Object.keys(flat)) {
+      flat[id] = { x: flat[id].x + offsetX, y: flat[id].y + offsetY };
+    }
+    applyFlatCoordinates(flat);
+    setStatus(t("status.flattenedTo2D"));
+  }
+
   function doExportXyz() {
     const molfile = currentMolfile();
     if (!molfile) return;
@@ -1146,6 +1193,13 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
           </div>
           <ToolButton title={t("view3d.recenter")} onClick={recenter}>
             <RotateCcw size={15} />
+          </ToolButton>
+          <ToolButton
+            title={importedName ? t("view3d.flattenBlocked") : t("view3d.flattenTo2D")}
+            disabled={state.phase !== "ready" || !!importedName}
+            onClick={doFlattenTo2D}
+          >
+            <Minimize2 size={15} />
           </ToolButton>
           <div className="molecule-3d-export-menu" ref={exportMenuRef}>
             <ToolButton

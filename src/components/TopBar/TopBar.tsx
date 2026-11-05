@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History, ClipboardPaste } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
@@ -21,9 +21,10 @@ import { AromaticityButton } from "./AromaticityButton";
 import { IrSpectrumButton } from "./IrSpectrumButton";
 import { DesktopDownloadButton } from "./DesktopDownloadButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
-import { isOverValent, hasIgnoredValenceAtoms } from "../../model/valence";
+import { isOverValent, hasIgnoredValenceAtoms, overValentAtomIds, suggestValenceFix, valenceExplainParams } from "../../model/valence";
 import { hasExplicitHydrogens } from "../../model/molecule";
 import { exportPNG, exportSVG, downloadBlob, serializeExportSVG } from "../../io/exportImage";
+import { pageBoundsInWorld } from "../../model/pageSetup";
 import { exportPDF } from "../../io/pdfExport";
 import { printMolecule } from "../../io/printExport";
 import { exportMol } from "../../io/molfile";
@@ -35,6 +36,7 @@ import { runProjectSave } from "../../io/projectSaver";
 import { ShareLinkError, buildShareUrl, createEmbedCodeForTab, createShareUrlForTab } from "../../io/shareLink";
 import { buildHtmlViewer } from "../../io/htmlViewer";
 import { writeClipboardText } from "../../io/clipboard";
+import type { CopyAsFormat } from "../../hooks/useClipboard";
 import { useFileImport } from "../../hooks/useFileImport";
 import { useHorizontalStripScroll } from "../../hooks/useHorizontalStripScroll";
 import { LIMITS } from "../../io/validate";
@@ -45,9 +47,13 @@ interface TopBarProps {
   svgRef: React.RefObject<SVGSVGElement | null>;
   onOpenShortcuts: () => void;
   onOpenVersionHistory: () => void;
+  /** Copy As handlers (one format straight to the clipboard) — see
+   * useClipboard's copyAs, which owns the actual logic; TopBar only routes
+   * menu/palette entries to it and reports the outcome in the status line. */
+  copyAs: (format: CopyAsFormat) => Promise<boolean>;
 }
 
-export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBarProps) {
+export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }: TopBarProps) {
   const molecule = useMoleculeStore((s) => s.molecule);
   const annotations = useMoleculeStore((s) => s.annotations);
   const page = useMoleculeStore((s) => s.page);
@@ -63,10 +69,14 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const showPageOutline = useMoleculeStore((s) => s.showPageOutline);
   const toggleShowPageOutline = useMoleculeStore((s) => s.toggleShowPageOutline);
   const rulerUnit = useMoleculeStore((s) => s.rulerUnit);
+  const fitExportsToPage = useMoleculeStore((s) => s.fitExportsToPage);
+  const toggleFitExportsToPage = useMoleculeStore((s) => s.toggleFitExportsToPage);
+  const selectedCount = useMoleculeStore((s) => s.selected.size);
   const setRulerUnit = useMoleculeStore((s) => s.setRulerUnit);
   const toggleLanguage = useMoleculeStore((s) => s.toggleLanguage);
   const undo = useMoleculeStore((s) => s.undo);
   const redo = useMoleculeStore((s) => s.redo);
+  const setAtomCharge = useMoleculeStore((s) => s.setAtomCharge);
   const canUndo = useMoleculeStore((s) => s.canUndo());
   const canRedo = useMoleculeStore((s) => s.canRedo());
   // Display only — the actual save (and the dirty flag) is owned by
@@ -85,6 +95,9 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const language = useMoleculeStore((s) => s.language);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Valence-warnings popover (opened from the warning chip) — local UI
+  // state, closed again after a fix is applied or the chip re-clicked.
+  const [valenceOpen, setValenceOpen] = useState(false);
   // Paste-to-import dialog (SMILES / MOL / CDXML text) — open state lives
   // here rather than in the dialog so the trigger button stays a plain
   // ToolButton like every other top-bar action.
@@ -102,7 +115,13 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
   const t = useT();
   const importFileContent = useFileImport();
 
-  const hasOverValence = Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id));
+  // Memoized on the molecule object: this scan touches every atom and, via
+  // isOverValent, its bonds. Computing it inline on every render made every
+  // hover/drag re-render of the whole top bar pay O(atoms) work even when
+  // nothing about the drawing had changed (the adjacency index inside
+  // valence.ts keeps a single pass cheap; the memo keeps it to one pass per
+  // actual molecule change).
+  const hasOverValence = useMemo(() => Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id)), [molecule]);
   // The 3D viewer's embedding/optimization step (MMFF94, or the xTB
   // backend) needs real force-field parameters for every atom's bonding
   // — same reasoning as IupacNameButton/NmrPredictionButton's identical
@@ -148,13 +167,37 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     }
   };
 
+  /** Page-sized framing for SVG/PNG/HTML exports when fitExportsToPage is
+   * on (the same box PDF/print place content on). Null keeps the default
+   * tight crop around the drawing. */
+  const exportBoundsOverride = () => {
+    const s = useMoleculeStore.getState();
+    return s.fitExportsToPage ? pageBoundsInWorld(s.page) : null;
+  };
+
   const doExportPNG = (bg: ExportBackground) => {
     if (!svgRef.current) return;
-    withDeselected(() => exportPNG(svgRef.current!, resolveBackground(bg)));
+    withDeselected(() => exportPNG(svgRef.current!, resolveBackground(bg), "molecule.png", undefined, exportBoundsOverride()));
   };
   const doExportSVG = (bg: ExportBackground) => {
     if (!svgRef.current) return;
-    withDeselected(() => exportSVG(svgRef.current!, resolveBackground(bg)));
+    // The exported .svg carries the drawing's CDXML in a <metadata> block,
+    // so re-importing it (here or in another EnlaceCraft) rebuilds the
+    // editable structure — the Inkscape/Illustrator round trip. Whole-canvas
+    // CDXML, regardless of selection: the frame is the whole canvas too.
+    withDeselected(() => exportSVG(svgRef.current!, resolveBackground(bg), "molecule.svg", exportBoundsOverride(), exportCdxmlDocument(molecule, Object.values(useMoleculeStore.getState().annotations), "molecule", useMoleculeStore.getState().page)));
+  };
+
+  /** Copy As menu/palette entries — see useClipboard's copyAs. Reports the
+   * outcome so an InChI lookup failure (offline) or an empty selection is
+   * a status message, not a silent no-op. */
+  const doCopyAs = (format: CopyAsFormat) => {
+    void copyAs(format)
+      .then((ok) => setStatus(ok ? t("status.copiedToClipboard") : t("status.copyAsNothing")))
+      .catch((err) => {
+        console.warn("Copy As failed", err);
+        setStatus(t("status.copyAsError", { error: err instanceof Error ? err.message : String(err) }));
+      });
   };
   const doExportPrint = (bg: ExportBackground) => {
     if (!svgRef.current) return;
@@ -347,7 +390,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
     try {
       const title = tabs.find((tb) => tb.id === activeTabId)?.title ?? "EnlaceCraft";
       const background = resolveBackground(bg) ?? "#ffffff";
-      const svg = withDeselected(() => serializeExportSVG(svgRef.current!, background));
+      const svg = withDeselected(() => serializeExportSVG(svgRef.current!, background, exportBoundsOverride()));
       const html = buildHtmlViewer(svg, { title, background, lang: language });
       const safe = title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "molecule";
       downloadBlob(new Blob([html], { type: "text/html" }), `${safe}.html`);
@@ -405,6 +448,13 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       "export.sdfProperties": doExportSdfWithProperties,
       "export.cdxml": doExportCdxml,
       "export.smiles": () => { void doExportSmiles(); },
+      "copyAs.svg": () => doCopyAs("svg"),
+      "copyAs.png": () => doCopyAs("png"),
+      "copyAs.cdxml": () => doCopyAs("cdxml"),
+      "copyAs.mol": () => doCopyAs("mol"),
+      "copyAs.molV3000": () => doCopyAs("molV3000"),
+      "copyAs.smiles": () => doCopyAs("smiles"),
+      "copyAs.inchi": () => doCopyAs("inchi"),
       "export.rxn": doExportRxn,
       "export.reactionSmiles": () => { void doExportReactionSmiles(); },
       "share.copyLink": () => { void doCopyShareLink(); },
@@ -431,6 +481,13 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       { id: "export.sdfProperties", titleKey: "tool.exportSDFWithProperties", sectionKey: "palette.section.export", keywords: "descriptors data", run: () => commandActionsRef.current["export.sdfProperties"]?.() },
       { id: "export.cdxml", titleKey: "tool.exportCDXML", sectionKey: "palette.section.export", keywords: "chemdraw xml", run: () => commandActionsRef.current["export.cdxml"]?.() },
       { id: "export.smiles", titleKey: "tool.exportSmiles", sectionKey: "palette.section.export", keywords: "copy text", run: () => commandActionsRef.current["export.smiles"]?.() },
+      { id: "copyAs.svg", titleKey: "tool.copyAsSvg", sectionKey: "palette.section.export", keywords: "clipboard vector", run: () => commandActionsRef.current["copyAs.svg"]?.() },
+      { id: "copyAs.png", titleKey: "tool.copyAsPng", sectionKey: "palette.section.export", keywords: "clipboard raster image", run: () => commandActionsRef.current["copyAs.png"]?.() },
+      { id: "copyAs.cdxml", titleKey: "tool.copyAsCdxml", sectionKey: "palette.section.export", keywords: "clipboard chemdraw", run: () => commandActionsRef.current["copyAs.cdxml"]?.() },
+      { id: "copyAs.mol", titleKey: "tool.copyAsMol", sectionKey: "palette.section.export", keywords: "clipboard molfile mdl v2000", run: () => commandActionsRef.current["copyAs.mol"]?.() },
+      { id: "copyAs.molV3000", titleKey: "tool.copyAsMolV3000", sectionKey: "palette.section.export", keywords: "clipboard molfile mdl v3000 rdkit", run: () => commandActionsRef.current["copyAs.molV3000"]?.() },
+      { id: "copyAs.smiles", titleKey: "tool.copyAsSmiles", sectionKey: "palette.section.export", keywords: "clipboard smiles text", run: () => commandActionsRef.current["copyAs.smiles"]?.() },
+      { id: "copyAs.inchi", titleKey: "tool.copyAsInchi", sectionKey: "palette.section.export", keywords: "clipboard inchi identifier", run: () => commandActionsRef.current["copyAs.inchi"]?.() },
       { id: "export.rxn", titleKey: "tool.exportRXN", sectionKey: "palette.section.export", keywords: "reaction scheme", isDisabled: reactionDisabled, run: () => commandActionsRef.current["export.rxn"]?.() },
       { id: "export.reactionSmiles", titleKey: "tool.exportReactionSmiles", sectionKey: "palette.section.export", keywords: "reaction scheme copy", isDisabled: reactionDisabled, run: () => commandActionsRef.current["export.reactionSmiles"]?.() },
       { id: "share.copyLink", titleKey: "tool.copyShareLink", sectionKey: "palette.section.share", keywords: "read only link url", run: () => commandActionsRef.current["share.copyLink"]?.() },
@@ -462,9 +519,54 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       <IrSpectrumButton />
 
       {hasOverValence && (
-        <div className="valence-warn" title={t("valence.exceeded")}>
-          <AlertTriangle size={13} />
-          <span>{t("valence.exceeded")}</span>
+        <div className="valence-warn-wrap">
+          <button
+            type="button"
+            className="valence-warn valence-warn--button"
+            aria-expanded={valenceOpen}
+            onClick={() => setValenceOpen((o) => !o)}
+          >
+            <AlertTriangle size={13} />
+            <span>{t("valence.exceeded")}</span>
+          </button>
+          {valenceOpen && (
+            <div className="valence-popover" role="dialog" aria-label={t("valence.popoverTitle")}>
+              <div className="valence-popover__title">{t("valence.popoverTitle")}</div>
+              {overValentAtomIds(molecule).map((id) => {
+                const params = valenceExplainParams(molecule, id);
+                const fix = suggestValenceFix(molecule, id);
+                return (
+                  <div key={id} className="valence-popover__row">
+                    <span
+                      className="valence-popover__explain"
+                      title={t("valence.explain", params)}
+                    >
+                      <strong>{params.element}</strong>
+                      {t("valence.explainShort", params)}
+                    </span>
+                    {fix !== null ? (
+                      <button
+                        type="button"
+                        className="valence-popover__fix"
+                        title={t("valence.fixTitle", params)}
+                        onClick={() => {
+                          setAtomCharge(id, fix);
+                          setValenceOpen(false);
+                        }}
+                      >
+                        {t("valence.fix", { charge: `+${fix}` })}
+                      </button>
+                    ) : (
+                      <span className="valence-popover__nofix" title={t("valence.explain", params)}>
+                        {t("valence.noFix")}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="valence-popover__hint">{t("valence.popoverHint")}</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -495,6 +597,10 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
           onReactionSmiles={doExportReactionSmiles}
           onCDXML={doExportCdxml}
           onSmiles={doExportSmiles}
+          onCopyAs={doCopyAs}
+          copyAsDisabled={selectedCount === 0}
+          fitExportsToPage={fitExportsToPage}
+          onToggleFitExportsToPage={toggleFitExportsToPage}
           onSaveProject={doSaveProject}
           onSaveProjectAs={doSaveProjectAs}
           onCopyShareLink={doCopyShareLink}
@@ -553,7 +659,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory }: TopBar
       <input
         ref={fileInputRef}
         type="file"
-        accept=".mol,.sdf,.cdxml,.smi,.smiles,.enlacecraft"
+        accept=".mol,.sdf,.cdxml,.smi,.smiles,.svg,.enlacecraft"
         style={{ display: "none" }}
         onChange={(e) => e.target.files?.[0] && doImportFile(e.target.files[0])}
       />

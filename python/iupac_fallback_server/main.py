@@ -20,6 +20,12 @@ to confirm it actually describes the same molecule before this ever
 returns it. A name that doesn't round-trip is never returned -- see
 naming.py's name_and_verify for exactly what's checked.
 
+The same OPSIN parser also serves the opposite direction (/name-to-structure):
+when the compound search box's PubChem name lookup finds nothing, the app
+asks this service to parse the name into a structure instead, so a valid
+systematic name PubChem simply doesn't have indexed still lands on the
+canvas (see ../../src/io/iupacFallback.ts).
+
 Run with:  uvicorn main:app --port 8002
 (matches ../../src/io/iupacFallback.ts's IUPAC_FALLBACK_API_BASE)
 
@@ -47,7 +53,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from naming import NamingError, name_and_verify, start_jvm
+from naming import MAX_NAME_CHARS, NamingError, name_and_verify, name_to_smiles, start_jvm
 
 ALLOWED_ORIGINS = frozenset([
     "file://",
@@ -113,6 +119,14 @@ class NameResponse(BaseModel):
     name: str
 
 
+class NameToStructureRequest(BaseModel):
+    name: str
+
+
+class NameToStructureResponse(BaseModel):
+    smiles: str
+
+
 @app.get("/health")
 def health() -> dict:
     # Polled by electron/iupac_fallback_server.cjs's waitForHealth() in
@@ -141,6 +155,27 @@ def name_endpoint(request: NameRequest) -> NameResponse:
         # own client calls.
         raise HTTPException(status_code=404, detail=exc.reason) from exc
     return NameResponse(**result)
+
+
+@app.post("/name-to-structure", response_model=NameToStructureResponse)
+def name_to_structure_endpoint(request: NameToStructureRequest) -> NameToStructureResponse:
+    name = request.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="empty name")
+    if len(name) > MAX_NAME_CHARS:
+        # Re-checked here (naming.py enforces the same cap) so an
+        # over-long input is rejected before ever reaching OPSIN, with
+        # the same 400-for-bad-input convention as the empty case.
+        raise HTTPException(status_code=400, detail="name too long")
+    try:
+        smiles = name_to_smiles(name)
+    except NamingError as exc:
+        # Same convention as /name above: any failure to parse the name
+        # is a 404 with the reason as detail -- the frontend treats every
+        # non-OK response as "the local fallback couldn't resolve it"
+        # and falls through to the original PubChem error.
+        raise HTTPException(status_code=404, detail=exc.reason) from exc
+    return NameToStructureResponse(smiles=smiles)
 
 
 if __name__ == "__main__":
