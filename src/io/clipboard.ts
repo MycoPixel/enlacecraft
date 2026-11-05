@@ -74,12 +74,28 @@ export interface ClipboardPayload {
 
 export type ClipboardWriteResult = "electron-rich" | "web-rich" | "png" | "text";
 
-/** Wraps SVG markup in an HTML <img> with a base64 data URI — the shape
- * Word 2016+ and LibreOffice accept when pasting vector content from the
- * HTML flavor of the clipboard. */
+/** Wraps SVG markup in an HTML <img> with a base64 data URI — the fallback
+ * HTML flavor when no PNG could be produced (Word/PowerPoint support for
+ * SVG data URIs is unreliable; LibreOffice and browsers render them). */
 function svgToHtmlImg(svg: string): string {
   const encoded = window.btoa(unescape(encodeURIComponent(svg)));
   return `<img alt="chemistry drawing" src="data:image/svg+xml;base64,${encoded}">`;
+}
+
+/** Wraps raw PNG bytes in the same shape — the picture flavor every paste
+ * target renders. Office's HTML importer (Word 2016/2019 in particular)
+ * commonly shows an empty frame for SVG data-URI images, which reads as
+ * "paste did nothing", while a base64 PNG <img> is what Word, PowerPoint,
+ * LibreOffice, OnlyOffice and Google Docs all render from a clipboard
+ * paste. Bytes are base64'd in 32k chunks because String.fromCharCode on a
+ * whole multi-hundred-KB raster blows the argument limit. */
+function pngBytesToHtmlImg(png: Uint8Array): string {
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < png.length; i += CHUNK) {
+    binary += String.fromCharCode(...png.subarray(i, i + CHUNK));
+  }
+  return `<img alt="chemistry drawing" src="data:image/png;base64,${window.btoa(binary)}">`;
 }
 
 /**
@@ -104,13 +120,34 @@ function svgToHtmlImg(svg: string): string {
 export async function writeClipboardPayload(payload: ClipboardPayload): Promise<ClipboardWriteResult> {
   const text = payload.text ?? payload.cdxml ?? payload.molfile ?? payload.smiles ?? "";
 
+  // The PNG bytes, read once — they feed both the native bitmap flavor and
+  // the HTML flavor below.
+  let pngBytes: Uint8Array | undefined;
+  if (payload.png) {
+    try {
+      pngBytes = new Uint8Array(await payload.png.arrayBuffer());
+    } catch {
+      pngBytes = undefined;
+    }
+  }
+
+  // The HTML flavor: a base64 PNG <img> whenever the payload has a bitmap —
+  // the one picture flavor Word, PowerPoint, LibreOffice and OnlyOffice all
+  // render from a paste — falling back to the SVG data URI only when no PNG
+  // could be produced. (Regression context: this flavor used to always
+  // carry the SVG; Word 2016/2019 pasted that as an empty frame, which read
+  // as "copying to Word does nothing at all".)
+  let html: string | undefined;
+  if (pngBytes) html = pngBytesToHtmlImg(pngBytes);
+  else if (payload.svg) html = svgToHtmlImg(payload.svg);
+
   const bridge = typeof window === "undefined" ? undefined : window.electron;
   if (bridge?.writeClipboardRich) {
     try {
       const written = await bridge.writeClipboardRich({
         text: text || undefined,
-        html: payload.svg ? svgToHtmlImg(payload.svg) : undefined,
-        png: payload.png ? new Uint8Array(await payload.png.arrayBuffer()) : undefined,
+        html,
+        png: pngBytes,
       });
       if (written) return "electron-rich";
     } catch {
@@ -121,7 +158,7 @@ export async function writeClipboardPayload(payload: ClipboardPayload): Promise<
   if (typeof ClipboardItem !== "undefined" && typeof navigator !== "undefined" && navigator.clipboard?.write) {
     const representations: Record<string, Blob | Promise<Blob>> = {};
     if (payload.png) representations["image/png"] = payload.png;
-    if (payload.svg) representations["text/html"] = new Blob([svgToHtmlImg(payload.svg)], { type: "text/html" });
+    if (html) representations["text/html"] = new Blob([html], { type: "text/html" });
     if (text) representations["text/plain"] = new Blob([text], { type: "text/plain" });
     if (payload.json) representations[CLIPBOARD_FRAGMENT_FORMAT] = new Blob([payload.json], { type: CLIPBOARD_FRAGMENT_FORMAT });
 

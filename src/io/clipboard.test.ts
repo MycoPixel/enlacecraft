@@ -220,8 +220,54 @@ describe("writeClipboardPayload", () => {
     expect(result).toBe("electron-rich");
     const arg = rich.mock.calls[0][0];
     expect(arg.text).toBe("<CDXML/>");
-    expect(arg.html).toContain("data:image/svg+xml;base64,");
+    // The HTML flavor prefers the PNG data URI: Office's HTML importer
+    // renders a base64 PNG reliably, while an SVG data URI pastes as an
+    // empty frame in Word 2016/2019 ("copy to Word did nothing").
+    expect(arg.html).toContain("data:image/png;base64,");
+    expect(arg.html).not.toContain("data:image/svg+xml");
+    expect(arg.html).toContain(`base64,${btoa("png-bytes")}`);
     expect(new TextDecoder().decode(arg.png!)).toBe("png-bytes");
     expect(write).not.toHaveBeenCalled();
+  });
+
+  test("the web-path HTML flavor also prefers the PNG data URI over the SVG one", async () => {
+    const { written } = setRichClipboard();
+    const png = new Blob(["png-bytes"], { type: "image/png" });
+
+    await writeClipboardPayload({ png, svg: "<svg><g/></svg>", text: "x" });
+
+    const html = await written[0].item.getType("text/html").then((b) => b.text());
+    expect(html).toContain("data:image/png;base64,");
+    expect(html).toContain(`base64,${btoa("png-bytes")}`);
+    expect(html).not.toContain("data:image/svg+xml");
+  });
+
+  test("with no PNG in the payload the HTML flavor falls back to the SVG data URI", async () => {
+    const { written } = setRichClipboard();
+    await writeClipboardPayload({ svg: "<svg><g/></svg>", text: "x" });
+    const html = await written[0].item.getType("text/html").then((b) => b.text());
+    expect(html).toContain("data:image/svg+xml;base64,");
+  });
+
+  test("a PNG whose bytes cannot be read degrades to the SVG HTML flavor instead of failing the copy", async () => {
+    const rich = vi.fn(async (_payload: { text?: string; html?: string; png?: Uint8Array }) => true);
+    Object.defineProperty(window, "electron", {
+      value: { writeClipboardText: vi.fn(), writeClipboardRich: rich },
+      configurable: true,
+      writable: true,
+    });
+    setRichClipboard();
+    // A blob that lies about being a stream: arrayBuffer() rejects.
+    const brokenPng = {
+      type: "image/png",
+      arrayBuffer: () => Promise.reject(new Error("stream dead")),
+    } as unknown as Blob;
+
+    const result = await writeClipboardPayload({ png: brokenPng, svg: "<svg/>", text: "x" });
+
+    expect(result).toBe("electron-rich");
+    const arg = rich.mock.calls[0][0];
+    expect(arg.png).toBeUndefined();
+    expect(arg.html).toContain("data:image/svg+xml;base64,");
   });
 });

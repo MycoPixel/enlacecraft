@@ -32,10 +32,22 @@ const EXPECTED_CHANNELS = [
   "updater:quit-and-install",
 ];
 
-function makeFakeElectron({ singleInstance = true, userData }) {
+function makeFakeElectron({ singleInstance = true, userData, legacyClipboard = false }) {
   const ipc = new Map();
   const appListeners = new Map();
-  const state = { opened: [], quitCalls: 0, windows: [], dialogs: { save: null, open: null }, saveOptions: null, session: {} };
+  const state = {
+    opened: [], quitCalls: 0, windows: [], dialogs: { save: null, open: null }, saveOptions: null, session: {},
+    // Clipboard fakes: writes recorded for assertions below.
+    clipboardText: null,
+    clipboardWrites: [], // arrays of ClipboardItem fakes (new API) or plain objects (legacy API)
+    clipboardWriteError: null,
+  };
+
+  class FakeClipboardItem {
+    constructor(entries) {
+      this.entries = entries;
+    }
+  }
 
   const app = {
     isPackaged: false,
@@ -114,6 +126,19 @@ function makeFakeElectron({ singleInstance = true, userData }) {
     app,
     BrowserWindow,
     shell: { openExternal: (url) => void state.opened.push(url) },
+    nativeImage: {
+      createFromBuffer: (buf) => ({ isEmpty: () => buf.length === 0, buf }),
+    },
+    clipboard: {
+      // Electron ≥ 44: async, W3C-shaped.
+      writeText: async (text) => void (state.clipboardText = text),
+      write: async (data) => {
+        if (state.clipboardWriteError) throw state.clipboardWriteError;
+        // New API: an array of ClipboardItem entries. Legacy API: a plain
+        // { text, html, image } object. Both recorded for assertions.
+        state.clipboardWrites.push(data);
+      },
+    },
     Menu: {
       buildFromTemplate: (template) => {
         state.menuTemplate = template;
@@ -137,6 +162,9 @@ function makeFakeElectron({ singleInstance = true, userData }) {
       },
     },
   };
+  // Legacy Electron pins (< 44) don't export a ClipboardItem class — the
+  // main process must fall back to the old object-shaped clipboard.write.
+  if (!legacyClipboard) electron.ClipboardItem = FakeClipboardItem;
   return { electron, app, ipc, state };
 }
 
@@ -145,9 +173,9 @@ const fakeUpdater = {
 };
 
 /** Loads a fresh copy of main.cjs (and its sibling modules) against a fresh fake Electron. */
-async function loadMain({ singleInstance = true, devServerUrl } = {}) {
+async function loadMain({ singleInstance = true, devServerUrl, legacyClipboard } = {}) {
   const userData = await fsp.mkdtemp(path.join(os.tmpdir(), "enlacecraft-main-"));
-  const fake = makeFakeElectron({ singleInstance, userData });
+  const fake = makeFakeElectron({ singleInstance, userData, legacyClipboard });
 
   const origLoad = Module._load;
   Module._load = function (request, ...rest) {
@@ -193,6 +221,89 @@ const load = async (opts) => {
   cleanups.push(() => fsp.rm(ctx.userData, { recursive: true, force: true }));
   return ctx;
 };
+
+describe("clipboard IPC", () => {
+  test("write-rich writes ONE MIME-typed ClipboardItem (the Electron ≥ 44 API) and accepts Uint8Array PNGs", async () => {
+    const ctx = await load();
+    // A renderer Uint8Array arrives over IPC as a Uint8Array, NOT a Buffer
+    // (verified on Electron 44) — the handler must accept it or every
+    // PNG-bearing rich copy silently falls back to the weaker web path.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const ok = await invoke(ctx, "clipboard:write-rich", frame(distIndexUrl), {
+      text: "<CDXML/>",
+      html: '<img src="data:image/png;base64,abc">',
+      png,
+    });
+    expect(ok).toBe(true);
+    expect(ctx.state.clipboardWrites).toHaveLength(1);
+    const [item] = ctx.state.clipboardWrites[0];
+    expect(item.entries["text/plain"]).toBe("<CDXML/>");
+    expect(item.entries["text/html"]).toBe('<img src="data:image/png;base64,abc">');
+    const bytes = new Uint8Array(await item.entries["image/png"].arrayBuffer());
+    expect([...bytes]).toEqual([...png]);
+  });
+
+  test("write-rich still accepts a Buffer PNG (whatever the serializer of the week returns)", async () => {
+    const ctx = await load();
+    const ok = await invoke(ctx, "clipboard:write-rich", frame(distIndexUrl), { text: "x", png: Buffer.from([1, 2, 3]) });
+    expect(ok).toBe(true);
+    const [item] = ctx.state.clipboardWrites[0];
+    const bytes = new Uint8Array(await item.entries["image/png"].arrayBuffer());
+    expect([...bytes]).toEqual([1, 2, 3]);
+  });
+
+  test("write-rich rejects hostile payloads without touching the clipboard", async () => {
+    const ctx = await load();
+    for (const bad of [
+      undefined,
+      "text",
+      { png: "not-bytes" },
+      { png: 42 },
+      { text: 12345 },
+      { html: {} },
+      {}, // nothing to write
+      { png: new Uint8Array(0) }, // empty bytes and no text/html
+    ]) {
+      expect(await invoke(ctx, "clipboard:write-rich", frame(distIndexUrl), bad)).toBe(false);
+    }
+    expect(ctx.state.clipboardWrites).toEqual([]);
+  });
+
+  test("a failed clipboard.write is logged and reported as false, not thrown", async () => {
+    const ctx = await load();
+    ctx.state.clipboardWriteError = new Error("clipboard wedged");
+    const ok = await invoke(ctx, "clipboard:write-rich", frame(distIndexUrl), { text: "x" });
+    expect(ok).toBe(false);
+    const log = await fsp.readFile(path.join(ctx.userData, "logs", "app.log"), "utf-8");
+    expect(log).toMatch(/rich write failed/);
+  });
+
+  test("write-text awaits the commit", async () => {
+    const ctx = await load();
+    expect(await invoke(ctx, "clipboard:write-text", frame(distIndexUrl), "hello")).toBe(true);
+    expect(ctx.state.clipboardText).toBe("hello");
+    // Over the share-token ceiling → refused.
+    expect(await invoke(ctx, "clipboard:write-text", frame(distIndexUrl), "x".repeat(48001))).toBe(false);
+    expect(ctx.state.clipboardText).toBe("hello");
+  });
+
+  test("legacy Electron (no ClipboardItem export) falls back to the object-shaped write", async () => {
+    const ctx = await load({ legacyClipboard: true });
+    const ok = await invoke(ctx, "clipboard:write-rich", frame(distIndexUrl), {
+      text: "CCO",
+      html: "<img>",
+      png: new Uint8Array([9, 9]),
+    });
+    expect(ok).toBe(true);
+    expect(ctx.state.clipboardWrites).toHaveLength(1);
+    // The legacy write is the plain object form, with a nativeImage bitmap.
+    const legacy = ctx.state.clipboardWrites[0];
+    expect(Array.isArray(legacy)).toBe(false);
+    expect(legacy.text).toBe("CCO");
+    expect(legacy.html).toBe("<img>");
+    expect([...legacy.image.buf]).toEqual([9, 9]);
+  });
+});
 
 describe("window creation", () => {
   test("creates one hardened window that loads the built app from dist/", async () => {

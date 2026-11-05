@@ -141,16 +141,26 @@ export function useKeyboardShortcuts() {
         // The desktop Edit menu deliberately does not register its
         // accelerators (they would swallow these keys before the canvas
         // handlers ever see them — see electron/main.cjs), so an editable
-        // focus needs the native command forwarded through the bridge:
-        // Chromium's renderer on Linux/Windows has no built-in binding for
-        // them either. No preventDefault — in the plain browser the
-        // browser's own bindings still handle the key. Copy/cut/paste in
-        // editables are useClipboard's half of the same arrangement.
+        // focus gets the commands forwarded through the bridge. As verified
+        // for Ctrl+V in useClipboard (Electron 44, real key events),
+        // Chromium DOES have built-in input-edit bindings for these keys —
+        // leaving the key unprevented ran every command twice (a double
+        // undo, a double select-all). In the desktop build, prevent the
+        // default so the forwarded command is the one and only action; in
+        // the plain browser there is no bridge and the browser's own
+        // binding handles the key. Copy/cut/paste in editables are
+        // useClipboard's half of the same arrangement.
         if (e.ctrlKey || e.metaKey) {
           const key = e.key.toLowerCase();
-          if (key === "z") nativeEditCommand(e.shiftKey ? "redo" : "undo");
-          else if (key === "y") nativeEditCommand("redo");
-          else if (key === "a") nativeEditCommand("selectAll");
+          const command: NativeEditCommand | null =
+            key === "z" ? (e.shiftKey ? "redo" : "undo")
+            : key === "y" ? "redo"
+            : key === "a" ? "selectAll"
+            : null;
+          if (command && window.electron?.nativeEditCommand) {
+            e.preventDefault();
+            nativeEditCommand(command);
+          }
         }
         return;
       }

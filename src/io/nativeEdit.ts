@@ -13,11 +13,16 @@
  * With the accelerators freed, the keys reach the page's keydown handlers
  * (useClipboard / useKeyboardShortcuts), which know where the focus is.
  * On the canvas they run the app-level actions themselves; in a text
- * field they forward here, because Chromium's renderer on Linux/Windows
- * has no built-in binding for these commands either — that gap is why the
- * Edit menu was added in the first place. In the plain web build there is
- * no bridge and nothing to do: the browser's own bindings handle the key
- * (the callers deliberately never preventDefault on an editable target).
+ * field they forward here. Verified on Electron 44: Chromium DOES have
+ * built-in input-edit bindings for these keys in text fields, so the
+ * callers preventDefault first and the forwarded command is the one and
+ * only action — letting the key through as well ran it twice ("pasted
+ * twice in a row"). The forwarding itself exists so the Edit menu's click
+ * handlers (Alt, then Edit → Paste — a click, no keydown at all) can run
+ * the same commands through one shared channel. In the plain web build
+ * there is no bridge and nothing to do: the browser's own bindings handle
+ * the key (the callers deliberately never preventDefault on an editable
+ * target).
  */
 export type NativeEditCommand = "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll";
 

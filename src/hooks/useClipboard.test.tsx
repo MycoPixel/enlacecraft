@@ -164,17 +164,19 @@ describe("useClipboard - desktop copy wiring", () => {
   });
 
   function pressKey(key: string, modifiers: { ctrl?: boolean; shift?: boolean } = {}) {
+    let event: KeyboardEvent;
     act(() => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key,
-          bubbles: true,
-          ctrlKey: modifiers.ctrl ?? false,
-          metaKey: false,
-          shiftKey: modifiers.shift ?? false,
-        }),
-      );
+      event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true, // so preventDefault() marks the event and we can assert on it
+        ctrlKey: modifiers.ctrl ?? false,
+        metaKey: false,
+        shiftKey: modifiers.shift ?? false,
+      });
+      window.dispatchEvent(event);
     });
+    return event!;
   }
 
   test("Ctrl+C writes picture + editable chemistry together through the desktop bridge", async () => {
@@ -187,9 +189,10 @@ describe("useClipboard - desktop copy wiring", () => {
     const arg = richWrites[0];
     // Editable chemistry in text/plain (CDXML for chemistry-aware targets).
     expect(arg.text).toContain("CDXML");
-    // The picture flavors: PNG bytes plus the SVG wrapped as a data-URI img.
+    // The picture flavors: PNG bytes plus the HTML flavor carrying the
+    // raster as a data-URI img (the flavor Office reliably renders).
     expect(new TextDecoder().decode(arg.png!)).toBe("png-bytes");
-    expect(arg.html).toContain("data:image/svg+xml;base64,");
+    expect(arg.html).toContain(`data:image/png;base64,${btoa("png-bytes")}`);
   });
 
   test("canvas Ctrl+X cuts: the same rich copy goes out and the selection is deleted", async () => {
@@ -245,6 +248,127 @@ describe("useClipboard - desktop copy wiring", () => {
 
     expect(nativeCommands).toEqual(["copy"]);
     expect(richWrites).toHaveLength(0);
+    input.remove();
+  });
+
+  test("Ctrl+V in a text field forwards paste EXACTLY ONCE and suppresses Chromium's own binding", async () => {
+    // Regression: the forwarded command and the renderer's built-in input
+    // edit binding both ran, so pasting into the compound-search box
+    // inserted the clipboard text twice in a row ("glucoseglucose").
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    let event: KeyboardEvent | undefined;
+    act(() => {
+      event = new KeyboardEvent("keydown", { key: "v", ctrlKey: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(event);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(nativeCommands).toEqual(["paste"]);
+    // The default (Chromium's native paste) is suppressed; the forwarded
+    // command is the single source of action.
+    expect(event!.defaultPrevented).toBe(true);
+    input.remove();
+  });
+
+  test("Ctrl+X in a text field forwards cut once; Ctrl+Shift+X stays unforwarded", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    const press = (shift: boolean) =>
+      act(() => {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "x", ctrlKey: true, shiftKey: shift, bubbles: true, cancelable: true }));
+      });
+    press(false);
+    press(true);
+    expect(nativeCommands).toEqual(["cut"]);
+    input.remove();
+  });
+
+  test("a text-only copy (caption annotation, no atoms) carries the annotation text as text/plain", async () => {
+    // Regression: copying the word "glucose" as a canvas text annotation
+    // put no text flavor on the clipboard at all — pasting into Word, a
+    // text editor, or the app's own search box found nothing word-shaped.
+    act(() => {
+      useMoleculeStore.setState({
+        selected: new Set(),
+        selectedAnnotationIds: new Set(["t1"]),
+        annotations: {
+          t1: { id: "t1", kind: "text", x: 0, y: 0, width: 40, height: 12, html: "<b>glucose</b>", fontSize: 14 },
+        },
+      });
+    });
+    pressKey("c", { ctrl: true });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(richWrites).toHaveLength(1);
+    expect(richWrites[0].text).toBe("glucose");
+    // The picture flavors still ride along for visual targets.
+    expect(richWrites[0].html).toContain("data:image/png;base64,");
+  });
+
+  test("a mixed copy (atoms + text annotation) keeps CDXML as the text flavor", async () => {
+    act(() => {
+      useMoleculeStore.setState({
+        selected: new Set(["a1", "a2"]),
+        selectedAnnotationIds: new Set(["t1"]),
+        annotations: {
+          t1: { id: "t1", kind: "text", x: 0, y: 0, width: 40, height: 12, html: "ethanol", fontSize: 14 },
+        },
+      });
+    });
+    pressKey("c", { ctrl: true });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(richWrites).toHaveLength(1);
+    expect(richWrites[0].text).toContain("CDXML");
+  });
+});
+
+/** The plain-browser half: with no desktop bridge, editable keydowns must be
+ * left completely alone — the browser's own bindings run copy/paste exactly
+ * once, and nothing may be forwarded or prevented. */
+describe("useClipboard - browser editable keys (no bridge)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    richWrites.length = 0;
+    nativeCommands.length = 0;
+    editCommandListeners.clear();
+    Object.defineProperty(window, "electron", { value: undefined, configurable: true, writable: true });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const svgRef = { current: document.createElementNS("http://www.w3.org/2000/svg", "svg") };
+    root = createRoot(container);
+    act(() => {
+      root.render(<Harness svgRef={svgRef} />);
+    });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    Object.defineProperty(window, "electron", { value: originalElectron, configurable: true, writable: true });
+  });
+
+  test("Ctrl+V in a text field is neither forwarded nor prevented", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    const event = new KeyboardEvent("keydown", { key: "v", ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      input.dispatchEvent(event);
+    });
+    expect(nativeCommands).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
     input.remove();
   });
 });

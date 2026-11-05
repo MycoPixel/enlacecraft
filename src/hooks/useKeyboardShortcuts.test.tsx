@@ -350,6 +350,27 @@ describe("useKeyboardShortcuts - desktop Edit menu routing", () => {
     input.remove();
   });
 
+  test("desktop build: the forwarded command is the ONLY action — the key's default (Chromium's own input binding) is suppressed", () => {
+    // Regression: with the key left unprevented, the command ran twice in
+    // the packaged build (native + forwarded): a double undo, a double
+    // select-all, and the Ctrl+V sibling pasted text twice in a row.
+    installBridge();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    const events: KeyboardEvent[] = [];
+    act(() => {
+      for (const [key, mods] of [["z", {}], ["y", {}], ["a", {}]] as const) {
+        const ev = new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true, ...mods });
+        input.dispatchEvent(ev);
+        events.push(ev);
+      }
+    });
+    expect(nativeCommands).toEqual(["undo", "redo", "selectAll"]);
+    expect(events.every((ev) => ev.defaultPrevented)).toBe(true);
+    input.remove();
+  });
+
   test("the Edit menu's undo/redo/select-all commands drive the store actions", () => {
     const mol = (() => {
       let m = emptyMolecule();

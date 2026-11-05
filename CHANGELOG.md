@@ -11,8 +11,52 @@ Completes the Octet Draw improvement plan (Phases 6–10: reaction
 intelligence, catalytic cycles, page/workspace control, Office
 interoperability and chemistry assistance — see
 `OCTET_DRAW_IMPROVEMENT_PLAN.md` for the full notes), fixes the reported
-progressive session lag, and fixes and widens CDXML import — opening a
-ChemDraw drawing now lands what was actually drawn on the canvas.
+progressive session lag, fixes and widens CDXML import — opening a
+ChemDraw drawing now lands what was actually drawn on the canvas — and
+fixes the reported copy/paste issues (a double paste in text fields, and
+copies that pasted nothing into Microsoft Word / PowerPoint / LibreOffice /
+OnlyOffice) by repairing the desktop clipboard channel that Electron 44's
+API overhaul broke.
+
+### The "pasted twice in a row" report (Ctrl+V in a text field)
+
+- Verified with real key events on Electron 44: Chromium DOES have built-in
+  input-edit bindings for Ctrl+C/X/V in text fields, so the desktop build's
+  forwarded command ran *on top of* the native one — a Ctrl+V pasted the
+  clipboard text twice in a row (e.g. "glucoseglucose" in the compound
+  search box), Ctrl+Z undid two steps, Ctrl+A selected twice. The keydown
+  handlers (useClipboard, useKeyboardShortcuts) now prevent the default in
+  the desktop build so the forwarded command is the one and only action;
+  the plain browser build is untouched and still lets the browser paste
+  exactly once.
+
+### The "Word pastes nothing" report
+
+- **Electron 44 replaced the clipboard API** and the app's main-process
+  handler was still written for the old one: `clipboard.write({ text, html,
+  image })` now throws ("expects an array of ClipboardItem"), so the
+  desktop rich-copy channel failed on every call and every copy fell back
+  to weaker paths. The handler now writes one MIME-typed `ClipboardItem`
+  (`text/plain` + `text/html` + `image/png`, the PNG as a Blob) in a single
+  atomic write, with the legacy object form kept for older Electron pins;
+  `clipboard.writeText` is awaited so "resolved" means "on the OS
+  clipboard".
+- **Uint8Array PNGs are now accepted**: a PNG sent from the renderer over
+  IPC arrives as a `Uint8Array`, not a `Buffer` (verified on Electron 44) —
+  the old `Buffer.isBuffer()` check rejected every PNG-bearing payload.
+- **The HTML flavor now carries a base64 PNG instead of an SVG data URI.**
+  Word 2016/2019 renders an SVG data-URI image as an empty frame — which
+  reads as "paste did nothing" — while a base64 PNG is the one picture
+  flavor Word, PowerPoint, LibreOffice, OnlyOffice and Google Docs all
+  render from a paste. The SVG data URI remains as the fallback when no
+  PNG could be produced. The native bitmap flavor still rides along, so
+  targets that ignore HTML paste the raster instead.
+- **A text-only copy now carries its words**: copying a text annotation
+  (e.g. the caption "glucose") with no atoms used to put no text flavor on
+  the clipboard at all; the annotation's plain text now lands in
+  text/plain, so it pastes as text into Word, Notepad, or the app's own
+  search box, while the picture flavors still ride along for visual
+  targets.
 
 ### Performance — the "app starts lagging, reopen fixes it" report
 

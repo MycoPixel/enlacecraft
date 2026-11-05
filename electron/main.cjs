@@ -1,7 +1,7 @@
 // Electron main process. Kept as plain CommonJS (.cjs) regardless of the
 // rest of the project being ESM ("type": "module" in package.json), since
 // Electron's main process is simplest and most compatible as CJS.
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session, clipboard, nativeImage } = require("electron");
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, session, clipboard, nativeImage, ClipboardItem } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const nmrServer = require("./server.cjs");
@@ -270,9 +270,13 @@ handleTrusted("updater:quit-and-install", () => updater.quitAndInstall());
 // renderer does not rely on navigator.clipboard alone in the packaged build.
 // The size cap mirrors the share-token ceiling; nothing here touches disk or
 // the network.
-handleTrusted("clipboard:write-text", (_event, text) => {
+handleTrusted("clipboard:write-text", async (_event, text) => {
   if (typeof text !== "string" || text.length > security.MAX_SHARE_TOKEN_LENGTH) return false;
-  clipboard.writeText(text);
+  // writeText is async on Electron ≥ 44 (the whole clipboard module moved to
+  // the W3C-shaped API). Awaiting keeps "resolved" meaning "on the OS
+  // clipboard", not "queued" — a paste racing an uncommitted write would
+  // read nothing at all.
+  await clipboard.writeText(text);
   return true;
 });
 
@@ -286,18 +290,50 @@ handleTrusted("clipboard:write-text", (_event, text) => {
 // bounded, so a hostile renderer can't wedge the main process with an
 // unbounded string.
 const MAX_CLIPBOARD_TEXT_LENGTH = 2_000_000;
-handleTrusted("clipboard:write-rich", (_event, payload) => {
+handleTrusted("clipboard:write-rich", async (_event, payload) => {
   if (!payload || typeof payload !== "object") return false;
   const { text, html, png } = payload;
   if (text !== undefined && (typeof text !== "string" || text.length > MAX_CLIPBOARD_TEXT_LENGTH)) return false;
   if (html !== undefined && (typeof html !== "string" || html.length > MAX_CLIPBOARD_TEXT_LENGTH)) return false;
-  if (png !== undefined && !Buffer.isBuffer(png)) return false;
-  const entry = {};
-  if (typeof text === "string" && text.length > 0) entry.text = text;
-  if (typeof html === "string" && html.length > 0) entry.html = html;
-  if (Buffer.isBuffer(png) && png.length > 0) entry.image = nativeImage.createFromBuffer(png);
-  if (Object.keys(entry).length === 0) return false;
-  clipboard.write(entry);
+  // The PNG crosses IPC as a structured-cloned Uint8Array (verified on
+  // Electron 44: a Uint8Array sent from the renderer arrives as a
+  // Uint8Array, NOT a Buffer — Buffer.isBuffer() is false). Only a
+  // Buffer created Node-side survives as one. Accept both byte-container
+  // types or every PNG-bearing rich copy would be rejected here and
+  // silently fall back to the renderer's web path.
+  if (png !== undefined && !(Buffer.isBuffer(png) || png instanceof Uint8Array)) return false;
+  const pngBytes = png === undefined || png.length === 0 ? null : Buffer.isBuffer(png) ? png : Buffer.from(png);
+  if (!html && !pngBytes && !(typeof text === "string" && text.length > 0)) return false;
+
+  if (typeof ClipboardItem === "function") {
+    // Electron ≥ 44: the clipboard module exposes the W3C-shaped API —
+    // write() takes MIME-typed ClipboardItem entries, and the legacy
+    // object form ({ text, html, image }) now throws "clipboard.write
+    // expects an array of ClipboardItem". The PNG rides as a Blob under
+    // image/png, which Chromium turns into the platform bitmap flavor
+    // (CF_DIB on Windows) that Office apps paste; text/html becomes
+    // CF_HTML and text/plain CF_UNICODETEXT, all in one atomic write.
+    const itemData = {};
+    if (typeof text === "string" && text.length > 0) itemData["text/plain"] = text;
+    if (typeof html === "string" && html.length > 0) itemData["text/html"] = html;
+    if (pngBytes) itemData["image/png"] = new Blob([pngBytes], { type: "image/png" });
+    try {
+      await clipboard.write([new ClipboardItem(itemData)]);
+    } catch (err) {
+      logger.log(`[clipboard] rich write failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+    return true;
+  }
+
+  // Legacy Electron (< 44): the plain object write with a nativeImage
+  // bitmap. Kept so this main process still runs against older pins.
+  const legacy = {};
+  if (typeof text === "string" && text.length > 0) legacy.text = text;
+  if (typeof html === "string" && html.length > 0) legacy.html = html;
+  if (pngBytes) legacy.image = nativeImage.createFromBuffer(pngBytes);
+  if (Object.keys(legacy).length === 0) return false;
+  clipboard.write(legacy);
   return true;
 });
 
@@ -305,10 +341,13 @@ handleTrusted("clipboard:write-rich", (_event, payload) => {
 // menu arrangement at the top of app.whenReady(): with the menu accelerators
 // unregistered, a keydown that lands in a text field reaches the renderer's
 // handlers instead of the menu, and those forward the command here so the
-// focused input actually copies/pastes/undoes (Chromium's renderer on
-// Linux/Windows has no built-in binding for them, which is why the Edit menu
-// had to exist in the first place). Command names are whitelisted; anything
-// else is refused rather than looked up on the sender.
+// focused input edits through exactly one channel. Verified on Electron 44:
+// Chromium DOES have built-in input-edit bindings for these keys in text
+// fields, so the renderer preventDefaults the key and this forwarded command
+// is the one and only action - running both was the "pasted twice in a row"
+// report (Ctrl+V pasted the clipboard text twice). The Edit menu's click
+// handlers send the same commands over this IPC. Command names are
+// whitelisted; anything else is refused rather than looked up on the sender.
 const NATIVE_EDIT_COMMANDS = new Set(["undo", "redo", "cut", "copy", "paste", "selectAll"]);
 handleTrusted("edit:native-command", (event, command) => {
   if (typeof command !== "string" || !NATIVE_EDIT_COMMANDS.has(command)) return false;

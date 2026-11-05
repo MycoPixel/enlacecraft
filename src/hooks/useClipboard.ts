@@ -80,6 +80,21 @@ export function parseStructureText(text: string): Molecule | null {
   }
 }
 
+/** The plain text carried by a text annotation's sanitized HTML — used for
+ * the text/plain flavor of a text-only copy (see copySelection). <br> and
+ * block elements become newlines so multi-line captions survive the trip. */
+function annotationPlainText(html: string): string {
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  el.querySelectorAll("br").forEach((br) => br.replaceWith(document.createTextNode("\n")));
+  el.querySelectorAll("p, div, li").forEach((block) => block.after(document.createTextNode("\n")));
+  return (el.textContent ?? "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .trim();
+}
+
 /**
  * Copy/paste for the canvas selection.
  *
@@ -141,6 +156,19 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement | null>) {
       try { payload.cdxml = exportCdxml(moleculeFragment); } catch { /* best effort */ }
       try { payload.molfile = exportMol(moleculeFragment); } catch { /* best effort */ }
       try { payload.smiles = exportSmiles(moleculeFragment); } catch { /* best effort */ }
+    } else if (selectedAnnotations.length > 0) {
+      // A text-only copy (no atoms) carries the words themselves in
+      // text/plain: the user who selects a caption like "glucose" and
+      // pastes into Word, Notepad, or this app's own search box expects
+      // the text, not nothing. Chemistry text flavors stay empty here —
+      // exporting "no structure" as CDXML would be noise — and when the
+      // selection mixes atoms and text, CDXML keeps priority (the text is
+      // already visible inside the copied picture).
+      const plain = selectedAnnotations
+        .map((a) => (a.kind === "text" ? annotationPlainText(a.html) : ""))
+        .filter(Boolean)
+        .join("\n");
+      if (plain) payload.text = plain;
     }
 
     // A picture goes on the clipboard too, or the copy is invisible to
@@ -370,16 +398,25 @@ export function useClipboard(svgRef: React.RefObject<SVGSVGElement | null>) {
         // The desktop Edit menu deliberately does not register its
         // accelerators (registered accelerators swallow Ctrl+C/V/X before
         // the canvas keydown handlers ever see them — see
-        // electron/main.cjs), so a text field no longer gets the native
-        // commands from the menu either. Forward them through the bridge:
-        // Chromium's renderer on Linux/Windows has no built-in binding for
-        // these either. No preventDefault — in the plain browser the
-        // browser's own bindings still handle the key.
-        const key = e.key.toLowerCase();
-        if (e.ctrlKey || e.metaKey) {
-          if (key === "c") nativeEditCommand("copy");
-          else if (key === "x" && !e.shiftKey) nativeEditCommand("cut");
-          else if (key === "v") nativeEditCommand("paste");
+        // electron/main.cjs), so a text field gets the commands forwarded
+        // through the bridge. Verified on Electron 44 with real key events:
+        // Chromium DOES have built-in input-edit bindings for Ctrl+C/X/V,
+        // so if the key were left unprevented the command ran TWICE — a
+        // Ctrl+V pasted the clipboard text twice in a row
+        // ("glucoseglucose" in the compound-search box). In the desktop
+        // build, prevent the default and let the forwarded command be the
+        // one and only action. In the plain browser there is no bridge and
+        // nothing to forward: leave the key untouched so the browser's own
+        // binding runs the command exactly once (hence no unconditional
+        // preventDefault here).
+        const command: NativeEditCommand | null =
+          (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" ? "copy"
+          : (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" ? "paste"
+          : (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x" && !e.shiftKey ? "cut"
+          : null;
+        if (command && window.electron?.nativeEditCommand) {
+          e.preventDefault();
+          nativeEditCommand(command);
         }
         return;
       }
