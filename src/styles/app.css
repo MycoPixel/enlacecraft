@@ -3204,7 +3204,13 @@ button.status-bar__constraint:hover {
 .export-dropdown {
   /* Positioned via inline `top`/`right` (computed from the export button's
      own bounding rect) and rendered through a portal into document.body, so
-     it's never clipped by the top bar's horizontally-scrolling toolstrip. */
+     it's never clipped by the top bar's horizontally-scrolling toolstrip.
+     The inline style also caps `max-height` at the viewport space below the
+     button; this `max-height` is the fallback for the first paint before
+     that lands, and `overflow-y` makes the overflow reachable — the menu
+     holds more entries than a short window can show, and entries that ran
+     past the screen edge used to be unreachable entirely (a fixed-position
+     element can't be scrolled to by any ancestor). */
   position: fixed;
   background: var(--panel);
   border: 1px solid var(--panel-border);
@@ -3213,8 +3219,10 @@ button.status-bar__constraint:hover {
   display: flex;
   flex-direction: column;
   min-width: 190px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overflow-x: hidden;
   z-index: 1000;
-  overflow: hidden;
   padding: 8px 0;
 }
 
@@ -3640,7 +3648,9 @@ button.status-bar__constraint:hover {
 }
 
 .molecule-info-dropdown {
-  /* Same portal + fixed-position reasoning as .export-dropdown. */
+  /* Same portal + fixed-position reasoning as .export-dropdown. The scroll
+     cap is the same idea too: on a short window a tall info panel would
+     otherwise run past the bottom edge of the screen, unreachable. */
   position: fixed;
   background: var(--panel);
   border: 1px solid var(--panel-border);
@@ -3649,6 +3659,8 @@ button.status-bar__constraint:hover {
   padding: 12px 14px;
   min-width: 220px;
   max-width: 320px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   z-index: 1000;
 }
 

@@ -281,6 +281,16 @@ export function Molecule3DView({ onClose }: { onClose: () => void }) {
     if (state.phase === "ready" || state.phase === "error") setSeeding(false);
   }, [state.phase]);
 
+  // Closing the panel ends the 3D<->2D atom link for good. The ring the
+  // canvas draws on the linked atom is not a selection — clearSelection
+  // (Escape, an empty-canvas click) never touches it — so without this
+  // cleanup the highlight outlived the panel with no way to remove it
+  // except reopening the panel and clicking the atom again (the "selection
+  // I can't get rid of" report). clear3DAtomLink drops the ring and, with
+  // it, the single-atom selection the link tool made; a selection built on
+  // the canvas itself is left alone.
+  useEffect(() => () => useMoleculeStore.getState().clear3DAtomLink(), []);
+
   // --- Measurement tool state -------------------------------------
   // pendingRef holds atoms clicked so far for the *in-progress*
   // measurement (2 for distance, 3 for angle: atom → vertex → atom).

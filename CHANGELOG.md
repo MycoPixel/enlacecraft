@@ -5,6 +5,37 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.17.1
+
+Fixes two UI bugs found in pre-release testing: export menu entries that
+couldn't all be seen or scrolled to on a short window, and a 3D-viewer atom
+link that left an unremovable highlight on the canvas after the panel
+closed.
+
+### The export menu runs off the bottom of the screen
+
+- The Export dropdown holds 25 entries (Save/Save As, sharing, picture and
+  chemistry formats, Copy As). It is a fixed-position panel and nothing
+  capped its height: on a window too short to show it all, the lower
+  entries rendered past the bottom edge of the screen — unreachable, since
+  no amount of scrolling reaches a fixed-position element that extends
+  beyond the viewport. The dropdown now caps its height at the space
+  actually available below the export button (recomputed while open on
+  every resize) and scrolls the overflow — the same arrangement the sidebar
+  tool dropdown already used. The molecule-info dropdown gets the same
+  viewport cap as insurance.
+
+### The 3D viewer leaves a selection behind that can't be removed
+
+- Clicking an atom in the 3D panel's link tool highlights its 2D
+  counterpart on the canvas: a selection *and* an accent ring. The ring is
+  not a selection — clearSelection (Escape, clicking empty canvas) never
+  touched it — so after closing the panel the highlight stayed with no way
+  to remove it except reopening the panel and clicking the atom again.
+  Closing the 3D panel now ends the link for good: the ring goes, and the
+  single-atom selection the link tool made goes with it; a selection built
+  on the canvas itself (anything bigger than that one atom) is left alone.
+
 ## 1.17.0
 
 Completes the Octet Draw improvement plan (Phases 6–10: reaction

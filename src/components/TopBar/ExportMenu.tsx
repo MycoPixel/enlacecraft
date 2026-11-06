@@ -55,6 +55,14 @@ interface ExportMenuProps {
  * `document.body` and positioning it with `position: fixed` from the
  * button's own bounding rect sidesteps that entirely — it's never inside any
  * scrolling/clipping ancestor.
+ *
+ * The menu also holds more entries than a short window can show — an
+ * uncapped fixed-position panel simply ran past the bottom edge of the
+ * screen where nothing can reach it (no scrollbar, no overscroll). Its
+ * height is therefore capped at the viewport space actually available
+ * below the button (computed here, alongside top/right, since the CSS
+ * `100vh` shorthand can't know where the button sits) and the overflow
+ * scrolls — see `.export-dropdown` in app.css.
  */
 export function ExportMenu({
   onPNG,
@@ -84,7 +92,7 @@ export function ExportMenu({
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [background, setBackground] = useState<ExportBackground>("transparent");
-  const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
+  const [coords, setCoords] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
   const btnWrapRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const t = useT();
@@ -93,7 +101,14 @@ export function ExportMenu({
     const btn = btnWrapRef.current;
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
-    setCoords({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+    // 6px below the button, and never closer than 6px to the bottom edge;
+    // the 120px floor keeps a pathologically short window from collapsing
+    // the menu to zero rows (it scrolls instead).
+    setCoords({
+      top: rect.bottom + 6,
+      right: Math.max(8, window.innerWidth - rect.right),
+      maxHeight: Math.max(120, window.innerHeight - rect.bottom - 12),
+    });
   };
 
   useLayoutEffect(() => {
@@ -124,9 +139,14 @@ export function ExportMenu({
       <ToolButton title={t("tool.export")} onClick={() => setOpen((o) => !o)}>
         <Download size={18} />
       </ToolButton>
-      {open && coords &&
+      {open &&
+        coords &&
         createPortal(
-          <div className="export-dropdown" ref={dropdownRef} style={{ top: coords.top, right: coords.right }}>
+          <div
+            className="export-dropdown"
+            ref={dropdownRef}
+            style={{ top: coords.top, right: coords.right, maxHeight: coords.maxHeight }}
+          >
             {/* Save overwrites the file named here with no dialog; Save As
                 always asks. Shown only once something has been chosen —
                 before that, Save and Save As do exactly the same thing. */}

@@ -676,6 +676,14 @@ interface MoleculeStore {
    * resolved back to a 2D atom. */
   linkedAtomId: string | null;
   setLinkedAtomId: (id: string | null) => void;
+  /** Ends the 3D<->2D atom link and cleans up what it left on the canvas:
+   * the ring drawn on the linked atom is not a selection (clearSelection
+   * deliberately doesn't touch it), so once the 3D panel is gone nothing
+   * else could remove it. Drops the link and, with it, the single-atom
+   * selection the link tool itself made; a selection built on the canvas
+   * (anything bigger than that one atom) is left alone. Called when the
+   * 3D panel unmounts — see Molecule3DView.tsx. */
+  clear3DAtomLink: () => void;
   /** Which 3D generation method the panel uses — see io/embed3d.ts.
    * "quick" is a fast, collision-free conformer with no energy
    * minimisation; "mmff94" additionally relaxes it against a real force
@@ -2105,6 +2113,16 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
     setProjectFileName: (name) => set({ projectFileName: name }),
     setLinkedAtomId: (id) => set({ linkedAtomId: id }),
+    clear3DAtomLink: () => {
+      const linked = get().linkedAtomId;
+      if (linked === null) return;
+      set({ linkedAtomId: null });
+      // The link tool's click replaced the whole selection with just this
+      // atom (setSelected(new Set([atomId]))), so a selection that now
+      // contains exactly it is the link's own work — drop it. Anything
+      // larger means the user has been selecting on the canvas since.
+      if (get().selected.size === 1 && get().selected.has(linked)) get().clearSelection();
+    },
     setSnapAngleDegrees: (deg) => {
       set({ snapAngleDegrees: deg });
       try {
