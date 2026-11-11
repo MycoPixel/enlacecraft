@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History, ClipboardPaste } from "lucide-react";
+import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History, ClipboardPaste, FlaskConical } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { themeViewerBackground } from "../../styles/themes";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { PageSetupDialog } from "./PageSetupDialog";
 import { PasteStructureDialog } from "./PasteStructureDialog";
+import { ReactionBuilderDialog } from "./ReactionBuilderDialog";
 import { OpenShareLinkDialog } from "./OpenShareLinkDialog";
 import { ViewOptionsMenu } from "./ViewOptionsMenu";
 import { ThemePicker } from "./ThemePicker";
@@ -41,6 +42,7 @@ import { useFileImport } from "../../hooks/useFileImport";
 import { useHorizontalStripScroll } from "../../hooks/useHorizontalStripScroll";
 import { LIMITS } from "../../io/validate";
 import { useT } from "../../i18n/useT";
+import { APP_VERSION } from "../../version";
 import { registerCommandGroup, unregisterCommandGroup, type AppCommand } from "../../commands/commands";
 
 interface TopBarProps {
@@ -102,6 +104,8 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
   // here rather than in the dialog so the trigger button stays a plain
   // ToolButton like every other top-bar action.
   const [pasteOpen, setPasteOpen] = useState(false);
+  // Reaction builder dialog (type names/SMILES into reactant/product boxes).
+  const [reactionBuilderOpen, setReactionBuilderOpen] = useState(false);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   // The palette commands below are registered once, but each action must run
@@ -436,6 +440,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
     commandActionsRef.current = {
       "file.open": doOpen,
       "file.paste": () => setPasteOpen(true),
+      "reaction.build": () => setReactionBuilderOpen(true),
       "file.save": () => { void runProjectSave(false); },
       "file.saveAs": () => { void runProjectSave(true); },
       "export.png": () => doExportPNG("transparent"),
@@ -471,6 +476,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
       { id: "file.paste", titleKey: "tool.pasteStructure", sectionKey: "palette.section.file", keywords: "smiles mol cdxml import", run: () => commandActionsRef.current["file.paste"]?.() },
       { id: "file.save", titleKey: "tool.saveProject", sectionKey: "palette.section.file", shortcut: "Ctrl+S", keywords: "project enlacecraft", run: () => commandActionsRef.current["file.save"]?.() },
       { id: "file.saveAs", titleKey: "tool.saveAs", sectionKey: "palette.section.file", shortcut: "Ctrl+Shift+S", keywords: "project enlacecraft", run: () => commandActionsRef.current["file.saveAs"]?.() },
+      { id: "reaction.build", titleKey: "tool.buildReaction", sectionKey: "palette.section.reaction", keywords: "reaction scheme name smiles reactant product conditions arrow", run: () => commandActionsRef.current["reaction.build"]?.() },
       { id: "export.png", titleKey: "tool.exportPNG", sectionKey: "palette.section.export", keywords: "image raster", run: () => commandActionsRef.current["export.png"]?.() },
       { id: "export.svg", titleKey: "tool.exportSVG", sectionKey: "palette.section.export", keywords: "vector image", run: () => commandActionsRef.current["export.svg"]?.() },
       { id: "export.pageSetup", titleKey: "tool.pageSetup", sectionKey: "palette.section.export", keywords: "paper size margin orientation bond length", run: () => commandActionsRef.current["export.pageSetup"]?.() },
@@ -501,7 +507,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
 
   return (
     <header className="topbar">
-      <div className="brand">
+      <div className="brand" title={`EnlaceCraft v${APP_VERSION}`}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
           <path d="M9 3h6M10 3v5.5L4.5 18a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 8.5V3" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
           <circle cx="9" cy="15" r="1.1" fill="currentColor" />
@@ -583,6 +589,9 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
         </ToolButton>
         <ToolButton title={t("tool.pasteStructure")} onClick={() => setPasteOpen(true)}>
           <ClipboardPaste size={18} />
+        </ToolButton>
+        <ToolButton title={t("tool.buildReaction")} onClick={() => setReactionBuilderOpen(true)}>
+          <FlaskConical size={18} />
         </ToolButton>
         <ExportMenu
           onPNG={doExportPNG}
@@ -667,6 +676,9 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
       {/* Mounted only while open — the dialog's text/error state then
           initializes fresh each time, no reset-on-open effect needed. */}
       {pasteOpen && <PasteStructureDialog onClose={() => setPasteOpen(false)} />}
+      {reactionBuilderOpen && (
+        <ReactionBuilderDialog onClose={() => setReactionBuilderOpen(false)} />
+      )}
       {shareLinkOpen && (
         <OpenShareLinkDialog onClose={() => setShareLinkOpen(false)} onOpen={doOpenShareLink} />
       )}

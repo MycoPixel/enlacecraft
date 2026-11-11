@@ -26,6 +26,7 @@ import {
 } from "../model/reactionSchemes";
 import { interpretReaction } from "../engine/reactionInterpret";
 import { cleanReaction as cleanReactionImpl, layoutSchemeGrid } from "../engine/reactionLayout";
+import { buildReactionRow, reactionRowWidth, type ReactionBuildInput } from "../engine/reactionBuilder";
 import {
   clearReactionMap as clearReactionMapImpl,
   mapReactionAtoms as mapReactionAtomsImpl,
@@ -792,6 +793,10 @@ interface MoleculeStore {
   /** Creates reaction schemes from the selected structures and arrows. Returns
    * how many schemes were created (0 when the selection has no usable row). */
   createSchemeFromSelection: () => number;
+  /** Draws a whole reaction row from already-resolved components (the
+   * name/SMILES resolution and network lookups live in the dialog). Returns
+   * the new scheme's id, or null when either side is empty. */
+  buildReaction: (input: ReactionBuildInput) => string | null;
   removeScheme: (schemeId: string) => void;
   selectScheme: (schemeId: string) => void;
   /** Tidies one scheme (or the scheme touched by the selection). One undo
@@ -1723,6 +1728,49 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         hasUnsavedChanges: true,
       }));
       return schemes.length;
+    },
+    buildReaction: (input) => {
+      const { molecule, annotations, view, canvasSize, groups } = get();
+      const reactants = input.reactants.filter((component) => Object.keys(component.molecule.atoms).length > 0);
+      const products = input.products.filter((component) => Object.keys(component.molecule.atoms).length > 0);
+      if (reactants.length === 0 || products.length === 0) return null;
+
+      // New work never lands on top of existing work: below it when the
+      // canvas has content, centred in the visible viewport when it doesn't
+      // (the same placement policy importCompound uses for the empty case).
+      const width = reactionRowWidth(reactants, products);
+      const box = M.boundingBox(molecule);
+      let origin: { left: number; baseline: number };
+      if (box) {
+        origin = {
+          left: (box.minX + box.maxX) / 2 - width / 2,
+          baseline: box.maxY + 160,
+        };
+      } else {
+        const viewCenterX = (canvasSize.width / 2 - view.tx) / view.scale;
+        const viewCenterY = (canvasSize.height / 2 - view.ty) / view.scale;
+        origin = { left: viewCenterX - width / 2, baseline: viewCenterY };
+      }
+
+      const result = buildReactionRow(
+        molecule,
+        annotations,
+        { ...input, reactants, products },
+        origin
+      );
+      if (!result) return null;
+
+      const before: Snapshot = { molecule, annotations, groups };
+      set((s) => ({
+        molecule: result.molecule,
+        annotations: result.annotations,
+        selected: new Set(result.atomIds),
+        selectedAnnotationIds: new Set(result.arrowIds),
+        past: [...s.past, before].slice(-HISTORY_LIMIT),
+        future: [],
+        hasUnsavedChanges: true,
+      }));
+      return result.scheme.id;
     },
     removeScheme: (schemeId) => {
       const { molecule, annotations } = get();
@@ -2784,17 +2832,29 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       }
 
       const before: Snapshot = { molecule, annotations };
-      const { mol: mergedMol, newAtomIds } = M.insertMolecule(molecule, fragment.molecule, dx, dy);
+      const { mol: mergedMol, newAtomIds, idMap } = M.insertMolecule(molecule, fragment.molecule, dx, dy);
 
       const nextAnnotations: Record<string, Annotation> = { ...annotations };
       const newAnnotationIds: string[] = [];
       for (const ann of fragment.annotations) {
         const id = nextId();
         newAnnotationIds.push(id);
-        if (ann.kind === "arrow") {
-          nextAnnotations[id] = { ...ann, id, x1: ann.x1 + dx, y1: ann.y1 + dy, x2: ann.x2 + dx, y2: ann.y2 + dy };
+        const translated: Annotation =
+          ann.kind === "arrow"
+            ? { ...ann, id, x1: ann.x1 + dx, y1: ann.y1 + dy, x2: ann.x2 + dx, y2: ann.y2 + dy }
+            : { ...ann, id, x: ann.x + dx, y: ann.y + dy };
+        if (translated.kind === "text" && translated.coefficientFor?.length) {
+          // A pasted/template coefficient names the *incoming* atom ids;
+          // insertMolecule minted fresh ones, so re-point it at the copy.
+          // Drop references whose structure wasn't part of the fragment.
+          const coefficientFor = translated.coefficientFor
+            .map((atomId) => idMap[atomId])
+            .filter((atomId): atomId is string => !!atomId);
+          const remapped: TextAnnotation = { ...translated, coefficientFor };
+          if (coefficientFor.length === 0) delete remapped.coefficientFor;
+          nextAnnotations[id] = remapped;
         } else {
-          nextAnnotations[id] = { ...ann, id, x: ann.x + dx, y: ann.y + dy };
+          nextAnnotations[id] = translated;
         }
       }
 
@@ -3983,7 +4043,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     undo: () => {
-      const { past, molecule, annotations, groups, future } = get();
+      const { past, molecule, annotations, groups, future, selected, selectedAnnotationIds, selectedCycleId } = get();
       if (past.length === 0) return;
       const prev = past[past.length - 1];
       set({
@@ -3992,19 +4052,40 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
         // A drag snapshot omits groups because moving never changes them;
         // keep the current ones in that case.
         groups: prev.groups ?? groups,
+        // The snapshot can remove objects the current selection still names
+        // (undoing an import, a generated reaction, a delete). A selection id
+        // with no atom/annotation behind it makes later graph walks — group
+        // detection in the context menu, for one — dereference undefined, so
+        // drop the stale half here rather than at every consumer.
+        selected: new Set([...selected].filter((id) => !!prev.molecule.atoms[id])),
+        selectedAnnotationIds: new Set(
+          [...selectedAnnotationIds].filter((id) => !!prev.annotations[id])
+        ),
+        selectedCycleId:
+          selectedCycleId && prev.molecule.cycles?.some((cycle) => cycle.id === selectedCycleId)
+            ? selectedCycleId
+            : null,
         past: past.slice(0, -1),
         future: [{ molecule, annotations, groups }, ...future],
       });
     },
 
     redo: () => {
-      const { future, molecule, annotations, groups, past } = get();
+      const { future, molecule, annotations, groups, past, selected, selectedAnnotationIds, selectedCycleId } = get();
       if (future.length === 0) return;
       const next = future[0];
       set({
         molecule: next.molecule,
         annotations: next.annotations,
         groups: next.groups ?? groups,
+        selected: new Set([...selected].filter((id) => !!next.molecule.atoms[id])),
+        selectedAnnotationIds: new Set(
+          [...selectedAnnotationIds].filter((id) => !!next.annotations[id])
+        ),
+        selectedCycleId:
+          selectedCycleId && next.molecule.cycles?.some((cycle) => cycle.id === selectedCycleId)
+            ? selectedCycleId
+            : null,
         future: future.slice(1),
         past: [...past, { molecule, annotations, groups }],
       });

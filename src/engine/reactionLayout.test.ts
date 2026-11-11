@@ -111,6 +111,46 @@ describe("cleanReaction", () => {
     expect(mid).toBeLessThan(result.molecule.atoms.b.x);
   });
 
+  test("keeps a stoichiometric coefficient in front of its structure", () => {
+    let mol = emptyMolecule();
+    mol = addAtom(mol, "a", { x: 0, y: 0 }, "C");
+    mol = addAtom(mol, "b", { x: 120, y: 0 }, "C");
+    mol = addAtom(mol, "p", { x: 320, y: 0 }, "C");
+    const annotations: Record<string, Annotation> = {
+      a1: arrow("a1", 200, 260),
+      plus: text("plus", 60, -8, "+"),
+      coefficient: {
+        id: "coefficient",
+        kind: "text",
+        x: -500,
+        y: 40,
+        width: 20,
+        height: 24,
+        html: "3",
+        fontSize: 16,
+        coefficientFor: ["b"],
+      },
+    };
+    const step: ReactionScheme = {
+      id: "s1",
+      steps: [{ id: "st1", reactantAtomIds: ["a", "b"], productAtomIds: ["p"], arrowIds: ["a1"] }],
+    };
+
+    const result = cleanReaction(mol, annotations, step);
+    const coefficient = result.annotations.coefficient as TextAnnotation;
+    const plus = result.annotations.plus as TextAnnotation;
+    const b = result.molecule.atoms.b;
+
+    // The coefficient sits immediately before B, not in its old position…
+    expect(coefficient.x + coefficient.width).toBeLessThanOrEqual(b.x);
+    expect(b.x - (coefficient.x + coefficient.width)).toBeLessThan(20);
+    // …vertically centred on the row…
+    const arrowResult = result.annotations.a1 as ArrowAnnotation;
+    expect(coefficient.y + coefficient.height / 2).toBeCloseTo((arrowResult.y1 + arrowResult.y2) / 2);
+    // …and the plus sign stays between A and the coefficient.
+    expect(plus.x + plus.width / 2).toBeLessThan(coefficient.x);
+  });
+
   test("returns the same objects when there is no scheme content", () => {
     const mol = reactionMolecule();
     const annotations: Record<string, Annotation> = {};

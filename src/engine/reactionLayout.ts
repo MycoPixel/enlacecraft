@@ -1,4 +1,4 @@
-import type { Annotation, ArrowAnnotation, Molecule, ReactionScheme } from "../types/chemistry";
+import type { Annotation, ArrowAnnotation, Molecule, ReactionScheme, TextAnnotation } from "../types/chemistry";
 import { connectedComponents, rotateAtoms } from "../model/molecule";
 import { schemeArrowIds, schemeAtomIds } from "../model/reactionSchemes";
 import { annotationPlainText, reactionConditionsForArrow } from "./reactionInterpret";
@@ -34,6 +34,8 @@ const ARROW_GAP = 44;
 const STRUCTURE_GAP = 52;
 /** Minimum visible arrow length when the surrounding structures are crowded. */
 const MIN_ARROW_LENGTH = 48;
+/** Space between a stoichiometric coefficient and the structure it counts. */
+const COEFFICIENT_GAP = 16;
 
 interface Box {
   left: number;
@@ -42,6 +44,9 @@ interface Box {
   bottom: number;
   cx: number;
   cy: number;
+  /** Left edge used for spacing, including a coefficient's reserved space.
+   * Equal to `left` when the structure has no coefficient. */
+  visualLeft?: number;
 }
 
 function boxFor(molecule: Molecule, atomIds: string[]): Box | null {
@@ -202,6 +207,21 @@ export function cleanReaction(
     for (const id of entry.ids) indexByAtom.set(id, index);
   });
 
+  // A coefficient belongs to the leftmost connected structure it names, so a
+  // salt resolved into several fragments still gets one coefficient in front
+  // of the whole group.
+  const coefficientByComponent = new Map<number, TextAnnotation>();
+  for (const ann of Object.values(annotations)) {
+    if (ann.kind !== "text" || !ann.coefficientFor?.length) continue;
+    let index: number | undefined;
+    for (const atomId of ann.coefficientFor) {
+      const candidate = indexByAtom.get(atomId);
+      if (candidate === undefined) continue;
+      if (index === undefined || candidate < index) index = candidate;
+    }
+    if (index !== undefined) coefficientByComponent.set(index, ann);
+  }
+
   // A gap that contains an arrow needs room for the arrow plus its clear
   // space on both sides; gaps between structures on the same side only need
   // room for a plus sign.
@@ -222,6 +242,7 @@ export function cleanReaction(
   // Translate every structure onto the baseline, preserving its own shape.
   const moved = new Map<string, { x: number; y: number }>();
   const placedBoxes: Box[] = [];
+  const annotationUpdates = new Map<string, Annotation>();
   let cursor: number | null = null;
 
   boxes.forEach((entry, index) => {
@@ -231,7 +252,10 @@ export function cleanReaction(
         : arrowGaps.has(index - 1)
           ? ARROW_GAP * 2 + MIN_ARROW_LENGTH
           : STRUCTURE_GAP;
-    const targetLeft = cursor === null ? entry.box.left : cursor + gapBefore;
+    const baseLeft = cursor === null ? entry.box.left : cursor + gapBefore;
+    const coefficient = coefficientByComponent.get(index);
+    const reserve = coefficient ? coefficient.width + COEFFICIENT_GAP : 0;
+    const targetLeft = baseLeft + reserve;
     const dx = targetLeft - entry.box.left;
     const dy = rowY - entry.box.cy;
     for (const id of entry.ids) {
@@ -246,15 +270,22 @@ export function cleanReaction(
       bottom: entry.box.bottom + dy,
       cx: entry.box.cx + dx,
       cy: entry.box.cy + dy,
+      visualLeft: baseLeft,
     };
     placedBoxes.push(placed);
+    if (coefficient) {
+      annotationUpdates.set(coefficient.id, {
+        ...coefficient,
+        x: baseLeft,
+        y: rowY - coefficient.height / 2,
+      });
+    }
     cursor = placed.right;
   });
 
   // The arrow sits in the gap between the rightmost reactant and the
   // leftmost product. Using component order (not raw coordinates) keeps a
   // multi-step row with a shared intermediate consistent.
-  const annotationUpdates = new Map<string, Annotation>();
 
   for (const step of scheme.steps) {
     const stepArrows = step.arrowIds
@@ -336,7 +367,9 @@ export function cleanReaction(
     const gaps: { left: number; right: number }[] = [];
     for (let i = 0; i + 1 < placedBoxes.length; i++) {
       const left = placedBoxes[i].right;
-      const right = placedBoxes[i + 1].left;
+      // Stop before the next structure's coefficient, so "A + 2 B" puts the
+      // plus between A and the 2 rather than on top of it.
+      const right = placedBoxes[i + 1].visualLeft ?? placedBoxes[i + 1].left;
       const mid = (left + right) / 2;
       if (arrowBoxes.some((box) => mid >= box.left && mid <= box.right)) continue;
       gaps.push({ left, right });
@@ -475,15 +508,16 @@ export function layoutSchemeGrid(
 
     if (dx === 0 && dy === 0) continue;
 
-    for (const id of schemeAtomIds(row.scheme)) {
+    const rowAtomIds = new Set(schemeAtomIds(row.scheme));
+    for (const id of rowAtomIds) {
       const atom = atoms[id];
       if (!atom) continue;
       atoms[id] = { ...atom, x: atom.x + dx, y: atom.y + dy };
       changed = true;
     }
 
-    // Arrows and their condition text move with the row. Plus signs are
-    // punctuation within the row's vertical band, so they move too.
+    // Arrows, conditions, stoichiometric coefficients and plus signs all move
+    // with their row; only the atoms are stored on the scheme itself.
     const annotationIds = new Set<string>(schemeArrowIds(row.scheme));
     for (const id of schemeArrowIds(row.scheme)) {
       const arrow = workingAnnotations[id];
@@ -494,6 +528,10 @@ export function layoutSchemeGrid(
       }
     }
     for (const ann of Object.values(workingAnnotations)) {
+      if (ann.kind === "text" && ann.coefficientFor?.length) {
+        if (ann.coefficientFor.some((id) => rowAtomIds.has(id))) annotationIds.add(ann.id);
+        continue;
+      }
       if (ann.kind !== "text" || annotationPlainText(ann.html) !== "+") continue;
       const cy = ann.y + ann.height / 2;
       const cx = ann.x + ann.width / 2;

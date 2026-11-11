@@ -906,6 +906,14 @@ export interface TextAnnotation extends ZOrdered {
   height: number;
   html: string;
   fontSize: number;
+  /**
+   * Atom ids this text belongs *in front of* — only set on the stoichiometric
+   * coefficient the reaction builder places before a structure ("2 H2 + O2").
+   * It lets Clean Reaction re-anchor the coefficient after it has moved the
+   * structure, and tells the reaction interpreter that this text is a
+   * coefficient rather than a condition above/below an arrow.
+   */
+  coefficientFor?: string[];
 }
 
 export type Annotation = ArrowAnnotation | TextAnnotation | BracketAnnotation | ShapeAnnotation | OrbitalAnnotation | TlcPlateAnnotation;

@@ -364,6 +364,7 @@ const TEXT_SPEC: Spec<TextAnnotation> = {
   height: SIZE,
   html: text(LIMITS.maxHtmlChars),
   fontSize: finite(1, 500),
+  coefficientFor: largeIdList,
 };
 const TEXT_REQUIRED = ["x", "y", "width", "height", "html"] as const;
 

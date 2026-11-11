@@ -2,6 +2,16 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
+import { readFileSync } from "node:fs";
+
+// The version shown in the UI ("About"/keyboard-shortcuts footer) comes from
+// package.json — the single source of truth electron-builder already stamps
+// into release artifacts — so it can never drift from the packaged build.
+// Injected as a build-time constant: the whole object isn't shipped, just the
+// version string.
+const appVersion = (
+  JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string }
+).version;
 
 /**
  * Content-Security-Policy, injected as a <meta> tag into the BUILT index.html
@@ -64,6 +74,9 @@ function contentSecurityPolicy(): Plugin {
 // Using a relative base so the build works when hosted at any sub-path
 // (GitHub Pages project sites, Vercel, a plain static file server, etc).
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [
     react(),
     contentSecurityPolicy(),

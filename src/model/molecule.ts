@@ -765,7 +765,7 @@ export function insertMolecule(
   incoming: Molecule,
   dx: number,
   dy: number
-): { mol: Molecule; newAtomIds: string[] } {
+): { mol: Molecule; newAtomIds: string[]; idMap: Record<string, string> } {
   const idMap: Record<string, string> = {};
   const atoms = { ...base.atoms };
   const bonds = { ...base.bonds };
@@ -839,6 +839,7 @@ export function insertMolecule(
       ...(base.rgroups ? { rgroups: base.rgroups } : {}),
     },
     newAtomIds,
+    idMap,
   };
 }
 

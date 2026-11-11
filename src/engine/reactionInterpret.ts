@@ -56,6 +56,9 @@ export interface ReactionInterpretation {
  * needs to distinguish "+" from a reagent caption. */
 export function annotationPlainText(html: string): string {
   return html
+    // Sub/superscripts are part of the word itself ("H2SO4"), not a word
+    // break; strip them before the generic tag-to-space pass.
+    .replace(/<\/?(?:sub|sup)>/gi, "")
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -100,6 +103,9 @@ export function reactionConditionsForArrow(
 
   for (const ann of Object.values(annotations)) {
     if (ann.kind !== "text") continue;
+    // A stoichiometric coefficient sits beside a structure, not over an
+    // arrow, even when a short arrow's horizontal window reaches it.
+    if (ann.coefficientFor?.length) continue;
     const text = annotationPlainText(ann.html);
     if (!text || text === "+") continue;
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { Annotation, Molecule, TextAnnotation, Point } from "../../types/chemistry";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { sanitizeAnnotationHtml } from "../../io/sanitizeHtml";
+import { autoFormatFormulaHtml } from "../../engine/formulaFormat";
 import { snapAnnotationMove } from "./annotationSnap";
 
 interface TextAnnotationViewProps {
@@ -120,12 +121,26 @@ export function TextAnnotationView({ annotation, selected, editing, viewScale }:
     const next = e.relatedTarget;
     if (next instanceof Element && next.closest(".annotation-toolbar")) return;
 
+    // Finish the edit by auto-formatting formula digits in whatever was
+    // typed ("H2SO4" -> H₂SO₄). This is the same rule the reaction builder
+    // applies to conditions, but works on the annotation's existing markup
+    // so bold/italic/colour spans and any hand-made sub/superscripts survive
+    // untouched. Only touch the store when something actually changed.
+    const div = divRef.current;
+    if (div) {
+      const formatted = autoFormatFormulaHtml(div.innerHTML);
+      if (formatted !== div.innerHTML) {
+        div.innerHTML = formatted;
+        updateTextHtml(annotation.id, formatted);
+      }
+    }
+
     setEditingTextId(null);
     if (editBeforeRef.current) {
       commitCheckpoint(editBeforeRef.current);
       editBeforeRef.current = null;
     }
-  }, [setEditingTextId, commitCheckpoint]);
+  }, [annotation.id, setEditingTextId, updateTextHtml, commitCheckpoint]);
 
   const onBodyPointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation();

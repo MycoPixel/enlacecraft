@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { FlaskConical } from "lucide-react";
+import { ChartNoAxesColumn } from "lucide-react";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
@@ -88,7 +88,7 @@ export function MassSpecButton() {
         </div>
       )}
     >
-      <FlaskConical size={18} />
+      <ChartNoAxesColumn size={18} />
     </ToolDropdown>
   );
 }

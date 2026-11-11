@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useT } from "../../i18n/useT";
+import { APP_VERSION } from "../../version";
 
 interface ShortcutItem {
   keys: string;
@@ -122,6 +123,7 @@ export function ShortcutsOverlay({ open, onClose, onReplayOnboarding }: { open: 
           ))}
         </div>
         <div className="shortcuts-dialog__footer">
+          <span className="shortcuts-dialog__version">EnlaceCraft v{APP_VERSION}</span>
           <button
             type="button"
             className="shortcuts-dialog__replay"
