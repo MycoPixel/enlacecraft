@@ -7,9 +7,12 @@ interface ToolButtonProps {
   children: ReactNode;
   big?: boolean;
   disabled?: boolean;
+  /** Extra classes for callers that need a one-off shape (e.g. the labelled
+   * Analyze trigger) without forking the shared button. */
+  className?: string;
 }
 
-export function ToolButton({ active, onClick, title, children, big, disabled }: ToolButtonProps) {
+export function ToolButton({ active, onClick, title, children, big, disabled, className }: ToolButtonProps) {
   return (
     <button
       onClick={onClick}
@@ -17,7 +20,7 @@ export function ToolButton({ active, onClick, title, children, big, disabled }: 
       aria-label={title}
       aria-pressed={!!active}
       disabled={disabled}
-      className={`tool-btn ${active ? "tool-btn--active" : ""} ${big ? "tool-btn--big" : ""} ${disabled ? "tool-btn--disabled" : ""}`}
+      className={`tool-btn ${active ? "tool-btn--active" : ""} ${big ? "tool-btn--big" : ""} ${disabled ? "tool-btn--disabled" : ""} ${className ?? ""}`}
     >
       {children}
     </button>

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Activity, Loader2, Expand, AlertTriangle } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { ToolDropdown } from "../Sidebar/ToolDropdown";
+import { ToolDropdown, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
 import { exportSmilesWithAtomOrder } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
 import { embedMolecule3DWithMethod, Embed3DError } from "../../io/embed3d";
@@ -72,7 +72,7 @@ type PredictState =
  * real atom id. That mapping is what NmrReportView uses to draw each
  * result next to the actual atom instead of an opaque index.
  */
-export function NmrPredictionButton() {
+export function NmrPredictionButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const t = useT();
   const language = useMoleculeStore((s) => s.language);
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -327,6 +327,9 @@ export function NmrPredictionButton() {
                 : t("nmr.button")
       }
       active={false}
+      variant={variant}
+      label={label}
+      menuId={menuId}
       onOpen={canRun ? runPrediction : undefined}
       renderContent={(close) => (
         <div className="nmr-menu">

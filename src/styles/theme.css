@@ -13,7 +13,46 @@
   --accent-soft: #e7eef5;
   --selection: rgba(47, 93, 138, 0.14);
   --danger: #c62828;
+  --warning: #9a5b00;
+  --success: #1f7a33;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* Compatibility aliases for surfaces that were written against names the
+     theme file never actually defined (the shorthand still resolved to
+     `unset`, so those rules were silently doing nothing). */
+  --muted: var(--ink-soft);
+  --text-muted: var(--ink-soft);
+  --text-secondary: var(--ink-soft);
+  --hover: var(--accent-soft);
+  --panel-bg: var(--panel);
+  --input-bg: var(--bg);
+  --border: var(--panel-border);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: var(--mono);
+
+  /* CPK-style element label colors. Kept as custom properties rather than
+     hex values in constants.ts so dark themes can brighten them (see the
+     dark overrides below) without forking the palette in TypeScript. */
+  --el-N: #3b5bdb;
+  --el-O: #c92a2a;
+  --el-S: #8a6100;
+  --el-P: #a84300;
+  --el-F: #1f7a33;
+  --el-Cl: #1f7a33;
+  --el-Br: #8a3319;
+  --el-I: #6e2480;
+  --el-B: #a85a00;
+  --el-Si: #6b5327;
+  --el-cat-nonmetal: #5c7a29;
+  --el-cat-halogen: #1f7a33;
+  --el-cat-noble-gas: #0b7285;
+  --el-cat-alkali: #862e9c;
+  --el-cat-alkaline-earth: #6741d9;
+  --el-cat-metalloid: #6b5327;
+  --el-cat-post-transition: #3b5bdb;
+  --el-cat-transition: #a84300;
+  --el-cat-lanthanide: #a61e4d;
+  --el-cat-actinide: #862e9c;
 }
 
 [data-theme="dark"] {
@@ -87,6 +126,37 @@
   --danger: #ff6b6b;
 }
 
+/* Shared dark-theme signal colors and element palette. The light values are
+   tuned for a white canvas; on the dark surfaces they sit somewhere between
+   muddy and invisible (several fall under 3:1 against #17191e), so the same
+   hues are lifted a step for dark, slate and OLED. */
+[data-theme="dark"],
+[data-theme="slate"],
+[data-theme="oled"] {
+  --warning: #f0b429;
+  --success: #69db7c;
+  --el-N: #7c93ff;
+  --el-O: #ff8787;
+  --el-S: #ffd43b;
+  --el-P: #ffa94d;
+  --el-F: #69db7c;
+  --el-Cl: #69db7c;
+  --el-Br: #e8a87c;
+  --el-I: #d0bfff;
+  --el-B: #ffc078;
+  --el-Si: #d9c08a;
+  --el-cat-nonmetal: #a9e34b;
+  --el-cat-halogen: #69db7c;
+  --el-cat-noble-gas: #3bc9db;
+  --el-cat-alkali: #da77f2;
+  --el-cat-alkaline-earth: #b197fc;
+  --el-cat-metalloid: #d9c08a;
+  --el-cat-post-transition: #91a7ff;
+  --el-cat-transition: #ffa94d;
+  --el-cat-lanthanide: #f783ac;
+  --el-cat-actinide: #e599f7;
+}
+
 /* The drawing canvas's own background, independent of the app theme above
    (data-theme controls the app chrome; data-canvas-bg controls just the
    canvas) — a plain white canvas is what most people want for screenshots
@@ -151,6 +221,28 @@
   --accent-soft: #e7eef5;
   --selection: rgba(47, 93, 138, 0.14);
   --danger: #c62828;
+  --warning: #9a5b00;
+  --success: #1f7a33;
+  --el-N: #3b5bdb;
+  --el-O: #c92a2a;
+  --el-S: #8a6100;
+  --el-P: #a84300;
+  --el-F: #1f7a33;
+  --el-Cl: #1f7a33;
+  --el-Br: #8a3319;
+  --el-I: #6e2480;
+  --el-B: #a85a00;
+  --el-Si: #6b5327;
+  --el-cat-nonmetal: #5c7a29;
+  --el-cat-halogen: #1f7a33;
+  --el-cat-noble-gas: #0b7285;
+  --el-cat-alkali: #862e9c;
+  --el-cat-alkaline-earth: #6741d9;
+  --el-cat-metalloid: #6b5327;
+  --el-cat-post-transition: #3b5bdb;
+  --el-cat-transition: #a84300;
+  --el-cat-lanthanide: #a61e4d;
+  --el-cat-actinide: #862e9c;
   color: var(--ink);
 }
 

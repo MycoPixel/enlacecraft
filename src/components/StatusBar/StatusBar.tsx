@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useUpdaterStatus } from "../../hooks/useUpdaterStatus";
 import { useT } from "../../i18n/useT";
@@ -6,6 +7,7 @@ import { useT } from "../../i18n/useT";
 export function StatusBar() {
   const status = useMoleculeStore((s) => s.status);
   const view = useMoleculeStore((s) => s.view);
+  const setView = useMoleculeStore((s) => s.setView);
   const resetView = useMoleculeStore((s) => s.resetView);
   const fixedBondLength = useMoleculeStore((s) => s.fixedBondLength);
   const fixedAngle = useMoleculeStore((s) => s.fixedAngle);
@@ -16,6 +18,9 @@ export function StatusBar() {
   const t = useT();
   const updater = useUpdaterStatus();
   const [installing, setInstalling] = useState(false);
+
+  const zoomBy = (factor: number) =>
+    setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
 
   const handleRestartToUpdate = () => {
     // Guards against a double click re-firing the request while the
@@ -66,9 +71,20 @@ export function StatusBar() {
           {installing ? t("updater.installing") : t("updater.restartToUpdate")}
         </button>
       )}
-      <button type="button" className="zoom-readout" onClick={resetView} title={t("tool.resetView")}>
-        {Math.round(view.scale * 100)}%
-      </button>
+      <div className="status-bar__zoom">
+        <button type="button" className="status-bar__zoom-btn" onClick={() => zoomBy(1 / 1.2)} title={t("tool.zoomOut")} aria-label={t("tool.zoomOut")}>
+          <ZoomOut size={12} />
+        </button>
+        <button type="button" className="zoom-readout" onClick={resetView} title={t("tool.resetView")}>
+          {Math.round(view.scale * 100)}%
+        </button>
+        <button type="button" className="status-bar__zoom-btn" onClick={() => zoomBy(1.2)} title={t("tool.zoomIn")} aria-label={t("tool.zoomIn")}>
+          <ZoomIn size={12} />
+        </button>
+        <button type="button" className="status-bar__zoom-btn" onClick={resetView} title={t("tool.resetView")} aria-label={t("tool.resetView")}>
+          <Maximize size={12} />
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { ChartNoAxesColumn } from "lucide-react";
-import { ToolDropdown } from "../Sidebar/ToolDropdown";
+import { ToolDropdown, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 import { MassSpecPanel } from "./MassSpecPanel";
@@ -21,7 +21,7 @@ import { useInChIKey } from "../../hooks/useInChIKey";
  * instantly; "Spectra" is measured data that needs an InChIKey from PubChem
  * and then a network round-trip, so it must not be mounted until asked for.
  */
-export function MassSpecButton() {
+export function MassSpecButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const t = useT();
   const molecule = useMoleculeStore((s) => s.molecule);
   const hasContent = Object.keys(molecule.atoms).length > 0;
@@ -63,6 +63,9 @@ export function MassSpecButton() {
     <ToolDropdown
       title={disabled ? t("massSpec.buttonDisabled") : t("massSpec.button")}
       active={false}
+      variant={variant}
+      label={label}
+      menuId={menuId}
       onOpen={disabled ? undefined : tab === "spectra" ? openSpectra : undefined}
       renderContent={() => (
         <div className="mass-spec-panel">

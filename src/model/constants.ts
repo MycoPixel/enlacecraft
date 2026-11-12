@@ -185,16 +185,16 @@ export const COMMON_ELEMENTS: Element[] = ["C", "N", "O", "H", "Cl", "F", "Br"];
 export const EXTENDED_ELEMENTS: Element[] = ELEMENTS.filter((el) => !COMMON_ELEMENTS.includes(el));
 
 const CATEGORY_COLOR: Record<ElementCategory, string> = {
-  nonmetal: "#5C7A29",
-  halogen: "#2F9E44",
-  "noble-gas": "#0C8599",
-  alkali: "#9C3AAE",
-  "alkaline-earth": "#7048B8",
-  metalloid: "#9C7A44",
-  "post-transition": "#4C6EF5",
-  transition: "#E8590C",
-  lanthanide: "#C2255C",
-  actinide: "#AE3EC9",
+  nonmetal: "var(--el-cat-nonmetal)",
+  halogen: "var(--el-cat-halogen)",
+  "noble-gas": "var(--el-cat-noble-gas)",
+  alkali: "var(--el-cat-alkali)",
+  "alkaline-earth": "var(--el-cat-alkaline-earth)",
+  metalloid: "var(--el-cat-metalloid)",
+  "post-transition": "var(--el-cat-post-transition)",
+  transition: "var(--el-cat-transition)",
+  lanthanide: "var(--el-cat-lanthanide)",
+  actinide: "var(--el-cat-actinide)",
 };
 
 /** Approximate CPK-style coloring for atom labels. The original twelve
@@ -207,17 +207,17 @@ export const ELEMENT_COLOR: Record<Element, string> = Object.fromEntries(
 ) as Record<Element, string>;
 Object.assign(ELEMENT_COLOR, {
   C: "var(--ink)",
-  N: "#3B5BDB",
-  O: "#E03131",
-  S: "#E8A100",
-  P: "#E8590C",
-  F: "#2F9E44",
-  Cl: "#2F9E44",
-  Br: "#9C3A1F",
-  I: "#862E9C",
+  N: "var(--el-N)",
+  O: "var(--el-O)",
+  S: "var(--el-S)",
+  P: "var(--el-P)",
+  F: "var(--el-F)",
+  Cl: "var(--el-Cl)",
+  Br: "var(--el-Br)",
+  I: "var(--el-I)",
   H: "var(--ink)",
-  B: "#D9822B",
-  Si: "#9C7A44",
+  B: "var(--el-B)",
+  Si: "var(--el-Si)",
 } satisfies Partial<Record<Element, string>>);
 
 /** Full element name (English), for the periodic table picker's tooltips

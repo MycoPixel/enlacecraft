@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ScanSearch, Loader2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { ToolDropdown } from "../Sidebar/ToolDropdown";
+import { ToolDropdown, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
 import { exportSmiles } from "../../io/smiles";
 import { extractFragment } from "../../model/molecule";
 import { searchCompoundsBySubstructure, fetchCompoundByCid, PubChemError, type StructureSearchResult } from "../../io/pubchem";
@@ -20,7 +20,7 @@ type SearchState =
  * since it's the same "look this up in PubChem" idea, just structure-first
  * instead of text-first.
  */
-export function StructureSearchButton() {
+export function StructureSearchButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const t = useT();
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
@@ -77,6 +77,9 @@ export function StructureSearchButton() {
     <ToolDropdown
       title={hasContent ? t("structureSearch.button") : t("structureSearch.buttonDisabled")}
       active={false}
+      variant={variant}
+      label={label}
+      menuId={menuId}
       onOpen={hasContent ? runSearch : undefined}
       renderContent={(close) => (
         <div className="structure-search-menu">

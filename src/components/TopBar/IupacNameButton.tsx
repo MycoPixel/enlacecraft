@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Tag, Loader2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
-import { ToolDropdown } from "../Sidebar/ToolDropdown";
+import { ToolDropdown, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
 import { extractFragment } from "../../model/molecule";
 import { lookupIupacName, iupacErrorMessage } from "../../io/iupacLookup";
 import { hasIgnoredValenceAtoms, hasOrganometallicContent } from "../../model/valence";
@@ -29,7 +29,7 @@ type NameState =
  * trusted for. The English name is always shown too, and is the one to
  * treat as authoritative.
  */
-export function IupacNameButton() {
+export function IupacNameButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const t = useT();
   const language = useMoleculeStore((s) => s.language);
   const molecule = useMoleculeStore((s) => s.molecule);
@@ -86,6 +86,9 @@ export function IupacNameButton() {
     <ToolDropdown
       title={!hasContent ? t("iupac.buttonDisabled") : blockedByIgnoredValence ? t("iupac.blockedByIgnoredValence") : blockedByOrganometallic ? t("iupac.blockedByOrganometallic") : t("iupac.button")}
       active={false}
+      variant={variant}
+      label={label}
+      menuId={menuId}
       onOpen={canRun ? runLookup : undefined}
       renderContent={() => (
         <div className="iupac-menu">

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, Box, History, ClipboardPaste, FlaskConical } from "lucide-react";
+import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, History, ClipboardPaste, FlaskConical, MoreHorizontal, Save, SaveAll } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { themeViewerBackground } from "../../styles/themes";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
+import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { PageSetupDialog } from "./PageSetupDialog";
 import { PasteStructureDialog } from "./PasteStructureDialog";
@@ -12,17 +13,11 @@ import { OpenShareLinkDialog } from "./OpenShareLinkDialog";
 import { ViewOptionsMenu } from "./ViewOptionsMenu";
 import { ThemePicker } from "./ThemePicker";
 import { CompoundSearch } from "./CompoundSearch";
-import { StructureSearchButton } from "./StructureSearchButton";
-import { IupacNameButton } from "./IupacNameButton";
-import { NmrPredictionButton } from "./NmrPredictionButton";
-import { MoleculeInfoButton } from "./MoleculeInfoButton";
-import { MassSpecButton } from "./MassSpecButton";
-import { PropertiesButton } from "./PropertiesButton";
-import { AromaticityButton } from "./AromaticityButton";
-import { IrSpectrumButton } from "./IrSpectrumButton";
+import { AnalyzeMenu } from "./AnalyzeMenu";
 import { DesktopDownloadButton } from "./DesktopDownloadButton";
 import { ClearDrawingButton } from "../common/ClearDrawingButton";
-import { isOverValent, hasIgnoredValenceAtoms, overValentAtomIds, suggestValenceFix, valenceExplainParams } from "../../model/valence";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { isOverValent, overValentAtomIds, suggestValenceFix, valenceExplainParams } from "../../model/valence";
 import { hasExplicitHydrogens } from "../../model/molecule";
 import { exportPNG, exportSVG, downloadBlob, serializeExportSVG } from "../../io/exportImage";
 import { pageBoundsInWorld } from "../../model/pageSetup";
@@ -53,6 +48,18 @@ interface TopBarProps {
    * useClipboard's copyAs, which owns the actual logic; TopBar only routes
    * menu/palette entries to it and reports the outcome in the status line. */
   copyAs: (format: CopyAsFormat) => Promise<boolean>;
+}
+
+/** A plain action row in the mobile top-bar overflow menu. Nested
+ * dropdowns (Export/Theme/View options) render their own
+ * `.tool-dropdown__row` trigger with a chevron instead. */
+function OverflowRow({ icon, label, title, onClick }: { icon: React.ReactNode; label: string; title?: string; onClick: () => void }) {
+  return (
+    <button type="button" className="tool-dropdown__row" title={title ?? label} onClick={onClick}>
+      <span className="tool-dropdown__row-icon">{icon}</span>
+      <span className="tool-dropdown__row-label">{label}</span>
+    </button>
+  );
 }
 
 export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }: TopBarProps) {
@@ -90,11 +97,15 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
   const toggleExplicitHydrogens = useMoleculeStore((s) => s.toggleExplicitHydrogens);
   const monochromeAtoms = useMoleculeStore((s) => s.monochromeAtoms);
   const toggleMonochromeAtoms = useMoleculeStore((s) => s.toggleMonochromeAtoms);
-  const show3DView = useMoleculeStore((s) => s.show3DView);
-  const toggle3DView = useMoleculeStore((s) => s.toggle3DView);
   const tabs = useMoleculeStore((s) => s.tabs);
   const activeTabId = useMoleculeStore((s) => s.activeTabId);
   const language = useMoleculeStore((s) => s.language);
+  // The full action strip needs roughly 1200px before the search box starts
+  // getting squeezed. Below this, the same actions live in the compact
+  // overflow menu instead of a horizontally scrolling strip whose far end
+  // is easy to miss. Keep in sync with the `max-width: 1024px` block in
+  // app.css that hides `.top-actions`.
+  const compactTopBar = useMediaQuery("(max-width: 1024px)");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Valence-warnings popover (opened from the warning chip) — local UI
@@ -126,11 +137,6 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
   // valence.ts keeps a single pass cheap; the memo keeps it to one pass per
   // actual molecule change).
   const hasOverValence = useMemo(() => Object.keys(molecule.atoms).some((id) => isOverValent(molecule, id)), [molecule]);
-  // The 3D viewer's embedding/optimization step (MMFF94, or the xTB
-  // backend) needs real force-field parameters for every atom's bonding
-  // — same reasoning as IupacNameButton/NmrPredictionButton's identical
-  // check, see Atom.ignoreValence's doc comment.
-  const blockedByIgnoredValence = hasIgnoredValenceAtoms(molecule);
   const reactionExportDisabled = !hasExportableReaction(molecule);
 
   const resolveBackground = (bg: ExportBackground): string | null => {
@@ -505,6 +511,35 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
     return () => unregisterCommandGroup("topbar");
   }, []);
 
+  // Shared between the desktop action strip and the mobile overflow menu, so
+  // the export menu can't drift apart between the two placements.
+  const exportMenuProps = {
+    onPNG: doExportPNG,
+    onSVG: doExportSVG,
+    onPageSetup: () => setPageSetupOpen(true),
+    onPDF: doExportPDF,
+    onPrint: doExportPrint,
+    onMOL: doExportMol,
+    onSDF: doExportSdf,
+    onSDFWithProperties: doExportSdfWithProperties,
+    onRXN: doExportRxn,
+    onReactionSmiles: doExportReactionSmiles,
+    onCDXML: doExportCdxml,
+    onSmiles: doExportSmiles,
+    onCopyAs: doCopyAs,
+    copyAsDisabled: selectedCount === 0,
+    fitExportsToPage,
+    onToggleFitExportsToPage: toggleFitExportsToPage,
+    onSaveProject: doSaveProject,
+    onSaveProjectAs: doSaveProjectAs,
+    onCopyShareLink: doCopyShareLink,
+    onOpenShareLink: () => setShareLinkOpen(true),
+    onCopyEmbedCode: doCopyEmbedCode,
+    onExportHtmlViewer: doExportHtmlViewer,
+    reactionExportDisabled,
+    projectFileName,
+  };
+
   return (
     <header className="topbar">
       <div className="brand" title={`EnlaceCraft v${APP_VERSION}`}>
@@ -517,12 +552,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
       </div>
 
       <CompoundSearch />
-      <StructureSearchButton />
-      <IupacNameButton />
-      <NmrPredictionButton />
-      <MassSpecButton />
-      <AromaticityButton />
-      <IrSpectrumButton />
+      <AnalyzeMenu />
 
       {hasOverValence && (
         <div className="valence-warn-wrap">
@@ -593,44 +623,9 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
         <ToolButton title={t("tool.buildReaction")} onClick={() => setReactionBuilderOpen(true)}>
           <FlaskConical size={18} />
         </ToolButton>
-        <ExportMenu
-          onPNG={doExportPNG}
-          onSVG={doExportSVG}
-          onPageSetup={() => setPageSetupOpen(true)}
-          onPDF={doExportPDF}
-          onPrint={doExportPrint}
-          onMOL={doExportMol}
-          onSDF={doExportSdf}
-          onSDFWithProperties={doExportSdfWithProperties}
-          onRXN={doExportRxn}
-          onReactionSmiles={doExportReactionSmiles}
-          onCDXML={doExportCdxml}
-          onSmiles={doExportSmiles}
-          onCopyAs={doCopyAs}
-          copyAsDisabled={selectedCount === 0}
-          fitExportsToPage={fitExportsToPage}
-          onToggleFitExportsToPage={toggleFitExportsToPage}
-          onSaveProject={doSaveProject}
-          onSaveProjectAs={doSaveProjectAs}
-          onCopyShareLink={doCopyShareLink}
-          onOpenShareLink={() => setShareLinkOpen(true)}
-          onCopyEmbedCode={doCopyEmbedCode}
-          onExportHtmlViewer={doExportHtmlViewer}
-          reactionExportDisabled={reactionExportDisabled}
-          projectFileName={projectFileName}
-        />
+        <ExportMenu {...exportMenuProps} primary />
         <ToolButton title={t("tool.versionHistory")} onClick={onOpenVersionHistory}>
           <History size={18} />
-        </ToolButton>
-        <MoleculeInfoButton />
-        <PropertiesButton />
-        <ToolButton
-          title={blockedByIgnoredValence ? t("tool.view3dBlocked") : t("tool.view3d")}
-          active={show3DView}
-          disabled={blockedByIgnoredValence}
-          onClick={toggle3DView}
-        >
-          <Box size={18} />
         </ToolButton>
         <Divider />
         <ViewOptionsMenu
@@ -664,6 +659,66 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
         <ClearDrawingButton />
         <DesktopDownloadButton />
       </div>
+
+      {compactTopBar && (
+        <div className="topbar__overflow">
+          <ToolDropdown
+            title={t("mobile.more")}
+            active={false}
+            variant="labeled"
+            label={t("mobile.moreActions")}
+            triggerClassName="topbar__overflow-trigger"
+            renderContent={(close) => (
+              <div className="topbar-overflow-menu">
+                {/* Undo/redo live in .top-actions, which this menu replaces
+                    below the compact breakpoint — without these rows they'd
+                    only be reachable from the keyboard on narrow windows. */}
+                <OverflowRow icon={<Undo2 size={16} />} label={t("tool.undo")} onClick={() => { close(); undo(); }} />
+                <OverflowRow icon={<Redo2 size={16} />} label={t("tool.redo")} onClick={() => { close(); redo(); }} />
+                <div className="analyze-menu__divider" />
+                <OverflowRow icon={<Upload size={16} />} label={t("tool.import")} onClick={() => { close(); void doOpen(); }} />
+                <OverflowRow icon={<ClipboardPaste size={16} />} label={t("tool.pasteStructure")} onClick={() => { close(); setPasteOpen(true); }} />
+                <OverflowRow icon={<FlaskConical size={16} />} label={t("tool.buildReaction")} onClick={() => { close(); setReactionBuilderOpen(true); }} />
+                <div className="analyze-menu__divider" />
+                <OverflowRow icon={<Save size={16} />} label={t("tool.save")} onClick={() => { close(); doSaveProject(); }} />
+                <OverflowRow icon={<SaveAll size={16} />} label={t("tool.saveAs")} onClick={() => { close(); doSaveProjectAs(); }} />
+                <OverflowRow icon={<History size={16} />} label={t("tool.versionHistory")} onClick={() => { close(); onOpenVersionHistory(); }} />
+                <div className="analyze-menu__divider" />
+                <ExportMenu {...exportMenuProps} variant="menu-row" label={t("tool.export")} onDone={close} />
+                <ViewOptionsMenu
+                  variant="menu-row"
+                  onDone={close}
+                  showHydrogens={showHydrogens}
+                  onToggleHydrogens={toggleShowHydrogens}
+                  hasExplicitHydrogens={hasExplicitHydrogens(molecule)}
+                  onToggleExplicitHydrogens={toggleExplicitHydrogens}
+                  monochromeAtoms={monochromeAtoms}
+                  onToggleMonochromeAtoms={toggleMonochromeAtoms}
+                  showGrid={showGrid}
+                  onToggleGrid={toggleShowGrid}
+                  showRulers={showRulers}
+                  onToggleRulers={toggleShowRulers}
+                  showCrosshair={showCrosshair}
+                  onToggleCrosshair={toggleShowCrosshair}
+                  showPageOutline={showPageOutline}
+                  onTogglePageOutline={toggleShowPageOutline}
+                  rulerUnit={rulerUnit}
+                  onSetRulerUnit={setRulerUnit}
+                  canvasBackground={canvasBackground}
+                  onToggleCanvasBackground={toggleCanvasBackground}
+                />
+                <ThemePicker variant="menu-row" label={t("tool.theme")} onDone={close} />
+                <OverflowRow icon={<Languages size={16} />} label={t("tool.language")} onClick={() => { close(); toggleLanguage(); }} />
+                <OverflowRow icon={<HelpCircle size={16} />} label={t("tool.shortcuts")} onClick={() => { close(); onOpenShortcuts(); }} />
+                <ClearDrawingButton variant="menu-row" label={t("tool.clearDrawing")} onDone={close} />
+                <DesktopDownloadButton variant="menu-row" label={t("desktop.button")} onDone={close} />
+              </div>
+            )}
+          >
+            <MoreHorizontal size={18} />
+          </ToolDropdown>
+        </div>
+      )}
 
       <input
         ref={fileInputRef}

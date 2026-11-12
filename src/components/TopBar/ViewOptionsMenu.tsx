@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { SlidersHorizontal, Atom, Contrast, Grid3x3, Grid2x2, Square, Check, Ruler, Crosshair, SquareDashed } from "lucide-react";
+import { SlidersHorizontal, Atom, Contrast, Grid3x3, Grid2x2, Square, Check, Ruler, Crosshair, SquareDashed, ChevronRight } from "lucide-react";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { ExpandedFormulaIcon } from "./ExpandedFormulaIcon";
+import { isInsideAnyMenu } from "../common/menuGuard";
 import { useT } from "../../i18n/useT";
 
 interface ViewOptionsMenuProps {
@@ -29,6 +30,12 @@ interface ViewOptionsMenuProps {
   onSetRulerUnit: (unit: "mm" | "in" | "bond") => void;
   canvasBackground: "white" | "theme";
   onToggleCanvasBackground: () => void;
+  variant?: "icon" | "menu-row";
+  label?: string;
+  /** Called after a setting is toggled when this menu is nested in another
+   * menu (the mobile overflow), so the parent closes with it. Standalone
+   * use keeps the menu open for multiple toggles. */
+  onDone?: () => void;
 }
 
 /**
@@ -56,6 +63,8 @@ export function ViewOptionsMenu({
   showPageOutline, onTogglePageOutline,
   rulerUnit, onSetRulerUnit,
   canvasBackground, onToggleCanvasBackground,
+  variant = "icon", label,
+  onDone,
 }: ViewOptionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
@@ -80,6 +89,7 @@ export function ViewOptionsMenu({
       const target = e.target as Node;
       if (btnWrapRef.current?.contains(target)) return;
       if (dropdownRef.current?.contains(target)) return;
+      if (isInsideAnyMenu(target)) return;
       setOpen(false);
     };
     const onReposition = () => reposition();
@@ -107,12 +117,38 @@ export function ViewOptionsMenu({
 
   return (
     <div className="view-options-menu" ref={btnWrapRef}>
-      <ToolButton title={t("tool.viewOptions")} active={anyActive} onClick={() => setOpen((o) => !o)}>
-        <SlidersHorizontal size={18} />
-      </ToolButton>
+      {variant === "menu-row" ? (
+        <button
+          type="button"
+          className={`tool-dropdown__row${open ? " tool-dropdown__row--open" : ""}${anyActive ? " tool-dropdown__row--active" : ""}`}
+          title={t("tool.viewOptions")}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className="tool-dropdown__row-icon"><SlidersHorizontal size={16} /></span>
+          <span className="tool-dropdown__row-label">{label ?? t("tool.viewOptions")}</span>
+          <ChevronRight size={14} className="tool-dropdown__row-chevron" aria-hidden="true" />
+        </button>
+      ) : (
+        <ToolButton title={t("tool.viewOptions")} active={anyActive} onClick={() => setOpen((o) => !o)}>
+          <SlidersHorizontal size={18} />
+        </ToolButton>
+      )}
       {open && coords &&
         createPortal(
-          <div className="view-options-dropdown" ref={dropdownRef} style={{ top: coords.top, right: coords.right }}>
+          <div
+            className="view-options-dropdown"
+            ref={dropdownRef}
+            style={{ top: coords.top, right: coords.right }}
+            onClick={(e) => {
+              if (!onDone) return;
+              if ((e.target as HTMLElement).closest("button:not(:disabled)")) {
+                setOpen(false);
+                onDone();
+              }
+            }}
+          >
             <ViewOptionRow
               icon={<Atom size={16} />}
               label={t("tool.viewOptionsHydrogens")}

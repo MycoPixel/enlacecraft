@@ -1,5 +1,5 @@
 import { Hexagon } from "lucide-react";
-import { ToolDropdown } from "../Sidebar/ToolDropdown";
+import { ToolDropdown, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useAromaticity } from "../../hooks/useAromaticity";
 import { useT } from "../../i18n/useT";
@@ -17,7 +17,7 @@ import { AromaticityPanel } from "./AromaticityPanel";
  * Unlike the other two panels this needs no backend and no network request, so
  * it works identically on the web build and needs no loading state.
  */
-export function AromaticityButton() {
+export function AromaticityButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const t = useT();
   const molecule = useMoleculeStore((s) => s.molecule);
   const results = useAromaticity();
@@ -35,6 +35,9 @@ export function AromaticityButton() {
       // NmrPredictionButton and MassSpecButton pass active={false} for the same
       // reason.
       active={false}
+      variant={variant}
+      label={label}
+      menuId={menuId}
       renderContent={(close) => (
         <div className="aromaticity-dropdown">
           <div className="aromaticity-dropdown__head">

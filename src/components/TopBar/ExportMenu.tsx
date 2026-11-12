@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download } from "lucide-react";
+import { Download, ChevronDown, ChevronRight } from "lucide-react";
 import { ToolButton } from "../Sidebar/ToolButton";
+import { isInsideAnyMenu } from "../common/menuGuard";
 import { useT } from "../../i18n/useT";
 
 export type ExportBackground = "transparent" | "white" | "theme";
@@ -43,6 +44,14 @@ interface ExportMenuProps {
   /** File this project was last saved to, shown next to the Save entry so
    * it's visible where a plain Save is going before it's pressed. */
   projectFileName: string | null;
+  /** Filled accent trigger — the top bar's primary action. */
+  primary?: boolean;
+  /** Render the trigger as a full-width row when nested in another menu. */
+  variant?: "icon" | "menu-row";
+  label?: string;
+  /** Called after a menu entry is chosen, so a parent menu (the mobile
+   * overflow) can close with it. The export menu itself closes as before. */
+  onDone?: () => void;
 }
 
 /**
@@ -89,6 +98,10 @@ export function ExportMenu({
   onExportHtmlViewer,
   reactionExportDisabled,
   projectFileName,
+  primary,
+  variant = "icon",
+  label,
+  onDone,
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [background, setBackground] = useState<ExportBackground>("transparent");
@@ -121,6 +134,7 @@ export function ExportMenu({
       const target = e.target as Node;
       if (btnWrapRef.current?.contains(target)) return;
       if (dropdownRef.current?.contains(target)) return;
+      if (isInsideAnyMenu(target)) return;
       setOpen(false);
     };
     const onReposition = () => reposition();
@@ -135,10 +149,38 @@ export function ExportMenu({
   }, [open]);
 
   return (
-    <div className="export-menu" ref={btnWrapRef}>
-      <ToolButton title={t("tool.export")} onClick={() => setOpen((o) => !o)}>
-        <Download size={18} />
-      </ToolButton>
+    <div className={`export-menu${primary ? " export-menu--primary" : ""}`} ref={btnWrapRef}>
+      {variant === "menu-row" ? (
+        <button
+          type="button"
+          className={`tool-dropdown__row${open ? " tool-dropdown__row--open" : ""}`}
+          title={t("tool.export")}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className="tool-dropdown__row-icon"><Download size={16} /></span>
+          <span className="tool-dropdown__row-label">{label ?? t("tool.export")}</span>
+          <ChevronRight size={14} className="tool-dropdown__row-chevron" aria-hidden="true" />
+        </button>
+      ) : primary ? (
+        <button
+          type="button"
+          className="export-primary-trigger"
+          title={t("tool.export")}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <Download size={16} />
+          <span>{label ?? t("tool.export")}</span>
+          <ChevronDown size={14} aria-hidden="true" />
+        </button>
+      ) : (
+        <ToolButton title={t("tool.export")} onClick={() => setOpen((o) => !o)}>
+          <Download size={18} />
+        </ToolButton>
+      )}
       {open &&
         coords &&
         createPortal(
@@ -146,6 +188,12 @@ export function ExportMenu({
             className="export-dropdown"
             ref={dropdownRef}
             style={{ top: coords.top, right: coords.right, maxHeight: coords.maxHeight }}
+            onClick={(e) => {
+              // Every actionable entry in this menu is a button (the preset
+              // select and the fit checkbox are not); a button click is a
+              // choice, so let a parent menu close too.
+              if ((e.target as HTMLElement).closest("button:not(:disabled)")) onDone?.();
+            }}
           >
             {/* Save overwrites the file named here with no dialog; Save As
                 always asks. Shown only once something has been chosen —

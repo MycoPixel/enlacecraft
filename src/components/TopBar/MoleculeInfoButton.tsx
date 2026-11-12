@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Info, Copy, Check, AlertTriangle, Loader2, Trash2, Plus, Minus, Wand2, MapPin, Eye, EyeOff } from "lucide-react";
+import { Info, Copy, Check, AlertTriangle, Loader2, Trash2, Plus, Minus, Wand2, MapPin, Eye, EyeOff, ChevronRight } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useFormulaDisplay } from "../../hooks/useFormulaDisplay";
 import { useMoleculeDescriptors } from "../../hooks/useMoleculeDescriptors";
@@ -15,6 +15,9 @@ import { Formula } from "../common/Formula";
 import { exportSmiles } from "../../io/smiles";
 import { fetchInChI, PubChemError } from "../../io/pubchem";
 import { ToolButton } from "../Sidebar/ToolButton";
+import { useMenuActivity, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
+import { isInsideAnyMenu } from "../common/menuGuard";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useT } from "../../i18n/useT";
 
 type InchiState =
@@ -38,7 +41,7 @@ type InchiState =
  * free and shown immediately — they're behind their own "Get InChI"
  * button inside here rather than fetched every time the popover opens.
  */
-export function MoleculeInfoButton() {
+export function MoleculeInfoButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const [open, setOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<null | "smiles" | "inchi" | "inchikey">(null);
   const [inchiState, setInchiState] = useState<InchiState | null>(null);
@@ -46,6 +49,9 @@ export function MoleculeInfoButton() {
   const btnWrapRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const t = useT();
+  // Same rule as ToolDropdown's menu rows: an analysis panel docks to the
+  // bottom on a phone instead of squeezing beside the Analyze list.
+  const isPhone = useMediaQuery("(max-width: 759px)");
 
   const molecule = useMoleculeStore((s) => s.molecule);
   const selected = useMoleculeStore((s) => s.selected);
@@ -56,6 +62,8 @@ export function MoleculeInfoButton() {
   const hasAnyAtoms = Object.keys(molecule.atoms).length > 0;
   const hasPlaceholder = hasPlaceholderLabels(molecule);
 
+  useMenuActivity(menuId, open, () => setOpen(false));
+
   const reposition = () => {
     const btn = btnWrapRef.current;
     if (!btn) return;
@@ -64,8 +72,8 @@ export function MoleculeInfoButton() {
   };
 
   useLayoutEffect(() => {
-    if (open) reposition();
-  }, [open]);
+    if (open && !isPhone) reposition();
+  }, [open, isPhone]);
 
   useEffect(() => {
     if (!open) return;
@@ -75,6 +83,7 @@ export function MoleculeInfoButton() {
       const target = e.target as Node;
       if (btnWrapRef.current?.contains(target)) return;
       if (dropdownRef.current?.contains(target)) return;
+      if (isInsideAnyMenu(target)) return;
       setOpen(false);
     };
     const onReposition = () => reposition();
@@ -126,13 +135,39 @@ export function MoleculeInfoButton() {
 
   return (
     <div className="molecule-info" ref={btnWrapRef}>
-      <ToolButton title={t("tool.moleculeInfo")} active={open} onClick={() => setOpen((o) => !o)}>
-        <Info size={18} />
-        {hasPlaceholder && <AlertTriangle size={10} className="molecule-info__badge" />}
-      </ToolButton>
-      {open && coords &&
+      {variant === "menu-row" ? (
+        <button
+          type="button"
+          className={`tool-dropdown__row${open ? " tool-dropdown__row--open" : ""}`}
+          title={t("tool.moleculeInfo")}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className="tool-dropdown__row-icon">
+            <Info size={16} />
+            {hasPlaceholder && <AlertTriangle size={10} className="molecule-info__badge" />}
+          </span>
+          <span className="tool-dropdown__row-label">{label ?? t("tool.moleculeInfo")}</span>
+          <ChevronRight size={14} className="tool-dropdown__row-chevron" aria-hidden="true" />
+        </button>
+      ) : (
+        <ToolButton title={t("tool.moleculeInfo")} active={open} onClick={() => setOpen((o) => !o)}>
+          <Info size={18} />
+          {hasPlaceholder && <AlertTriangle size={10} className="molecule-info__badge" />}
+        </ToolButton>
+      )}
+      {open && (isPhone || coords) &&
         createPortal(
-          <div className="molecule-info-dropdown" ref={dropdownRef} style={{ top: coords.top, right: coords.right }}>
+          <>
+            {isPhone && <div className="tool-sheet-scrim" aria-hidden="true" onClick={() => setOpen(false)} />}
+            <div
+              className={`molecule-info-dropdown${isPhone ? " molecule-info-dropdown--sheet" : ""}`}
+              ref={dropdownRef}
+              role={isPhone ? "dialog" : undefined}
+              aria-modal={isPhone ? true : undefined}
+              style={isPhone ? undefined : { top: coords!.top, right: coords!.right }}
+            >
             <div className="molecule-info__label">
               {selected.size > 0 ? t("moleculeInfo.selection") : t("moleculeInfo.molecule")}
             </div>
@@ -311,7 +346,8 @@ export function MoleculeInfoButton() {
                 </div>
               </>
             )}
-          </div>,
+          </div>
+          </>,
           document.body
         )}
     </div>

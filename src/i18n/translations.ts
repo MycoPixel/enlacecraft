@@ -817,6 +817,20 @@ export const translations: Record<Lang, Dict> = {
     "tool.view3d": "3D structure view",
     "tool.view3dBlocked": "Disabled — this structure has an atom with valence checking turned off (right-click it to change), so there's no well-defined geometry to embed in 3D.",
 
+    "analyze.button": "Analyze",
+    "analyze.tools": "Structure analysis",
+    "analyze.structureSearch": "Find similar structures",
+    "analyze.iupac": "IUPAC name",
+    "analyze.nmr": "NMR prediction",
+    "analyze.massSpec": "Mass spectrum",
+    "analyze.ir": "IR spectrum",
+    "analyze.aromaticity": "Aromaticity",
+    "analyze.properties": "Properties table",
+    "analyze.moleculeInfo": "Molecule info",
+    "analyze.view3d": "3D structure",
+
+    "mobile.moreActions": "More actions",
+
     "view3d.title": "3D structure",
     "view3d.methodQuick": "Quick",
     "view3d.methodMmff94": "Force field (MMFF94)",
@@ -2138,6 +2152,20 @@ export const translations: Record<Lang, Dict> = {
     "tool.language": "Cambiar a inglés",
     "tool.view3d": "Vista de estructura 3D",
     "tool.view3dBlocked": "Desactivado — esta estructura tiene un átomo con la comprobación de valencia desactivada (haz clic derecho para cambiarlo), por lo que no hay una geometría bien definida para generar en 3D.",
+
+    "analyze.button": "Analizar",
+    "analyze.tools": "Análisis de estructura",
+    "analyze.structureSearch": "Buscar estructuras similares",
+    "analyze.iupac": "Nombre IUPAC",
+    "analyze.nmr": "Predicción de RMN",
+    "analyze.massSpec": "Espectro de masas",
+    "analyze.ir": "Espectro IR",
+    "analyze.aromaticity": "Aromaticidad",
+    "analyze.properties": "Tabla de propiedades",
+    "analyze.moleculeInfo": "Información de la molécula",
+    "analyze.view3d": "Estructura 3D",
+
+    "mobile.moreActions": "Más acciones",
 
     "view3d.title": "Estructura 3D",
     "view3d.methodQuick": "Rápido",

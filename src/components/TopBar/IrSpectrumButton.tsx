@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { AudioWaveform } from "lucide-react";
-import { ToolDropdown } from "../Sidebar/ToolDropdown";
+import { ToolDropdown, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { relevantIrBands } from "../../model/irBands";
 import { useT } from "../../i18n/useT";
@@ -21,7 +21,7 @@ import { useIrSpectrum } from "./useIrSpectrum";
  * dropdown and the full-screen report show one spectrum between them, mirroring
  * how NmrPredictionButton holds its own state.
  */
-export function IrSpectrumButton() {
+export function IrSpectrumButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const t = useT();
   const molecule = useMoleculeStore((s) => s.molecule);
   const hasContent = Object.keys(molecule.atoms).length > 0;
@@ -37,6 +37,9 @@ export function IrSpectrumButton() {
       <ToolDropdown
         title={hasContent ? t("ir.button") : t("ir.buttonDisabled")}
         active={false}
+        variant={variant}
+        label={label}
+        menuId={menuId}
         renderContent={() => (
           <div className="ir-dropdown">
             <div className="ir-dropdown__head">{t("ir.title")}</div>

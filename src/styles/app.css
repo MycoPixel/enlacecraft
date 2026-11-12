@@ -16,6 +16,7 @@
   gap: 12px;
   padding: 0 14px;
   height: 52px;
+  min-width: 0;
   flex-shrink: 0;
   background: var(--panel);
   border-bottom: 1px solid var(--panel-border);
@@ -125,6 +126,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
   font-weight: 650;
   font-size: 15px;
   letter-spacing: 0.2px;
@@ -278,6 +280,7 @@ button.valence-warn--button:hover {
   gap: 2px;
   margin-left: auto;
   position: relative;
+  min-width: 0;
   overflow-x: auto;
   max-width: 100%;
   scrollbar-width: none;
@@ -309,32 +312,42 @@ button.valence-warn--button:hover {
   flex-shrink: 0;
 }
 
-/* Deliberately styled distinctly from every other icon button in the top
-   bar (which all stay transparent/icon-only) — this is the one button in
-   that row that isn't a molecule-editing action, and it shared the plain
-   Download icon with the Export button right next to it, which made the
-   two easy to mix up at a glance. A solid accent fill (plus its own
-   MonitorDown icon, rather than the same arrow-into-a-tray Download
-   uses) makes "get the desktop app" read as its own distinct thing. */
+/* Deliberately plain: this used to be a filled accent button, which put it
+   in competition with Export for the top bar's "primary action" slot. The
+   solid accent fill now belongs to Export alone; getting the desktop app is
+   a secondary, occasional action and reads as one. */
 .desktop-download-trigger .tool-btn {
-  background: var(--accent);
-  color: #fff;
+  color: var(--ink-soft);
 }
 
 .desktop-download-trigger .tool-btn:hover {
-  filter: brightness(1.12);
-  background: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
 }
 
 /* ---------- Compound search ---------- */
+
+/* The wrapper, not the pill, is the flex item in the top bar. Without
+   `min-width: 0` a flex item refuses to shrink below its content width, so
+   the search box pushed everything to its right off-screen instead of
+   compressing. */
+.compound-search-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 360px;
+}
 
 .compound-search {
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   flex: 1 1 auto;
-  min-width: 90px;
+  min-width: 0;
   max-width: 360px;
   height: 32px;
   padding: 0 10px;
@@ -492,7 +505,7 @@ button.valence-warn--button:hover {
 /* ---------- Sidebar ---------- */
 
 .sidebar {
-  width: 112px;
+  width: 200px;
   flex-shrink: 0;
   position: relative;
   background: var(--panel);
@@ -564,6 +577,7 @@ button.valence-warn--button:hover {
   gap: 4px;
   flex-wrap: wrap;
   justify-content: center;
+  width: 100%;
 }
 
 /* Bonds: as many columns as fit the current sidebar width (auto-fill),
@@ -615,6 +629,152 @@ button.valence-warn--button:hover {
 .tool-btn--big {
   width: 52px;
   height: 44px;
+}
+
+/* Label + chevron trigger (the top bar's Analyze menu). Sits in the same
+   row as the square icon buttons but is sized by its text. */
+.tool-btn--labeled {
+  width: auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  gap: 6px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tool-btn__label {
+  line-height: 1;
+}
+
+.tool-btn__chevron {
+  opacity: 0.65;
+  flex-shrink: 0;
+}
+
+/* Full-width row inside a ToolDropdown's menu (the Analyze list, and the
+   nested Export/Theme/View menus in the mobile overflow). */
+.tool-dropdown__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-dropdown__row:hover:not(:disabled),
+.tool-dropdown__row--open {
+  background: var(--accent-soft);
+}
+
+.tool-dropdown__row--active {
+  color: var(--accent);
+}
+
+.tool-dropdown__row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tool-dropdown__row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  flex-shrink: 0;
+  color: var(--ink-soft);
+}
+
+.tool-dropdown__row:hover:not(:disabled) .tool-dropdown__row-icon,
+.tool-dropdown__row--open .tool-dropdown__row-icon,
+.tool-dropdown__row--active .tool-dropdown__row-icon {
+  color: var(--accent);
+}
+
+.tool-dropdown__row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-dropdown__row-chevron,
+.tool-dropdown__row-check {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--ink-soft);
+}
+
+.tool-dropdown__row-check {
+  color: var(--accent);
+}
+
+.analyze-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 248px;
+}
+
+.analyze-menu__section {
+  padding: 2px 9px 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--ink-soft);
+}
+
+.analyze-menu__divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--panel-border);
+}
+
+/* The filled "primary action" Export trigger. */
+.export-primary-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.export-primary-trigger:hover {
+  filter: brightness(1.1);
+}
+
+/* On narrow screens the action strip collapses into this single More
+   menu; everything it used to hold is a row inside it. */
+.topbar__overflow {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.topbar-overflow-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 248px;
 }
 
 .tool-btn:disabled,
@@ -3041,7 +3201,6 @@ button.valence-warn--button:hover {
 }
 
 .zoom-readout {
-  margin-left: auto;
   font-family: var(--mono);
   border: none;
   background: transparent;
@@ -3050,9 +3209,40 @@ button.valence-warn--button:hover {
   cursor: pointer;
   border-radius: 4px;
   padding: 2px 5px;
+  min-width: 40px;
 }
 
 .zoom-readout:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Zoom/fit moved here from the sidebar's bottom section: it is a view
+   control used constantly, and the status bar is always visible without
+   scrolling the tool column. */
+.status-bar__zoom {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.status-bar__zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.status-bar__zoom-btn:hover {
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -3239,6 +3429,42 @@ button.status-bar__constraint:hover {
   z-index: 1000;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
+}
+
+/* On a phone an analysis panel is too wide to sit beside the Analyze list,
+   so it docks to the bottom of the screen (ToolDropdown switches on the
+   same 759px breakpoint as the rest of the mobile layout). */
+.tool-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1199;
+  background: rgba(0, 0, 0, 0.35);
+  animation: sheet-fade 0.15s ease-out;
+}
+
+.tool-dropdown--sheet {
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: min(78vh, 640px);
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  border-bottom: none;
+  z-index: 1200;
+  box-shadow: 0 -10px 36px rgba(0, 0, 0, 0.22);
+  animation: sheet-up 0.18s ease-out;
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(18px); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes sheet-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .context-menu {
@@ -3664,6 +3890,25 @@ button.status-bar__constraint:hover {
   z-index: 1000;
 }
 
+/* Phone form of the same panel: a bottom sheet, matching ToolDropdown's
+   menu-row panels. */
+.molecule-info-dropdown--sheet {
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  max-height: min(78vh, 640px);
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  border-bottom: none;
+  z-index: 1200;
+  box-shadow: 0 -10px 36px rgba(0, 0, 0, 0.22);
+  animation: sheet-up 0.18s ease-out;
+}
+
 .molecule-info__label {
   font-size: 11px;
   font-weight: 600;
@@ -4035,9 +4280,46 @@ button.status-bar__constraint:hover {
   justify-content: flex-start;
 }
 
+/* The full top-bar action strip needs about 1200px before the search box
+   gets squeezed. Below this, the same actions move into the topbar__overflow
+   menu (rendered by TopBar with the matching 1024px matchMedia query). */
+@media (max-width: 1024px) {
+  .topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .top-actions {
+    display: none;
+  }
+
+  .compound-search-wrapper,
+  .compound-search {
+    max-width: none;
+  }
+}
+
 @media (max-width: 759px) {
   .brand span {
     display: none;
+  }
+
+  /* Two lines of privacy notice under a phone-width search box is noise;
+     the full notice is still available in the search suggestions/help. */
+  .compound-search__privacy {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .analyze-menu__trigger .tool-btn__label,
+  .topbar__overflow-trigger .tool-btn__label {
+    display: none;
+  }
+
+  .analyze-menu__trigger,
+  .topbar__overflow-trigger {
+    padding: 0 7px;
   }
 }
 

@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Trash2 } from "lucide-react";
+import { Trash2, ChevronRight } from "lucide-react";
 import { ToolButton } from "../Sidebar/ToolButton";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
+import { isInsideAnyMenu } from "./menuGuard";
 
 const POPOVER_WIDTH = 220;
 
@@ -19,7 +20,7 @@ const POPOVER_WIDTH = 220;
  * (the same pattern ToolDropdown already uses for the sidebar's ring/arrow
  * pickers) sidesteps that whole class of bug.
  */
-export function ClearDrawingButton({ withLabel }: { withLabel?: boolean }) {
+export function ClearDrawingButton({ withLabel, variant = "icon", label, onDone }: { withLabel?: boolean; variant?: "icon" | "menu-row"; label?: string; onDone?: () => void }) {
   const t = useT();
   const clear = useMoleculeStore((s) => s.clear);
   const [open, setOpen] = useState(false);
@@ -60,6 +61,7 @@ export function ClearDrawingButton({ withLabel }: { withLabel?: boolean }) {
       const target = e.target as Node;
       if (btnWrapRef.current?.contains(target)) return;
       if (popoverRef.current?.contains(target)) return;
+      if (isInsideAnyMenu(target)) return;
       setOpen(false);
     };
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -78,10 +80,25 @@ export function ClearDrawingButton({ withLabel }: { withLabel?: boolean }) {
 
   return (
     <div ref={btnWrapRef}>
-      <ToolButton title={t("tool.clearDrawing")} onClick={() => setOpen((o) => !o)}>
-        <Trash2 size={withLabel ? 17 : 18} />
-        {withLabel && <span className="btn-label">{t("tool.clearLabel")}</span>}
-      </ToolButton>
+      {variant === "menu-row" ? (
+        <button
+          type="button"
+          className={`tool-dropdown__row${open ? " tool-dropdown__row--open" : ""}`}
+          title={t("tool.clearDrawing")}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span className="tool-dropdown__row-icon"><Trash2 size={16} /></span>
+          <span className="tool-dropdown__row-label">{label ?? t("tool.clearDrawing")}</span>
+          <ChevronRight size={14} className="tool-dropdown__row-chevron" aria-hidden="true" />
+        </button>
+      ) : (
+        <ToolButton title={t("tool.clearDrawing")} onClick={() => setOpen((o) => !o)}>
+          <Trash2 size={withLabel ? 17 : 18} />
+          {withLabel && <span className="btn-label">{t("tool.clearLabel")}</span>}
+        </ToolButton>
+      )}
       {open && coords &&
         createPortal(
           <div
@@ -99,7 +116,7 @@ export function ClearDrawingButton({ withLabel }: { withLabel?: boolean }) {
               <button
                 type="button"
                 className="confirm-popover__btn confirm-popover__btn--danger"
-                onClick={() => { setOpen(false); clear(); }}
+                onClick={() => { setOpen(false); clear(); onDone?.(); }}
               >
                 {t("confirm.confirmClear")}
               </button>

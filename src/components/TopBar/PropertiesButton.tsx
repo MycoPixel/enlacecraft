@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Copy, Download, Loader2, Search, Table2 } from "lucide-react";
-import { ToolDropdown } from "../Sidebar/ToolDropdown";
+import { ToolDropdown, type ToolDropdownTriggerProps } from "../Sidebar/ToolDropdown";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { useT } from "../../i18n/useT";
 import {
@@ -66,7 +66,7 @@ function enrichErrorMessage(err: unknown, t: (key: string, vars?: Record<string,
  * Enrichment runs only when asked for. The drawing itself needs no network,
  * and a canvas nobody enriches shouldn't cost a PubChem request per fragment.
  */
-export function PropertiesButton() {
+export function PropertiesButton({ variant, label, menuId }: ToolDropdownTriggerProps = {}) {
   const t = useT();
   const molecule = useMoleculeStore((s) => s.molecule);
   const setStatus = useMoleculeStore((s) => s.setStatus);
@@ -205,6 +205,9 @@ export function PropertiesButton() {
     <ToolDropdown
       title={t("tool.properties")}
       active={open}
+      variant={variant}
+      label={label}
+      menuId={menuId}
       onOpen={openPanel}
       onClose={closePanel}
       renderContent={() => (

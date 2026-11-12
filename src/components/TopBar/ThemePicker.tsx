@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { THEMES, type ThemeInfo } from "../../styles/themes";
 import type { Theme } from "../../types/chemistry";
 import { useT } from "../../i18n/useT";
+import { isInsideAnyMenu } from "../common/menuGuard";
 
 /**
  * The three-dot palette preview: canvas tone, panel tone, accent phosphor.
@@ -42,7 +43,7 @@ function ThemeSwatch({ theme, size = 18 }: { theme: ThemeInfo; size?: number }) 
  * top bar's toolstrip can scroll and clip, so the popover is portaled to
  * document.body and positioned from the trigger's own bounding rect.
  */
-export function ThemePicker() {
+export function ThemePicker({ variant = "icon", label, onDone }: { variant?: "icon" | "menu-row"; label?: string; onDone?: () => void } = {}) {
   const theme = useMoleculeStore((s) => s.theme);
   const setTheme = useMoleculeStore((s) => s.setTheme);
   const [open, setOpen] = useState(false);
@@ -87,6 +88,7 @@ export function ThemePicker() {
       const target = e.target as Node;
       if (btnWrapRef.current?.contains(target)) return;
       if (dropdownRef.current?.contains(target)) return;
+      if (isInsideAnyMenu(target)) return;
       setOpen(false);
     };
     const onReposition = () => reposition();
@@ -122,22 +124,39 @@ export function ThemePicker() {
     setTheme(id);
     setOpen(false);
     triggerRef.current?.focus();
+    onDone?.();
   };
 
   return (
     <div className="theme-picker" ref={btnWrapRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="tool-btn theme-picker__trigger"
-        title={`${t("tool.theme")} — ${t(current.labelKey)}`}
-        aria-label={t("tool.theme")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={toggleOpen}
-      >
-        <ThemeSwatch theme={current} size={20} />
-      </button>
+      {variant === "menu-row" ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`tool-dropdown__row${open ? " tool-dropdown__row--open" : ""}`}
+          title={`${t("tool.theme")} — ${t(current.labelKey)}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={toggleOpen}
+        >
+          <span className="tool-dropdown__row-icon"><ThemeSwatch theme={current} size={17} /></span>
+          <span className="tool-dropdown__row-label">{label ?? t("tool.theme")}</span>
+          <ChevronRight size={14} className="tool-dropdown__row-chevron" aria-hidden="true" />
+        </button>
+      ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          className="tool-btn theme-picker__trigger"
+          title={`${t("tool.theme")} — ${t(current.labelKey)}`}
+          aria-label={t("tool.theme")}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={toggleOpen}
+        >
+          <ThemeSwatch theme={current} size={20} />
+        </button>
+      )}
       {open && coords &&
         createPortal(
           <div

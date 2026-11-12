@@ -286,7 +286,7 @@ function persistCanvasBackground(canvasBackground: CanvasBackground): { canvasBa
   return { canvasBackground };
 }
 
-const DEFAULT_SIDEBAR_WIDTH = 112;
+const DEFAULT_SIDEBAR_WIDTH = 200;
 const MIN_SIDEBAR_WIDTH = 88;
 const MAX_SIDEBAR_WIDTH = 280;
 

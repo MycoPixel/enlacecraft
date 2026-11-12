@@ -52,7 +52,7 @@ async function fetchLatestRelease(): Promise<LatestReleaseState> {
  * offering to download the desktop app from within the desktop app
  * doesn't make sense.
  */
-export function DesktopDownloadButton() {
+export function DesktopDownloadButton({ variant, label, onDone }: { variant?: "icon" | "menu-row"; label?: string; onDone?: () => void } = {}) {
   const t = useT();
   const [state, setState] = useState<LatestReleaseState | null>(cachedRelease);
 
@@ -84,8 +84,15 @@ export function DesktopDownloadButton() {
       <ToolDropdown
         title={t("desktop.button")}
         active={false}
+        variant={variant}
+        label={label}
         onOpen={load}
-        renderContent={(close) => (
+        renderContent={(close) => {
+          const choose = () => {
+            close();
+            onDone?.();
+          };
+          return (
           <div className="desktop-download-menu">
             <div className="desktop-download-menu__title">{t("desktop.title")}</div>
 
@@ -104,7 +111,7 @@ export function DesktopDownloadButton() {
                   <a
                     href={state.windowsUrl}
                     className={`desktop-download-menu__option ${detected === "windows" ? "desktop-download-menu__option--recommended" : ""}`}
-                    onClick={close}
+                    onClick={choose}
                   >
                     <span>{t("desktop.windows")}</span>
                     {detected === "windows" && <span className="desktop-download-menu__badge">{t("desktop.recommended")}</span>}
@@ -114,7 +121,7 @@ export function DesktopDownloadButton() {
                   <a
                     href={state.linuxUrl}
                     className={`desktop-download-menu__option ${detected === "linux" ? "desktop-download-menu__option--recommended" : ""}`}
-                    onClick={close}
+                    onClick={choose}
                   >
                     <span>{t("desktop.linux")}</span>
                     {detected === "linux" && <span className="desktop-download-menu__badge">{t("desktop.recommended")}</span>}
@@ -125,12 +132,13 @@ export function DesktopDownloadButton() {
               </>
             )}
 
-            <a href={RELEASES_PAGE_URL} target="_blank" rel="noreferrer" className="desktop-download-menu__all-releases" onClick={close}>
+            <a href={RELEASES_PAGE_URL} target="_blank" rel="noreferrer" className="desktop-download-menu__all-releases" onClick={choose}>
               <ExternalLink size={12} />
               {t("desktop.viewAllReleases")}
             </a>
           </div>
-        )}
+          );
+        }}
       >
         <MonitorDown size={18} />
       </ToolDropdown>

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, Undo2, ZoomIn, ZoomOut, MoveDiagonal, Type, Brackets, Group, Zap,
+  MousePointer2, Lasso, Hand, Eraser, Plus, Minus, RotateCcw, RotateCw, Undo2, Type, Brackets, Group, Zap,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Wand2, BookmarkPlus, Highlighter, Hash, Trash2, LayoutGrid,
   FlipHorizontal2, FlipVertical2, RefreshCw, Ungroup, BringToFront, SendToBack,
@@ -48,9 +48,6 @@ export function Sidebar() {
   const functionalGroupTemplateId = useMoleculeStore((s) => s.functionalGroupTemplateId);
   const setFunctionalGroupTemplateId = useMoleculeStore((s) => s.setFunctionalGroupTemplateId);
   const pasteFragment = useMoleculeStore((s) => s.pasteFragment);
-  const view = useMoleculeStore((s) => s.view);
-  const setView = useMoleculeStore((s) => s.setView);
-  const resetView = useMoleculeStore((s) => s.resetView);
   const rotateSelection = useMoleculeStore((s) => s.rotateSelection);
   const mirrorSelection = useMoleculeStore((s) => s.mirrorSelection);
   const groupSelection = useMoleculeStore((s) => s.groupSelection);
@@ -239,9 +236,6 @@ export function Sidebar() {
 
   const addReagentText = useMoleculeStore((s) => s.addReagentText);
   const canAddReagentText = !!selectedArrowId;
-
-  const zoomBy = (factor: number) =>
-    setView({ ...view, scale: Math.min(4, Math.max(0.25, view.scale * factor)) });
 
   return (
     <aside className="sidebar" style={{ width: sidebarWidth }}>
@@ -707,12 +701,6 @@ export function Sidebar() {
 
       <div className="spacer" />
 
-      <SectionLabel>{t("section.view")}</SectionLabel>
-      <div className="row">
-        <ToolButton title={t("tool.zoomIn")} onClick={() => zoomBy(1.2)}><ZoomIn size={17} /></ToolButton>
-        <ToolButton title={t("tool.zoomOut")} onClick={() => zoomBy(1 / 1.2)}><ZoomOut size={17} /></ToolButton>
-        <ToolButton title={t("tool.resetView")} onClick={resetView}><MoveDiagonal size={17} /></ToolButton>
-      </div>
       <SnapAnglePicker />
       <DrawingConstraints />
 
