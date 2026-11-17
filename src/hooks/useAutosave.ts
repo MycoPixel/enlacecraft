@@ -12,11 +12,12 @@ const AUTOSAVE_DEBOUNCE_MS = 1500;
  * edits (dragging an atom, typing in a text box) writes once after things
  * settle rather than on every intermediate change.
  */
-export function useAutosave() {
+export function useAutosave(enabled = true) {
   const t = useT();
   const restoreAttempted = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     (async () => {
       const outcome = await loadAutosaveSnapshot();
@@ -44,9 +45,10 @@ export function useAutosave() {
     // the moment restoration actually happens, typically within the first
     // second of the page loading).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     let timeout: ReturnType<typeof setTimeout>;
     // Identity fingerprint of the state that feeds the saved snapshot (see
     // getAllTabsForSave: molecule/annotations/groups/view/page of the active
@@ -100,5 +102,5 @@ export function useAutosave() {
       clearTimeout(timeout);
       unsubscribe();
     };
-  }, []);
+  }, [enabled]);
 }

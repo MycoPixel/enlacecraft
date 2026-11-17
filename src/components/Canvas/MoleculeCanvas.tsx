@@ -173,13 +173,14 @@ export const MoleculeCanvas = forwardRef<SVGSVGElement>(function MoleculeCanvas(
     };
   }, []);
 
+  const embedReadOnly = useMoleculeStore((s) => s.embedReadOnly);
   const cursor = tool === "pan" ? "grab" : tool === "select" || tool === "lasso" ? "default" : "crosshair";
 
   return (
     <>
     <svg
       ref={ref}
-      className="canvas"
+      className={embedReadOnly ? "canvas canvas--readonly" : "canvas"}
       role="img"
       aria-label={structureDescription}
       tabIndex={0}

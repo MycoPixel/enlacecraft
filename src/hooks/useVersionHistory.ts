@@ -61,10 +61,11 @@ export async function captureCheckpointNow(svg: SVGSVGElement, data: { activeTab
  *     "unsaved changes" warning) is a separate, unrelated concern and isn't
  *     touched by this.
  */
-export function useVersionHistory(svgRef: React.RefObject<SVGSVGElement | null>) {
+export function useVersionHistory(svgRef: React.RefObject<SVGSVGElement | null>, enabled = true) {
   const lastCheckpointedJson = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
 
     const takeCheckpointIfChanged = async () => {
@@ -106,5 +107,5 @@ export function useVersionHistory(svgRef: React.RefObject<SVGSVGElement | null>)
     // getState()/svgRef.current at call time, so it never goes stale —
     // the same reasoning useAutosave.ts's own mount-only effect documents.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 }

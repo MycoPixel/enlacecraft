@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { useMoleculeStore } from "./store/useMoleculeStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useKeyboardDrawing } from "./hooks/useKeyboardDrawing";
@@ -7,6 +7,7 @@ import { useIsMobile } from "./hooks/useIsMobile";
 import { useAutosave } from "./hooks/useAutosave";
 import { useVersionHistory } from "./hooks/useVersionHistory";
 import { useFileImport } from "./hooks/useFileImport";
+import { useEmbedBridge } from "./hooks/useEmbedBridge";
 import { LIMITS } from "./io/validate";
 import { useT } from "./i18n/useT";
 import { TopBar } from "./components/TopBar/TopBar";
@@ -37,6 +38,25 @@ const Molecule3DView = lazy(() =>
 );
 
 export default function App() {
+  // `?embed` is the integration mode: no chrome, no autosave, and a
+  // postMessage API for the page that hosts the iframe. `#view=` links use
+  // the separate read-only SharedViewer branch in main.tsx.
+  const embed = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).has("embed");
+    } catch {
+      return false;
+    }
+  }, []);
+  const embedOrigins = useMemo(() => {
+    try {
+      const raw = new URLSearchParams(window.location.search).get("origin") ?? "";
+      return raw.split(",").map((o) => o.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }, []);
+  const embedReadOnly = useMoleculeStore((s) => s.embedReadOnly);
   const theme = useMoleculeStore((s) => s.theme);
   const canvasBackground = useMoleculeStore((s) => s.canvasBackground);
   const language = useMoleculeStore((s) => s.language);
@@ -99,13 +119,15 @@ export default function App() {
   // store) so a first-time visitor sees it automatically; afterward this
   // is just local UI state, reopened on demand from the shortcuts overlay
   // regardless of the (by-then-permanently-true) persisted flag.
-  const [onboardingOpen, setOnboardingOpen] = useState(() => !hasSeenOnboarding);
+  const [onboardingOpen, setOnboardingOpen] = useState(() => !embed && !hasSeenOnboarding);
 
   useKeyboardShortcuts();
   useKeyboardDrawing(svgRef);
   const { copySelection, pasteFromClipboard, copyAs } = useClipboard(svgRef);
-  useAutosave();
-  useVersionHistory(svgRef);
+  useAutosave(!embed);
+  useVersionHistory(svgRef, !embed);
+  // The embed bridge is also what the ONLYOFFICE plugin talks to.
+  useEmbedBridge(svgRef, { enabled: embed, origins: embedOrigins });
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -200,6 +222,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (embed) return;
     // Warns before closing/reloading/navigating away if there's anything
     // that hasn't been saved via "Save project" yet in ANY tab (see
     // hasUnsavedChanges's doc comment in the store for exactly what counts
@@ -216,7 +239,7 @@ export default function App() {
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, []);
+  }, [embed]);
 
   // Commands owned by the editor shell. Export/share/save commands register
   // themselves from TopBar, where their implementations already live.
@@ -675,16 +698,28 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-      <TopBar svgRef={svgRef} copyAs={copyAs} onOpenShortcuts={() => setShortcutsOpen(true)} onOpenVersionHistory={() => setVersionHistoryOpen(true)} />
-      <TabBar />
+    <div
+      className={embed ? "app app--embed" : "app"}
+      data-embed={embed ? "true" : undefined}
+      data-readonly={embedReadOnly ? "true" : undefined}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {!embed && (
+        <>
+          <TopBar svgRef={svgRef} copyAs={copyAs} onOpenShortcuts={() => setShortcutsOpen(true)} onOpenVersionHistory={() => setVersionHistoryOpen(true)} />
+          <TabBar />
+        </>
+      )}
       <div className="body">
-        {!isMobile && <Sidebar />}
+        {!embed && !isMobile && <Sidebar />}
         <main className="canvas-wrap">
           <MoleculeCanvas ref={svgRef} />
-          <Rulers />
-          <LiveIupacPanel />
-          <StatusBar />
+          {!embed && <Rulers />}
+          {!embed && <LiveIupacPanel />}
+          {!embed && <StatusBar />}
         </main>
         {show3DView && (
           <div
@@ -706,21 +741,25 @@ export default function App() {
           </div>
         )}
       </div>
-      {isMobile && <MobileToolbar />}
+      {!embed && isMobile && <MobileToolbar />}
       <ShortcutsOverlay
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}
         onReplayOnboarding={() => setOnboardingOpen(true)}
       />
-      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {!embed && paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
-      <VersionHistoryPanel open={versionHistoryOpen} onClose={() => setVersionHistoryOpen(false)} svgRef={svgRef} />
-      <OnboardingOverlay
-        open={onboardingOpen}
-        onClose={() => { setOnboardingOpen(false); markOnboardingSeen(); }}
-      />
+      {!embed && (
+        <>
+          <VersionHistoryPanel open={versionHistoryOpen} onClose={() => setVersionHistoryOpen(false)} svgRef={svgRef} />
+          <OnboardingOverlay
+            open={onboardingOpen}
+            onClose={() => { setOnboardingOpen(false); markOnboardingSeen(); }}
+          />
+        </>
+      )}
       <ContextMenu copySelection={copySelection} pasteFromClipboard={pasteFromClipboard} />
       {dragDepth > 0 && (
         <div className="drop-overlay">
