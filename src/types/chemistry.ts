@@ -329,6 +329,14 @@ export interface Molecule {
    */
   schemes?: ReactionScheme[];
   /**
+   * Reagent table for the reaction on this sheet: roles, equivalents,
+   * masses, volumes and yield. Lives on the molecule (like schemes) so
+   * undo, tabs, autosave and the project format carry it with no parallel
+   * plumbing. Rows may name the scheme they belong to when the sheet has
+   * more than one; absent means the drawing has no table.
+   */
+  reagentTable?: ReagentTable;
+  /**
    * Live catalytic cycles. Each cycle draws a ring of directed arcs around
    * the structures that are its intermediates; the geometry is recomputed
    * from the atoms' current positions every time it is rendered, so moving
@@ -427,6 +435,59 @@ export interface ReactionStep {
 export interface ReactionScheme {
   id: string;
   steps: ReactionStep[];
+}
+
+/** What a reagent table row is in the reaction. */
+export type ReagentRole = "reactant" | "reagent" | "catalyst" | "solvent" | "product";
+
+/**
+ * One row of a reagent table.
+ *
+ * Only the independently known quantities are stored: name, role, molecular
+ * weight, equivalents, and whichever measure of amount the chemist actually
+ * has (mmol, density or concentration). mmol/mass/volume are derived by
+ * `model/reagentTable.ts` so a table can never disagree with itself — edit
+ * the equivalents and every computed column follows.
+ *
+ * `mmol` is the one stored amount: set it on the limiting reagent to define
+ * the batch scale; other rows derive from equivalents. A row with neither a
+ * structure nor a molecular weight still appears (reagents such as "sat.
+ * NH4Cl" are measured by volume).
+ */
+export interface ReagentRow {
+  id: string;
+  name: string;
+  role: ReagentRole;
+  /** Computed from `atomIds` when present, else typed. */
+  formula?: string;
+  /** g/mol. Computed from `atomIds` when present, else typed. */
+  mw?: number;
+  /** Molar equivalents relative to the limiting reagent. */
+  equivalents?: number;
+  /** Batch amount in mmol. Meaningful on the limiting row; an override
+   * elsewhere. */
+  mmol?: number;
+  /** g/mL, for a liquid measured by volume. */
+  density?: number;
+  /** mol/L, for a solution measured by volume. */
+  concentration?: number;
+  /** Isolated yield, products only. 100 or absent means quantitative. */
+  yieldPercent?: number;
+  /** Exactly one row is normally limiting; the first reactant is the
+   * fallback when none is marked. */
+  limiting?: boolean;
+  /** The structure this row came from, so formula/MW stay in step with the
+   * drawing. */
+  atomIds?: string[];
+  /** The scheme this row belongs to, when the sheet has several. */
+  schemeId?: string;
+}
+
+/** The reagent table of a sheet (or of one scheme within it). */
+export interface ReagentTable {
+  rows: ReagentRow[];
+  /** Batch size in mmol used when no row is marked limiting. Defaults to 1. */
+  scaleMmol?: number;
 }
 
 /** S-group (structural group) types per MDL specification. */

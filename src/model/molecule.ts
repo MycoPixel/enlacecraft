@@ -27,6 +27,7 @@ export function cloneMolecule(mol: Molecule): Molecule {
     ...(mol.sgroups ? { sgroups: mol.sgroups } : {}),
     ...(mol.cycles ? { cycles: mol.cycles } : {}),
     ...(mol.rgroups ? { rgroups: mol.rgroups } : {}),
+    ...(mol.reagentTable ? { reagentTable: mol.reagentTable } : {}),
   };
 }
 

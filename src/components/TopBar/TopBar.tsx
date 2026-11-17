@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, History, ClipboardPaste, FlaskConical, MoreHorizontal, Save, SaveAll } from "lucide-react";
+import { Undo2, Redo2, Upload, Languages, AlertTriangle, HelpCircle, History, ClipboardPaste, FlaskConical, MoreHorizontal, Save, SaveAll, Table2 } from "lucide-react";
 import { useMoleculeStore } from "../../store/useMoleculeStore";
 import { themeViewerBackground } from "../../styles/themes";
 import { ToolButton, Divider } from "../Sidebar/ToolButton";
@@ -9,6 +9,7 @@ import { ExportMenu, type ExportBackground } from "./ExportMenu";
 import { PageSetupDialog } from "./PageSetupDialog";
 import { PasteStructureDialog } from "./PasteStructureDialog";
 import { ReactionBuilderDialog } from "./ReactionBuilderDialog";
+import { ReagentTableDialog } from "./ReagentTableDialog";
 import { OpenShareLinkDialog } from "./OpenShareLinkDialog";
 import { ViewOptionsMenu } from "./ViewOptionsMenu";
 import { ThemePicker } from "./ThemePicker";
@@ -117,6 +118,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
   const [pasteOpen, setPasteOpen] = useState(false);
   // Reaction builder dialog (type names/SMILES into reactant/product boxes).
   const [reactionBuilderOpen, setReactionBuilderOpen] = useState(false);
+  const [reagentOpen, setReagentOpen] = useState(false);
   const [shareLinkOpen, setShareLinkOpen] = useState(false);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   // The palette commands below are registered once, but each action must run
@@ -623,6 +625,9 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
         <ToolButton title={t("tool.buildReaction")} onClick={() => setReactionBuilderOpen(true)}>
           <FlaskConical size={18} />
         </ToolButton>
+        <ToolButton title={t("reagent.tooltip")} onClick={() => setReagentOpen(true)}>
+          <Table2 size={18} />
+        </ToolButton>
         <ExportMenu {...exportMenuProps} primary />
         <ToolButton title={t("tool.versionHistory")} onClick={onOpenVersionHistory}>
           <History size={18} />
@@ -679,6 +684,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
                 <OverflowRow icon={<Upload size={16} />} label={t("tool.import")} onClick={() => { close(); void doOpen(); }} />
                 <OverflowRow icon={<ClipboardPaste size={16} />} label={t("tool.pasteStructure")} onClick={() => { close(); setPasteOpen(true); }} />
                 <OverflowRow icon={<FlaskConical size={16} />} label={t("tool.buildReaction")} onClick={() => { close(); setReactionBuilderOpen(true); }} />
+                <OverflowRow icon={<Table2 size={16} />} label={t("reagent.tooltip")} onClick={() => { close(); setReagentOpen(true); }} />
                 <div className="analyze-menu__divider" />
                 <OverflowRow icon={<Save size={16} />} label={t("tool.save")} onClick={() => { close(); doSaveProject(); }} />
                 <OverflowRow icon={<SaveAll size={16} />} label={t("tool.saveAs")} onClick={() => { close(); doSaveProjectAs(); }} />
@@ -738,6 +744,7 @@ export function TopBar({ svgRef, onOpenShortcuts, onOpenVersionHistory, copyAs }
         <OpenShareLinkDialog onClose={() => setShareLinkOpen(false)} onOpen={doOpenShareLink} />
       )}
       {pageSetupOpen && <PageSetupDialog onClose={() => setPageSetupOpen(false)} />}
+      {reagentOpen && <ReagentTableDialog onClose={() => setReagentOpen(false)} />}
     </header>
   );
 }

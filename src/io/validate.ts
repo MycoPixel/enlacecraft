@@ -26,6 +26,9 @@ import type {
   PageSetup,
   SGroup,
   ObjectGroup,
+  ReagentRow,
+  ReagentRole,
+  ReagentTable,
 } from "../types/chemistry";
 import type { UserTemplate } from "../model/userTemplates";
 import { RGROUP_LABEL_PATTERN } from "../model/rgroups";
@@ -72,6 +75,7 @@ export const LIMITS = {
   maxBonds: 40_000,
   maxAnnotations: 5_000,
   maxReactionSchemes: 500,
+  maxReagentRows: 200,
   maxReactionSteps: 5_000,
   maxSgroups: 500,
   maxCycles: 100,
@@ -881,6 +885,90 @@ function sanitizeRGroups(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+const REAGENT_ROLES: ReadonlySet<string> = new Set<ReagentRole>([
+  "reactant",
+  "reagent",
+  "catalyst",
+  "solvent",
+  "product",
+]);
+
+/** Bounds for the numeric columns: generous for real lab work (a solvent can
+ * be thousands of equivalents, a polymer MW in the millions) but finite, so
+ * a hand-edited file cannot inject Infinity/NaN into the renderer. */
+function reagentNumber(value: unknown, max: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max) return undefined;
+  return value;
+}
+
+function sanitizeReagentTable(
+  raw: unknown,
+  atoms: Record<string, Atom>,
+  schemes: ReactionScheme[] | undefined,
+  report: RepairReport
+): ReagentTable | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isPlainObject(raw)) {
+    report.droppedOther++;
+    return undefined;
+  }
+  if (raw.rows !== undefined && !Array.isArray(raw.rows)) throw new ImportValidationError("reagentTable.rows: expected an array");
+  const rawRows = Array.isArray(raw.rows) ? raw.rows : [];
+  if (rawRows.length > LIMITS.maxReagentRows) {
+    throw new ImportValidationError(`reagentTable: too many rows (${rawRows.length} > ${LIMITS.maxReagentRows})`);
+  }
+
+  const schemeIds = new Set((schemes ?? []).map((scheme) => scheme.id));
+  const usedIds = new Set<string>();
+  const rows: ReagentRow[] = [];
+
+  for (const rawRow of rawRows) {
+    if (!isPlainObject(rawRow)) {
+      report.droppedOther++;
+      continue;
+    }
+    const name = typeof rawRow.name === "string" ? rawRow.name.slice(0, LIMITS.maxTitleChars) : "";
+    const role = typeof rawRow.role === "string" && REAGENT_ROLES.has(rawRow.role) ? (rawRow.role as ReagentRole) : "reactant";
+    const atomIds = Array.isArray(rawRow.atomIds)
+      ? [...new Set(rawRow.atomIds.filter((id): id is string => typeof id === "string" && hasOwn(atoms, id)))]
+      : [];
+
+    let id =
+      typeof rawRow.id === "string" && rawRow.id.length > 0 && rawRow.id.length <= LIMITS.maxIdChars && !usedIds.has(rawRow.id)
+        ? rawRow.id
+        : "";
+    while (!id || usedIds.has(id)) id = `reagent-${nextId()}`;
+    usedIds.add(id);
+
+    const row: ReagentRow = { id, name, role };
+    if (atomIds.length > 0) row.atomIds = atomIds;
+    const formula = typeof rawRow.formula === "string" ? rawRow.formula.slice(0, 200) : "";
+    if (formula) row.formula = formula;
+
+    const mw = reagentNumber(rawRow.mw, 10_000_000);
+    if (mw !== undefined) row.mw = mw;
+    const equivalents = reagentNumber(rawRow.equivalents, 1_000_000);
+    if (equivalents !== undefined) row.equivalents = equivalents;
+    const mmol = reagentNumber(rawRow.mmol, 1_000_000_000);
+    if (mmol !== undefined) row.mmol = mmol;
+    const density = reagentNumber(rawRow.density, 1000);
+    if (density !== undefined) row.density = density;
+    const concentration = reagentNumber(rawRow.concentration, 10_000);
+    if (concentration !== undefined) row.concentration = concentration;
+    const yieldPercent = reagentNumber(rawRow.yieldPercent, 100);
+    if (yieldPercent !== undefined) row.yieldPercent = yieldPercent;
+    if (rawRow.limiting === true) row.limiting = true;
+    if (typeof rawRow.schemeId === "string" && schemeIds.has(rawRow.schemeId)) row.schemeId = rawRow.schemeId;
+
+    rows.push(row);
+  }
+
+  const table: ReagentTable = { rows };
+  const scaleMmol = reagentNumber(raw.scaleMmol, 1_000_000_000);
+  if (scaleMmol !== undefined && scaleMmol > 0) table.scaleMmol = scaleMmol;
+  return table;
+}
+
 export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairReport()): Molecule {
   if (!isPlainObject(raw)) throw new ImportValidationError("molecule: expected an object");
 
@@ -962,6 +1050,7 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
   const schemes = sanitizeReactionSchemes(raw.schemes, atoms, report);
   const cycles = sanitizeCycles(raw.cycles, atoms, report);
   const rgroups = sanitizeRGroups(raw.rgroups, report);
+  const reagentTable = sanitizeReagentTable(raw.reagentTable, atoms, schemes, report);
   return {
     atoms,
     bonds,
@@ -971,6 +1060,7 @@ export function sanitizeMolecule(raw: unknown, report: RepairReport = newRepairR
     ...(schemes ? { schemes } : {}),
     ...(cycles ? { cycles } : {}),
     ...(rgroups ? { rgroups } : {}),
+    ...(reagentTable ? { reagentTable } : {}),
   };
 }
 

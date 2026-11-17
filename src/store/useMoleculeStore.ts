@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, CatalyticCycle, ChainPreview, CycleSide, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, ObjectGroup, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, RingAttachment, RingTemplate, RotationSession, SGroup, SGroupType, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
+  Annotation, ArrowAnnotation, ArrowHeadSize, ArrowPreview, ArrowVariant, Atom, AtomMoveAnchor, BondOrder, BondPreview, BondStereo, BracketAnnotation, BracketFacing, BracketVariant, CanvasBackground, CatalyticCycle, ChainPreview, CycleSide, Element, FunctionalGroupAttachment, FunctionalGroupTemplate, MarqueeRect, Molecule, ObjectGroup, OrbitalAnnotation, OrbitalDragPreview, OrbitalVariant, PageSetup, Point, ReagentRole, ReagentRow, ReagentTable, RingAttachment, RingTemplate, RotationSession, SGroup, SGroupType, ShapeAnnotation, ShapeVariant, TextAnnotation, Theme, ToolId, TlcPlateAnnotation, TlcSpot, ViewTransform,
 } from "../types/chemistry";
 import type { Lang } from "../i18n/translations";
 import type { AlignmentGuide } from "../model/alignmentGuides";
@@ -41,6 +41,7 @@ import {
   expandGeneric as expandGenericImpl,
 } from "../model/rgroups";
 import { defaultPageSetup } from "../model/pageSetup";
+import { newReagentRow, reagentRowsFromAtoms } from "../model/reagentTable";
 import { expandGroupSelection, groupsTouching, pruneObjectGroups, restackByZOrder, type RestackMode } from "../model/groups";
 import type { ArrowHeadChoice, ArrowShaftChoice, ArrowTailChoice } from "../model/arrowStyle";
 import type { Embed3DMethod } from "../io/embed3d";
@@ -437,6 +438,11 @@ interface MoleculeStore {
   activeTabId: string;
   tabDocuments: Record<string, TabDocument>;
 
+  /** Set by the embedding API (`readOnly` command). While true, canvas
+   * edits, keyboard drawing and undo/redo are refused; the host can still
+   * call `set`, which replaces the document wholesale. */
+  embedReadOnly: boolean;
+
   // --- annotation state (reaction arrows / text boxes) ---
   annotations: Record<string, Annotation>;
   selectedAnnotationIds: Set<string>;
@@ -753,6 +759,8 @@ interface MoleculeStore {
   /** Applies one specific theme and persists it — what the ThemePicker
    *  calls. See toggleTheme for the sequential alternative. */
   setTheme: (theme: Theme) => void;
+  /** Embedding API: view-only mode (see `embedReadOnly`). */
+  setEmbedReadOnly: (on: boolean) => void;
   /** Steps to the next theme in presentation order, wrapping around. */
   toggleTheme: () => void;
   toggleCanvasBackground: () => void;
@@ -860,6 +868,22 @@ interface MoleculeStore {
   /** Forgets every R-group definition in one undo step. Does not restore
    * the substituent atoms — see model/rgroups.ts's clearRGroups. */
   clearRGroups: () => void;
+  /** Adds a row to the sheet's reagent table and returns its id. */
+  addReagentRow: (partial?: Partial<ReagentRow>) => string;
+  /** Patches a row. Numbers are stored as given; the table derives the rest. */
+  updateReagentRow: (id: string, patch: Partial<Omit<ReagentRow, "id">>) => void;
+  removeReagentRow: (id: string) => void;
+  /** Removes the whole table (undoable). */
+  clearReagentTable: () => void;
+  /** Replaces the whole table in one undoable step — the dialog edits a
+   * draft, so a column of typed numbers is one history entry, not one per
+   * keystroke. `undefined` removes the table. */
+  setReagentTable: (table: ReagentTable | undefined) => void;
+  /** Batch size used when no row is marked limiting. */
+  setReagentScale: (mmol: number | undefined) => void;
+  /** Adds one row per connected structure in the current selection, with
+   * formula and MW taken from the drawing. Returns how many were added. */
+  addReagentRowsFromSelection: (role?: ReagentRole) => number;
   /** Expands the drawing's defined R placeholders into concrete structures
    * laid out in a grid to the right of the original (model/rgroups.ts's
    * expandGeneric). One undo step; announces the number of copies. No-ops
@@ -1284,6 +1308,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
   /** Applies a structural edit, pushing the previous state onto the undo stack. */
   const commit = (mutate: (mol: Molecule) => Molecule) => {
+    if (get().embedReadOnly) return;
     set((s) => {
       const next = mutate(s.molecule);
       if (next === s.molecule) return s;
@@ -1308,6 +1333,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
   const commitDocument = (
     mutate: (mol: Molecule, anns: Record<string, Annotation>) => { molecule: Molecule; annotations: Record<string, Annotation> }
   ) => {
+    if (get().embedReadOnly) return;
     set((s) => {
       const next = mutate(s.molecule, s.annotations);
       if (next.molecule === s.molecule && next.annotations === s.annotations) return s;
@@ -1345,6 +1371,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
    */
 
   const commitAnnotations = (mutate: (anns: Record<string, Annotation>) => Record<string, Annotation>) => {
+    if (get().embedReadOnly) return;
     set((s) => {
       const next = mutate(s.annotations);
       if (next === s.annotations) return s;
@@ -1467,6 +1494,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
 
     tabs: [{ id: INITIAL_TAB_ID, title: translate(detectInitialLanguage(), "tab.defaultTitle", { n: 1 }) }],
     activeTabId: INITIAL_TAB_ID,
+    embedReadOnly: false,
     tabDocuments: {},
 
     annotations: {},
@@ -1617,6 +1645,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     setView: (v) => set((s) => ({ view: typeof v === "function" ? v(s.view) : v })),
     toggleTheme: () => set((s) => persistTheme(nextTheme(s.theme))),
     setTheme: (theme) => set(() => persistTheme(theme)),
+    setEmbedReadOnly: (on) => set({ embedReadOnly: on, selected: new Set(), selectedAnnotationIds: new Set() }),
     toggleCanvasBackground: () => set((s) => persistCanvasBackground(s.canvasBackground === "white" ? "theme" : "white")),
     toggleShowGrid: () => set((s) => ({ showGrid: !s.showGrid })),
     toggleShowRulers: () => set((s) => ({ showRulers: !s.showRulers })),
@@ -2142,6 +2171,87 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
       commit((mol) => clearRGroupsImpl(mol));
       set({ status: "status.rgroupCleared" });
       get().announce("a11y.rgroupCleared");
+    },
+    addReagentRow: (partial = {}) => {
+      if (get().embedReadOnly) return "";
+      const row = newReagentRow(partial);
+      commit((mol) => ({
+        ...mol,
+        reagentTable: {
+          ...(mol.reagentTable ?? { rows: [] }),
+          rows: [...(mol.reagentTable?.rows ?? []), row],
+        },
+      }));
+      return row.id;
+    },
+    updateReagentRow: (id, patch) => {
+      const table = get().molecule.reagentTable;
+      if (!table?.rows.some((row) => row.id === id)) return;
+      commit((mol) => {
+        const current = mol.reagentTable;
+        if (!current) return mol;
+        return {
+          ...mol,
+          reagentTable: {
+            ...current,
+            rows: current.rows.map((row) => (row.id === id ? { ...row, ...patch, id: row.id } : row)),
+          },
+        };
+      });
+    },
+    removeReagentRow: (id) => {
+      const table = get().molecule.reagentTable;
+      if (!table?.rows.some((row) => row.id === id)) return;
+      commit((mol) => {
+        const current = mol.reagentTable;
+        if (!current) return mol;
+        const rows = current.rows.filter((row) => row.id !== id);
+        if (rows.length === 0) {
+          const { reagentTable: _removed, ...rest } = mol;
+          return rest;
+        }
+        return { ...mol, reagentTable: { ...current, rows } };
+      });
+    },
+    clearReagentTable: () => {
+      if (!get().molecule.reagentTable) return;
+      commit((mol) => {
+        const { reagentTable: _removed, ...rest } = mol;
+        return rest;
+      });
+    },
+    setReagentTable: (table) => {
+      commit((mol) => {
+        if (!table || table.rows.length === 0) {
+          const { reagentTable: _removed, ...rest } = mol;
+          return rest;
+        }
+        return { ...mol, reagentTable: table };
+      });
+    },
+    setReagentScale: (mmol) => {
+      commit((mol) => {
+        const current = mol.reagentTable ?? { rows: [] };
+        if (mmol === undefined || !Number.isFinite(mmol) || mmol <= 0) {
+          const { scaleMmol: _removed, ...rest } = current;
+          return { ...mol, reagentTable: rest };
+        }
+        return { ...mol, reagentTable: { ...current, scaleMmol: mmol } };
+      });
+    },
+    addReagentRowsFromSelection: (role = "reactant") => {
+      const { selected, molecule } = get();
+      if (selected.size === 0) return 0;
+      const rows = reagentRowsFromAtoms(molecule, selected, role);
+      if (rows.length === 0) return 0;
+      commit((mol) => ({
+        ...mol,
+        reagentTable: {
+          ...(mol.reagentTable ?? { rows: [] }),
+          rows: [...(mol.reagentTable?.rows ?? []), ...rows],
+        },
+      }));
+      return rows.length;
     },
     expandGenericStructure: () => {
       const { molecule } = get();
@@ -4043,6 +4153,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     undo: () => {
+      if (get().embedReadOnly) return;
       const { past, molecule, annotations, groups, future, selected, selectedAnnotationIds, selectedCycleId } = get();
       if (past.length === 0) return;
       const prev = past[past.length - 1];
@@ -4071,6 +4182,7 @@ export const useMoleculeStore = create<MoleculeStore>((set, get) => {
     },
 
     redo: () => {
+      if (get().embedReadOnly) return;
       const { future, molecule, annotations, groups, past, selected, selectedAnnotationIds, selectedCycleId } = get();
       if (future.length === 0) return;
       const next = future[0];
