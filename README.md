@@ -108,6 +108,10 @@ build.
   avoid hammering PubChem
 - **NMR prediction** (desktop app only): predicts ¹H/¹³C shifts for the drawn
   structure via a bundled local model backend — see below
+- **Reagent table**: a per-sheet table of reactants, reagents, catalysts,
+  solvents and products with equivalents, MW (taken from the drawing for
+  structures added from the canvas), derived mass and volume, density or
+  concentration, and product yield — one undo step per Apply, exported as CSV
 - Light/dark theme
 
 <br/>
@@ -347,6 +351,54 @@ one more entry to the `translations` record — every component already reads th
 
 <br/>
 
+## Embedding it in another page
+
+Open the editor with `?embed` and it drops its own chrome (top bar, tabs,
+sidebar, status bar) and does not autosave or touch the host's storage. Add
+`&origin=` with the host's origin, comma-separated for more than one, so only
+that page can read or replace the drawing:
+
+```html
+<iframe src="https://your-host/enlacecraft/?embed&origin=https://your-eln.example"
+        width="900" height="600" style="border:0"></iframe>
+```
+
+The protocol is `postMessage`, one request per command, answered by `id`:
+
+```js
+const frame = document.querySelector("iframe").contentWindow;
+frame.postMessage({ enlacecraft: 1, id: 1, op: "set", args: { text: "CCO", format: "smiles" } }, "https://your-host");
+// → { enlacecraft: 1, id: 1, ok: true, result: {} }
+```
+
+`ready`, `change` and `selection` events arrive unprompted; the ops are
+`set`, `export` (json / cdxml / svg / smiles / mol / sdf / rxn), `picture`
+(base64 PNG), `uiTheme` / `setTheme`, `readOnly`, `selection`, `saved`,
+`markSaved`, `version` and `help`. Errors come back as `ok: false` with a
+message. With no `origin` parameter the editor only answers a real parent
+frame.
+
+<br/>
+
+## ONLYOFFICE plugin
+
+`onlyoffice-plugin/` is a bundled `.plugin` that opens EnlaceCraft in a window
+over the document and inserts the drawing as an OLE object: a PNG preview
+plus the `.enlacecraft` project JSON, so double-clicking it reopens the
+drawing here. Build it with:
+
+```bash
+onlyoffice-plugin/build.sh     # npm run build + copy dist/ into web/ + zip
+```
+
+Then in ONLYOFFICE: **Plugins → Plugin manager → Add plugin** and pick
+`onlyoffice-plugin/EnlaceCraft-ONLYOFFICE.plugin`. It needs no server:
+everything, including the editor bundle, is inside the file, so it works
+offline. The Word/Office.js route is not included — that one would need a
+Windows OLE server or an HTTPS-hosted add-in.
+
+<br/>
+
 ## Deployment
 
 The Vite config uses a relative `base: "./"`, so the production build in `dist/` works when
@@ -381,9 +433,8 @@ runner, neither currently in use.
 
 **Distribution**: built installers are published to the separate, public
 [MycoPixel/enlacecraft-releases](https://github.com/MycoPixel/enlacecraft-releases)
-repo (`electron-builder`'s `publish` config in `package.json`) — this repo
-stays private, but that one holds nothing except compiled binaries, so nothing
-here gets exposed by publishing a release. The webapp's top bar has a
+repo (`electron-builder`'s `publish` config in `package.json`), which holds
+nothing except compiled binaries. The webapp's top bar has a
 **download button** (`DesktopDownloadButton.tsx`) that fetches that repo's
 latest release from the GitHub API client-side and links straight to the
 right asset for the visitor's OS.
@@ -456,3 +507,21 @@ This targets teaching / basic structure-drawing use, not full cheminformatics pa
   no distinct Display value for it), and dashed arrow shafts are app-only.
   ChemDraw's orbital glyphs and TLC plates import, but this writer does not
   emit them — they persist losslessly through the project format only.
+
+<br/>
+
+## License
+
+EnlaceCraft is free software under the **GNU Affero General Public License,
+version 3 or later (AGPL-3.0-or-later)**. See [`LICENSE`](LICENSE).
+
+You may use, study, share and modify it. If you distribute it — or run a
+modified version as a network service — you must keep it under the AGPL and
+make the corresponding source available to users. Drawings, structures and
+files you create with EnlaceCraft are yours; the license covers the program,
+not your output.
+
+Third-party components and their licenses are listed in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). In short, everything
+bundled here is permissively licensed (MIT / BSD-3-Clause / ISC /
+Apache-2.0 / MPL-2.0) and compatible with the AGPL.

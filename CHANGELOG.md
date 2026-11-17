@@ -5,6 +5,85 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
+## 1.19.0
+
+Adds a reagent table, a `postMessage` API for embedding the editor in another
+page, an ONLYOFFICE plugin that inserts the drawing as an editable object, and
+moves the project to the GNU AGPL-3.0-or-later.
+
+### Reagent table
+
+- A new top-bar table action opens a per-sheet reagent table: one row per
+  reactant, reagent, catalyst, solvent or product, with equivalents, MW,
+  mmol, density or concentration, and product yield.
+- Everything that can be computed is computed, never stored: mass from
+  mmol × MW, volume from concentration (preferred) or density, total
+  reactant mass, and a product's isolated mass after its yield. Changing
+  the batch scale moves every derived number in the same render, so the
+  table cannot contradict itself.
+- One row is the limiting reagent — the one marked, or the first reactant.
+  Its mmol (or the batch scale) sets the batch; every other row is scaled
+  from its equivalents. A row with an explicit mmol keeps that amount
+  instead and is underlined so it is obvious which rows no longer follow
+  the scale.
+- "Add selection" turns each connected structure in the current selection
+  into a row with its formula and MW taken from the drawing.
+- Edits are written on Apply, so a column of typed numbers is one undo
+  step; the table is saved with the sheet and copied out as CSV, including
+  the derived columns.
+- Removing a row, clearing the table and changing the scale are all undone
+  and redone like any other edit.
+
+### Embedding API
+
+- `?embed` opens the editor without its own chrome, autosave or version
+  history, for use inside an `<iframe>`. A host page drives it with
+  `postMessage`: `set`, `export` (project JSON, CDXML, SVG, SMILES, MOL,
+  SDF, RXN), `picture` (base64 PNG), `uiTheme`/`setTheme`, `readOnly`,
+  `selection`, `saved`, `markSaved`, `version` and `help`, each answered
+  under the request's `id`.
+- The editor posts `ready`, `change` and `selection` events of its own.
+- `&origin=` takes a comma-separated allowlist; with no entry the editor
+  only answers a real parent frame. A command that would export nothing
+  answers with `The sheet is empty.` rather than a broken file.
+- `readOnly` guards the store's commit, undo and redo paths, so an
+  embedding page can show a drawing it cannot edit.
+- `ready` is announced from a timer rather than `requestAnimationFrame`:
+  a frame that never paints (a background tab, a plugin window behind
+  another) never fires rAF, and the host would wait forever.
+
+### ONLYOFFICE plugin
+
+- `onlyoffice-plugin/` builds a `.plugin` that opens the editor in a window
+  over the document and inserts the drawing as an OLE object — a PNG
+  preview plus the `.enlacecraft` project JSON — so double-clicking it
+  reopens the drawing for editing.
+- The whole editor is bundled under `web/`, so the plugin needs no server,
+  no account and no network. `build.sh` runs the production build, asserts
+  the relative asset paths survived, strips the service worker (which could
+  never update from inside the editor) and zips the result.
+- The plugin window remembers its size between uses and can be expanded to
+  the whole window by double-clicking its title bar.
+
+### License
+
+- The project is now licensed under the GNU Affero General Public License,
+  version 3 or later, which requires anyone who runs a modified version as
+  a network service to offer its source too. `LICENSE` holds the full text,
+  `THIRD-PARTY-NOTICES.md` the dependencies' licenses.
+- The shortcuts/about overlay shows the license and a link to the source,
+  as AGPL §13 asks for.
+
+### Smaller changes
+
+- The reagent dialog's limiting radio now shows the row that is actually
+  limiting, including the fallback to the first reactant, and the CSV
+  `Limiting` column agrees with it.
+- A product's mass cell shows the isolated mass after yield beside the
+  theoretical mass (`92.14 → 73.712`).
+- The plugin posts commands to its own origin instead of `*` whenever the
+  plugin has one.
+
 ## 1.18.0
 
 Adds a reaction builder that draws a whole scheme from names or SMILES,
