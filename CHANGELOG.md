@@ -33,6 +33,10 @@ moves the project to the GNU AGPL-3.0-or-later.
   the derived columns.
 - Removing a row, clearing the table and changing the scale are all undone
   and redone like any other edit.
+- The table is drawn as part of the sheet: it hangs below the structure,
+  pans and zooms with the drawing, and appears in PNG, SVG, PDF and print
+  output because it lives inside the canvas SVG. Copying a selection still
+  copies only the selected chemistry.
 
 ### Embedding API
 

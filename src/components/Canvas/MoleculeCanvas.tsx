@@ -12,6 +12,7 @@ import { ShapeAnnotationView } from "./ShapeAnnotationView";
 import { OrbitalAnnotationView, lobePath as orbitalLobePath } from "./OrbitalAnnotationView";
 import { TlcPlateAnnotationView } from "./TlcPlateAnnotationView";
 import { SGroupOverlay } from "./SGroupOverlay";
+import { ReagentTableView } from "./ReagentTableView";
 import { AnnotationToolbar } from "./AnnotationToolbar";
 import { DragReadout } from "./DragReadout";
 import { atomLabelRadius, isOverValent } from "../../model/valence";
@@ -911,6 +912,9 @@ const MoleculeContent = memo(function MoleculeContent({
         <ReactionRoleOverlay molecule={molecule} annotations={annotations} />
       )}
       <SGroupOverlay molecule={molecule} annotations={annotations} />
+      {/* The reagent table is drawing content: it exports with the drawing
+          and pans/zooms with it (see ReagentTableView). */}
+      <ReagentTableView molecule={molecule} />
     </g>
   );
 });
