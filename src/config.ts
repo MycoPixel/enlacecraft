@@ -17,3 +17,14 @@
 const configuredWebAppUrl = import.meta.env?.VITE_WEB_APP_URL?.trim();
 
 export const DEFAULT_WEB_APP_URL = configuredWebAppUrl || "https://enlacecraft.vercel.app";
+
+/**
+ * Public source repository.
+ *
+ * Linked from the in-app help dialog because EnlaceCraft is licensed under
+ * the GNU AGPL-3.0-or-later: section 13 requires that anyone interacting
+ * with the program over a network is offered its source. A visible link is
+ * the simplest way to satisfy that for the web build as well as the
+ * packaged desktop app.
+ */
+export const SOURCE_CODE_URL = "https://github.com/MycoPixel/enlacecraft";

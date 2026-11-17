@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useT } from "../../i18n/useT";
 import { APP_VERSION } from "../../version";
+import { SOURCE_CODE_URL } from "../../config";
 
 interface ShortcutItem {
   keys: string;
@@ -123,7 +124,19 @@ export function ShortcutsOverlay({ open, onClose, onReplayOnboarding }: { open: 
           ))}
         </div>
         <div className="shortcuts-dialog__footer">
-          <span className="shortcuts-dialog__version">EnlaceCraft v{APP_VERSION}</span>
+          <span className="shortcuts-dialog__version">
+            EnlaceCraft v{APP_VERSION}
+            <a
+              className="shortcuts-dialog__source"
+              href={SOURCE_CODE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t("about.sourceCodeHint")}
+            >
+              {t("about.sourceCode")}
+            </a>
+            <span className="shortcuts-dialog__license">{t("about.license")}</span>
+          </span>
           <button
             type="button"
             className="shortcuts-dialog__replay"
