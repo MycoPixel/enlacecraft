@@ -1,0 +1,67 @@
+{
+  "name": "EnlaceCraft",
+  "nameLocale": {
+    "es": "EnlaceCraft",
+    "pt-BR": "EnlaceCraft"
+  },
+  "offered": "Paulo Castro",
+  "guid": "asc.{B7C1E4A2-9D3F-4A61-8E52-6F0C2A7D914B}",
+  "version": "1.0.0",
+  "minVersion": "8.1.0",
+  "variations": [
+    {
+      "description": "Draw chemical structures and reactions in EnlaceCraft; press OK to put the drawing in the document; double-click it to edit again.",
+      "descriptionLocale": {
+        "es": "Dibuje estructuras y reacciones químicas en EnlaceCraft; pulse Aceptar para insertar el dibujo; haga doble clic para editarlo de nuevo.",
+        "pt-BR": "Desenhe estruturas e reações químicas no EnlaceCraft; pressione OK para inserir o desenho; clique duas vezes para editá-lo novamente."
+      },
+      "url": "index.html",
+      "icons": [
+        "resources/img/icon.png",
+        "resources/img/icon@2x.png"
+      ],
+      "isViewer": false,
+      "EditorsSupport": [
+        "word",
+        "cell",
+        "slide"
+      ],
+      "isVisual": true,
+      "isModal": false,
+      "isInsideMode": false,
+      "type": "visual",
+      "initDataType": "ole",
+      "initData": "",
+      "isUpdateOleOnResize": false,
+      "events": [],
+      "icons2": [
+        {
+          "style": "light",
+          "100%": { "normal": "resources/img/icon.png" },
+          "200%": { "normal": "resources/img/icon@2x.png" }
+        },
+        {
+          "style": "dark",
+          "100%": { "normal": "resources/img/icon.png" },
+          "200%": { "normal": "resources/img/icon@2x.png" }
+        }
+      ],
+      "store": {
+        "background": {
+          "light": "#E8EDFB",
+          "dark": "#2B3245"
+        },
+        "screenshots": [],
+        "icons": {
+          "light": "resources/img",
+          "dark": "resources/img"
+        },
+        "categories": [
+          "specAbilities",
+          "work"
+        ]
+      }
+    }
+  ],
+  "onlyofficeScheme": false
+}

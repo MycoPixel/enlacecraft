@@ -109,3 +109,8 @@ python/iupac_fallback_server/jre-cache/
 # Local scratch playground for the aromaticity engine — prints verdicts instead
 # of asserting them, and skips itself unless AROMATICITY_PLAYGROUND=1.
 src/engine/aromaticity.playground.test.ts
+
+# ONLYOFFICE plugin build output (assembled by onlyoffice-plugin/build.sh)
+onlyoffice-plugin/web/
+onlyoffice-plugin/EnlaceCraft-ONLYOFFICE.plugin
+onlyoffice-plugin/resources/img/
