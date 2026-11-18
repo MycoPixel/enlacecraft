@@ -45,10 +45,30 @@ Then: **Insert → EnlaceCraft** to draw; **OK** inserts the drawing;
 
 ## Notes
 
-- The wrapper files are MPL-2.0; the bundled editor is AGPL-3.0-or-later
-  (see the repository's `LICENSE`). The two licences are compatible.
+- The plugin wrapper and the bundled editor are both AGPL-3.0-or-later (see
+  the repository's `LICENSE`). The wrapper follows the architecture Reactio
+  Draw documents for its own ONLYOFFICE integration, but contains no code
+  from it.
 - The plugin GUID is unique to this project. Do not reuse another editor's
   GUID: ONLYOFFICE would treat the two plugins as the same one.
 - The ONLYOFFICE SDK is loaded from `../v1/plugins.js` (shipped by the host)
   with the official CDN as a fallback; that fallback is the only network
   request the wrapper can make.
+
+## Testing without ONLYOFFICE
+
+`mock/` is a harness that replaces ONLYOFFICE's SDK with a recording fake and
+runs the real `bridge.js`, `insert.js` and `plugin.js` against the editor:
+
+```bash
+cd onlyoffice-plugin
+python3 -m http.server 8099
+# open http://localhost:8099/mock/harness.html
+```
+
+It checks that a new drawing becomes `AddOleObject` with a PNG preview, the
+project JSON and a size that keeps the picture's proportions and fits a
+170 mm text column; that reopening the object calls `EditOleObject` with the
+same data; and that Cancel inserts nothing. The log under the results lists
+every call the wrapper made. Point the editor URL at a dev server
+(`http://localhost:5173/?embed`) to test against source instead of `web/`.

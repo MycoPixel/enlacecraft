@@ -1,0 +1,291 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>EnlaceCraft ONLYOFFICE plugin — mock harness</title>
+  <style>
+    body { margin: 0; padding: 18px 20px 40px; font: 14px/1.5 system-ui, sans-serif;
+           color: #1b2027; background: #f6f7f9; max-width: 980px; }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    p.lede { margin: 0 0 14px; color: #5b6472; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    label { color: #5b6472; }
+    input[type=text] { flex: 1 1 380px; padding: 6px 8px; font: inherit; border: 1px solid #c8cfda; border-radius: 6px; }
+    button { padding: 6px 12px; font: inherit; border: 1px solid #b9c2cf; border-radius: 6px;
+             background: #fff; color: #1b2027; cursor: pointer; }
+    button:hover { background: #eef2f8; }
+    button:disabled { opacity: .5; cursor: default; }
+    #results { margin: 14px 0 6px; padding: 10px 12px; min-height: 34px; background: #fff;
+               border: 1px solid #dde3ec; border-radius: 8px; font: 12.5px/1.6 ui-monospace, monospace;
+               white-space: pre-wrap; }
+    .pass { color: #146c2e; }
+    .fail { color: #a3241b; font-weight: 600; }
+    .note { color: #5b6472; }
+    #log { margin: 0; padding: 10px 12px; min-height: 80px; max-height: 300px; overflow: auto;
+           background: #11161e; color: #c9d4e3; border-radius: 8px;
+           font: 11.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; }
+    #frame { width: 100%; height: 460px; margin-top: 14px; border: 1px solid #dde3ec;
+             border-radius: 8px; background: #fff; }
+  </style>
+</head>
+<body>
+  <h1>ONLYOFFICE plugin mock harness</h1>
+  <p class="lede">
+    Runs the real <code>bridge.js</code>, <code>insert.js</code> and
+    <code>plugin.js</code> against a fake <code>Asc.plugin</code>. The editor
+    itself is a normal build, so the checks cover the whole
+    export&nbsp;→&nbsp;OLE&nbsp;object&nbsp;→&nbsp;reopen flow. Serve this folder
+    over HTTP (for example <code>python3 -m http.server</code> inside
+    <code>onlyoffice-plugin</code>); <code>file://</code> blocks the iframe's
+    modules.
+  </p>
+
+  <div class="row">
+    <label for="editor">Editor URL</label>
+    <input id="editor" type="text" value="../web/index.html?embed">
+    <button id="all">Run all checks</button>
+    <button id="new">New drawing → OK</button>
+    <button id="cancel">New drawing → Cancel</button>
+  </div>
+  <div class="row">
+    <button id="clear">Clear</button>
+    <span class="note">Needs <code>onlyoffice-plugin/web/</code>: run <code>./build.sh</code>, or point the editor URL at a dev server such as <code>http://localhost:5173/?embed</code>.</span>
+  </div>
+
+  <div id="results" aria-live="polite"></div>
+  <pre id="log"></pre>
+  <iframe id="frame" title="Mock ONLYOFFICE plugin window"></iframe>
+
+  <script>
+    (function () {
+      'use strict';
+
+      var results = document.getElementById('results'),
+        logEl = document.getElementById('log'),
+        frame = document.getElementById('frame'),
+        editorInput = document.getElementById('editor'),
+        buttons = ['all', 'new', 'cancel', 'clear'].map(function (id) { return document.getElementById(id); });
+
+      var run = null; // the scenario currently listening
+
+      function line(html) {
+        results.insertAdjacentHTML('beforeend', html + '\n');
+      }
+
+      function check(name, ok, detail) {
+        line('<span class="' + (ok ? 'pass' : 'fail') + '">' + (ok ? 'PASS' : 'FAIL') + '</span> ' + name +
+          (detail ? ' <span class="note">— ' + detail + '</span>' : ''));
+        return ok;
+      }
+
+      function note(text) {
+        line('<span class="note">' + text + '</span>');
+      }
+
+      function logCall(entry) {
+        var shown = entry.name || entry.kind;
+        if (entry.params) shown += ' ' + JSON.stringify(entry.params).slice(0, 220);
+        if (entry.data) shown += ' ' + JSON.stringify(entry.data).slice(0, 120);
+        if (entry.kind === 'resize') shown += ' ' + entry.w + '×' + entry.h;
+        logEl.textContent += shown + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      window.addEventListener('message', function (e) {
+        var d = e.data;
+        if (!run || e.source !== run.frame.contentWindow) return;
+        if (!d || typeof d !== 'object' || d.mock !== 1) return;
+
+        if (d.event === 'host-ready') {
+          run.frame.contentWindow.postMessage({
+            mock: 1,
+            event: 'start',
+            mode: run.mode,
+            data: run.data,
+            draw: run.draw,
+            editorType: run.editorType,
+          }, '*');
+        } else if (d.event === 'call') {
+          run.calls.push(d.entry);
+          logCall(d.entry);
+        } else if (d.event === 'msg') {
+          run.msg = d.text || '';
+        } else if (d.event === 'started') {
+          if (run.press === 0 || run.press === 1) {
+            run.frame.contentWindow.postMessage({ mock: 1, event: 'press', button: run.press }, '*');
+          }
+          run.started = true;
+          run.settle();
+        }
+      });
+
+      function scenario(options) {
+        return new Promise(function (resolve, reject) {
+          frame.src = 'about:blank';
+          run = {
+            mode: options.mode,
+            data: options.data || '',
+            draw: options.draw,
+            editorType: options.editorType || 'word',
+            press: options.press,
+            calls: [],
+            msg: '',
+            started: false,
+            frame: frame,
+            settle: function () { maybeDone(); },
+          };
+          var settled = false,
+            deadline = 0;
+
+          function finish() {
+            if (settled) return;
+            settled = true;
+            clearTimeout(deadline);
+            var result = { calls: run.calls.slice(), msg: run.msg };
+            run = null;
+            resolve(result);
+          }
+
+          function maybeDone() {
+            if (!run || settled) return;
+            var names = run.calls.map(function (c) { return c.name; });
+            if (names.indexOf('close') >= 0) finish();
+          }
+
+          run.finish = finish;
+          deadline = setTimeout(finish, options.timeout || 25000);
+          frame.src = 'host.html?editor=' + encodeURIComponent(editorInput.value.trim() || '../web/index.html?embed');
+        });
+      }
+
+      function method(calls, name) {
+        return calls.filter(function (c) { return c.kind === 'method' && c.name === name; })[0];
+      }
+
+      function pngSize(dataUrl) {
+        var b64 = String(dataUrl || '').replace(/^data:image\/png;base64,/, ''),
+          bin = atob(b64.slice(0, 64));
+        function word(i) {
+          return ((bin.charCodeAt(i) << 24) | (bin.charCodeAt(i + 1) << 16) |
+            (bin.charCodeAt(i + 2) << 8) | bin.charCodeAt(i + 3)) >>> 0;
+        }
+        return { w: word(16), h: word(20) };
+      }
+
+      function paramOf(entry) {
+        return entry && entry.params && entry.params[0];
+      }
+
+      async function runAll() {
+        results.textContent = '';
+        logEl.textContent = '';
+        buttons.forEach(function (b) { b.disabled = true; });
+        line('Editor: ' + editorInput.value.trim());
+
+        try {
+          /* 1. A new drawing goes into the document as AddOleObject with a
+                preview, the project JSON and a sane size. */
+          note('1. New drawing → OK');
+          var created = await scenario({
+            mode: 'new',
+            press: 0,
+            draw: { text: 'CCO', format: 'smiles' },
+          });
+          var added = method(created.calls, 'AddOleObject'),
+            addParam = paramOf(added);
+          check('AddOleObject was called once', created.calls.filter(function (c) {
+            return c.name === 'AddOleObject';
+          }).length === 1);
+          check('the object carries EnlaceCraft project JSON',
+            !!addParam && typeof addParam.data === 'string' && addParam.data.slice(0, 40).indexOf('"version"') >= 0,
+            addParam ? addParam.data.slice(0, 32) + '…' : 'no parameter');
+          var project = null;
+          try { project = JSON.parse(addParam ? addParam.data : ''); } catch (e) { project = null; }
+          var atoms = project && project.tabs && project.tabs[0] && project.tabs[0].molecule &&
+            project.tabs[0].molecule.atoms ? Object.keys(project.tabs[0].molecule.atoms).length : 0;
+          check('the object contains the drawing, not an empty sheet', atoms === 3, atoms + ' atoms');
+          check('the preview is an inline PNG',
+            !!addParam && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(addParam.imgSrc || ''));
+          var px = addParam ? pngSize(addParam.imgSrc) : { w: 0, h: 0 },
+            ratioOk = !!addParam && px.w > 0 && Math.abs((addParam.height / addParam.width) - (px.h / px.w)) < 0.02;
+          check('the size keeps the picture\'s proportions', ratioOk,
+            addParam ? addParam.width.toFixed(1) + '×' + addParam.height.toFixed(1) + ' mm, png ' + px.w + '×' + px.h : '');
+          check('the width fits a 170 mm text column', !!addParam && addParam.width > 0 && addParam.width <= 170.01,
+            addParam ? addParam.width.toFixed(1) + ' mm' : '');
+          check('the object id from ONLYOFFICE is passed through', !!addParam && addParam.guid === 'asc.{B7C1E4A2-9D3F-4A61-8E52-6F0C2A7D914B}');
+          check('a new object has no objectId', !!addParam && addParam.objectId === undefined);
+          check('the window closes after inserting', created.calls.some(function (c) {
+            return c.kind === 'command' && c.name === 'close';
+          }));
+          check('no error was shown in the plugin window', !created.msg, created.msg);
+
+          /* 2. Double-clicking the object hands its data back: init() loads
+                it and OK edits the same object. */
+          note('2. Reopen the inserted object → OK');
+          var reopened = await scenario({ mode: 'edit', data: addParam ? addParam.data : '', press: 0 });
+          var edited = method(reopened.calls, 'EditOleObject'),
+            editParam = paramOf(edited);
+          check('EditOleObject was called, not AddOleObject', !!edited &&
+            !reopened.calls.some(function (c) { return c.name === 'AddOleObject'; }));
+          check('it edits the object that was opened', !!editParam && editParam.objectId === 'ole-1',
+            editParam ? String(editParam.objectId) : '');
+          check('the drawing survives the round trip unchanged',
+            !!editParam && !!addParam && editParam.data === addParam.data);
+
+          /* 3. Cancel makes no object at all. */
+          note('3. New drawing → Cancel');
+          var cancelled = await scenario({ mode: 'new', press: 1, draw: { text: 'CCO', format: 'smiles' } });
+          check('Cancel inserts nothing', !cancelled.calls.some(function (c) {
+            return c.name === 'AddOleObject' || c.name === 'EditOleObject';
+          }));
+          check('Cancel still closes the window', cancelled.calls.some(function (c) {
+            return c.kind === 'command' && c.name === 'close';
+          }));
+
+          /* 4. A drawing wider than the page is shrunk like a picture. */
+          note('4. A drawing wider than the text column');
+          var wide = await scenario({
+            mode: 'new',
+            press: 0,
+            draw: { text: new Array(61).join('C'), format: 'smiles' },
+          });
+          var wideParam = paramOf(method(wide.calls, 'AddOleObject')),
+            widePx = wideParam ? pngSize(wideParam.imgSrc) : { w: 0, h: 0 };
+          check('a wide drawing is shrunk to 170 mm', !!wideParam &&
+            Math.abs(wideParam.width - 170) < 0.5, wideParam ? wideParam.width.toFixed(1) + ' mm' : 'no object');
+          check('shrinking keeps the picture\'s proportions', !!wideParam && widePx.w > 0 &&
+            Math.abs((wideParam.height / wideParam.width) - (widePx.h / widePx.w)) < 0.02,
+            wideParam ? wideParam.width.toFixed(1) + '×' + wideParam.height.toFixed(1) + ' mm' : '');
+
+          var failed = results.querySelectorAll('.fail').length;
+          note(failed === 0 ? 'All checks passed.' : failed + ' check(s) failed.');
+        } catch (e) {
+          check('the run completed without throwing', false, String(e && e.message || e));
+        } finally {
+          buttons.forEach(function (b) { b.disabled = false; });
+        }
+      }
+
+      document.getElementById('all').addEventListener('click', runAll);
+      document.getElementById('new').addEventListener('click', async function () {
+        results.textContent = '';
+        logEl.textContent = '';
+        var r = await scenario({ mode: 'new', press: 0, draw: { text: 'CCO', format: 'smiles' } });
+        check('AddOleObject called', !!method(r.calls, 'AddOleObject'));
+        check('closed', r.calls.some(function (c) { return c.name === 'close'; }));
+      });
+      document.getElementById('cancel').addEventListener('click', async function () {
+        results.textContent = '';
+        logEl.textContent = '';
+        var r = await scenario({ mode: 'new', press: 1, draw: { text: 'CCO', format: 'smiles' } });
+        check('nothing inserted', !method(r.calls, 'AddOleObject'));
+        check('closed', r.calls.some(function (c) { return c.name === 'close'; }));
+      });
+      document.getElementById('clear').addEventListener('click', function () {
+        results.textContent = '';
+        logEl.textContent = '';
+      });
+    })();
+  </script>
+</body>
+</html>

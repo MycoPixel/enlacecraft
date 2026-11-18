@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>EnlaceCraft ONLYOFFICE mock host</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; }
+    #editor { border: 0; width: 100%; height: 100%; display: block; }
+    #msg { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px;
+           font: 13px sans-serif; background: #fdecea; color: #8a1c13; display: none; }
+  </style>
+  <!-- The mock stands in for ONLYOFFICE's plugins.js, so nothing here touches
+       the network. The three scripts below are the real plugin code. -->
+  <script src="asc-mock.js"></script>
+  <script src="../bridge.js"></script>
+  <script src="../insert.js"></script>
+  <script src="../plugin.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var query = new URLSearchParams(location.search),
+        started = false;
+
+      function post(message) {
+        if (window.parent !== window) window.parent.postMessage(message, '*');
+      }
+
+      /* plugin.js's own error surface is the #msg bar; watch it so the
+         harness sees "could not insert" instead of a silent timeout. */
+      function watchMessage() {
+        var msg = document.getElementById('msg');
+        function state() {
+          post({ mock: 1, event: 'msg', text: msg.style.display !== 'none' ? msg.textContent : '' });
+        }
+        if (window.MutationObserver) {
+          new MutationObserver(state).observe(msg, {
+            childList: true, characterData: true, subtree: true, attributes: true,
+          });
+        }
+      }
+
+      window.addEventListener('message', function (e) {
+        var d = e.data;
+        if (!d || typeof d !== 'object' || d.mock !== 1) return;
+        if (d.event === 'press') {
+          window.Asc.plugin.button(d.button === 0 ? 0 : 1);
+        } else if (d.event === 'start' && !started) {
+          started = true;
+          window.AscMock.reset();
+          window.AscMock.configure({
+            guid: 'asc.{B7C1E4A2-9D3F-4A61-8E52-6F0C2A7D914B}',
+            editorType: d.editorType || 'word',
+            objectId: d.mode === 'edit' ? 'ole-1' : undefined,
+            resize: false,
+            mmToPx: 3.7795275591,
+            theme: { type: 'light', name: 'theme-light', 'background-normal': '#ffffff', 'text-normal': '#1b2027' },
+          });
+          window.EnlaceCraftBridge.themeFromInfo();
+          window.Asc.plugin.init(d.data || '');
+          /* A new window is empty; stand in for the user drawing something.
+             Wait for the drawing to land before the harness presses OK, so
+             the test cannot race the set. */
+          var drawn = d.draw ? window.EnlaceCraftBridge.run('set', d.draw) : Promise.resolve();
+          drawn.then(function () {
+            post({ mock: 1, event: 'started', mode: d.mode || 'new' });
+          }, function (e) {
+            post({ mock: 1, event: 'msg', text: 'Could not draw: ' + e.message });
+            post({ mock: 1, event: 'started', mode: d.mode || 'new' });
+          });
+        }
+      });
+
+      /* bridge.js sets the frame to web/index.html?embed on DOMContentLoaded;
+         running after it lets the harness choose another build (a dev server,
+         a stale bundle) without editing plugin code. */
+      document.addEventListener('DOMContentLoaded', function () {
+        watchMessage();
+        document.getElementById('editor').src =
+          query.get('editor') || '../web/index.html?embed';
+        post({ mock: 1, event: 'host-ready' });
+      });
+    })();
+  </script>
+</head>
+<body>
+  <iframe id="editor" title="EnlaceCraft"></iframe>
+  <div id="msg"></div>
+</body>
+</html>
