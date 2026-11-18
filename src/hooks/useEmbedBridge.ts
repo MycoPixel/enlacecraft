@@ -26,6 +26,14 @@ function annotationsById(list: Annotation[]): Record<string, Annotation> {
   return out;
 }
 
+/** Set equality by membership, for change detection without allocations. */
+function sameIds(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
+
 function tabFrom(
   molecule: Molecule,
   annotations: Record<string, Annotation>,
@@ -33,7 +41,7 @@ function tabFrom(
   title: string
 ): ProjectTab {
   return {
-    id: `tab-${Date.now().toString(36)}`,
+    id: `tab-${Date.now().toString(36)}-${nextTabOrdinal++}`,
     title,
     molecule,
     annotations,
@@ -41,6 +49,10 @@ function tabFrom(
     page: page ?? defaultPageSetup(),
   };
 }
+
+/** Keeps ids unique when one import creates several tabs in the same
+ * millisecond (a multi-record SDF). */
+let nextTabOrdinal = 0;
 
 /** Blob → base64 without the data: URL prefix, in chunks so a large PNG
  * doesn't blow the argument limit of String.fromCharCode. */
@@ -82,10 +94,13 @@ function replaceFromText(text: string, format?: string): void {
 
   if (kind === "sdf") {
     const result = importSdf(trimmed);
-    const first = result.records[0];
-    if (!first) throw new Error("The drawing is empty.");
-    const tab = tabFrom(first.molecule, {}, undefined, first.title || "Imported");
-    store.loadProject({ activeTabId: tab.id, tabs: [tab] });
+    if (result.records.length === 0) throw new Error("The drawing is empty.");
+    // A multi-record file is several drawings, so it becomes several tabs
+    // rather than silently keeping the first and dropping the rest.
+    const tabs = result.records.map((record, index) =>
+      tabFrom(record.molecule, {}, undefined, record.title || `Imported ${index + 1}`)
+    );
+    store.loadProject({ activeTabId: tabs[0].id, tabs });
     return;
   }
 
@@ -215,10 +230,13 @@ export function useEmbedBridge(svgRef: RefObject<SVGSVGElement | null>, { enable
 
     // Keep the host informed without flooding it: pointer moves and hover
     // state change the store many times per second, and only real document
-    // edits should produce a change event.
-    let lastMolecule: unknown = null;
-    let lastAnnotations: unknown = null;
-    let lastSelection: unknown = null;
+    // edits should produce a change event. The snapshots start from what is
+    // already on screen, so mounting does not announce a change that never
+    // happened.
+    const initial = useMoleculeStore.getState();
+    let lastMolecule: unknown = initial.molecule;
+    let lastAnnotations: unknown = initial.annotations;
+    let lastSelection: ReadonlySet<string> = initial.selected;
     let changeTimer = 0;
     const unsubscribe = useMoleculeStore.subscribe((state) => {
       if (state.molecule !== lastMolecule || state.annotations !== lastAnnotations) {
@@ -236,7 +254,10 @@ export function useEmbedBridge(svgRef: RefObject<SVGSVGElement | null>, { enable
           }
         }, 120);
       }
-      if (state.selected !== lastSelection) {
+      // Compare contents, not identity: loading a document replaces the Set
+      // even when the same atoms stay selected, and a host does not want an
+      // event per redraw for a selection that never moved.
+      if (!sameIds(state.selected, lastSelection)) {
         lastSelection = state.selected;
         try {
           window.parent.postMessage(

@@ -48,8 +48,15 @@ moves the project to the GNU AGPL-3.0-or-later.
   under the request's `id`.
 - The editor posts `ready`, `change` and `selection` events of its own.
 - `&origin=` takes a comma-separated allowlist; with no entry the editor
-  only answers a real parent frame. A command that would export nothing
-  answers with `The sheet is empty.` rather than a broken file.
+  only answers a real parent frame. An entry may also be a one-label host
+  wildcard (`https://*.example.com`), `*`, or `null` for a sandboxed
+  frame. A command that would export nothing answers with
+  `The sheet is empty.` rather than a broken file.
+- A multi-record SDF becomes one tab per record, with unique tab ids, so
+  the second and later structures are no longer dropped.
+- `change` and `selection` are sent only when the document or the selected
+  ids actually differ, and never for mounting, so a host sees edits
+  rather than redraws.
 - `readOnly` guards the store's commit, undo and redo paths, so an
   embedding page can show a drawing it cannot edit.
 - `ready` is announced from a timer rather than `requestAnimationFrame`:

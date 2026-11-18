@@ -128,4 +128,24 @@ describe("protocol guards", () => {
     expect(embedOriginAllowed(["https://eln.example"], "https://eln.example")).toBe(true);
     expect(embedOriginAllowed(["https://eln.example"], "https://evil.example")).toBe(false);
   });
+
+  it("accepts a host wildcard on exactly one label", () => {
+    const allowed = ["https://*.eln.example"];
+    expect(embedOriginAllowed(allowed, "https://labs.eln.example")).toBe(true);
+    expect(embedOriginAllowed(allowed, "https://eln.example")).toBe(false);
+    expect(embedOriginAllowed(allowed, "https://a.b.eln.example")).toBe(false);
+    expect(embedOriginAllowed(allowed, "https://labs.eln.example.evil.test")).toBe(false);
+  });
+
+  it("treats `*` as any origin and `null` as the sandboxed one", () => {
+    expect(embedOriginAllowed(["*"], "https://anything.example")).toBe(true);
+    expect(embedOriginAllowed(["null"], "null")).toBe(true);
+    expect(embedOriginAllowed(["https://eln.example"], "null")).toBe(false);
+  });
+
+  it("does not let a wildcard match a different scheme or port", () => {
+    const allowed = ["https://*.eln.example"];
+    expect(embedOriginAllowed(allowed, "http://labs.eln.example")).toBe(false);
+    expect(embedOriginAllowed(allowed, "https://labs.eln.example:8443")).toBe(false);
+  });
 });

@@ -252,8 +252,20 @@ export function isEmbedRequest(data: unknown): data is EmbedRequest {
 /** The `origin` query parameter is a comma-separated allowlist. With no
  * entry, the editor answers whoever embedded it; with entries, everyone
  * else is ignored. This is the same rule Reactio Draw documents, and it
- * matters because the editor can read and replace the drawing. */
+ * matters because the editor can read and replace the drawing.
+ *
+ * An entry may be an exact origin (`https://eln.example`), a host wildcard
+ * (`https://*.example.com`, one label), or `*` for any origin. Sandboxed
+ * frames report the origin `null`, which matches an entry spelled `null`. */
 export function embedOriginAllowed(allowed: string[], origin: string): boolean {
-  if (allowed.length === 0) return true;
-  return allowed.includes(origin);
+  const escape = (part: string) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const entry of allowed) {
+    if (entry === "*" || entry === origin) return true;
+    if (!entry.includes("*")) continue;
+    // `*` stands for one DNS label, so `*.example.com` does not silently
+    // become "anything under example.com", including deeper subdomains.
+    const pattern = `^${entry.split("*").map(escape).join("[^./]+")}$`;
+    if (new RegExp(pattern).test(origin)) return true;
+  }
+  return allowed.length === 0;
 }
