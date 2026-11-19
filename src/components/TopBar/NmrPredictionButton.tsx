@@ -513,6 +513,7 @@ export function NmrPredictionButton({ variant, label, menuId }: ToolDropdownTrig
               </button>
 
               <p className="nmr-result__caveat">{t("nmr.caveat")}</p>
+              <p className="nmr-result__credit">{t("nmr.credit")}</p>
             </div>
           )}
         </div>

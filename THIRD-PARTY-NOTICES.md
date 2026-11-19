@@ -7,6 +7,11 @@ It bundles or depends on the components below. Each remains under its own
 license; nothing here changes those terms. All of them are compatible with the
 AGPL.
 
+Source files do not carry per-file SPDX headers. The license is declared once:
+`package.json`'s `"license": "AGPL-3.0-or-later"`, this repository's
+[`LICENSE`](LICENSE), and the in-app about panel. Contributions are accepted
+under the same license; no separate copyright assignment is required.
+
 ## JavaScript / TypeScript runtime dependencies
 
 | Component | License | Used for |
@@ -46,21 +51,45 @@ These are separate local processes, not linked into the JavaScript app.
 | [RDKit](https://www.rdkit.org) | BSD-3-Clause | Molecular graphs for NMR prediction |
 | [PyTorch](https://pytorch.org) | BSD-3-Clause | NMR graph neural network inference |
 | [NumPy](https://numpy.org) | BSD-3-Clause | Numerical work |
-| [xtb](https://github.com/grimme-lab/xtb) | LGPL-3.0-or-later | GFN2-xTB geometry refinement and IR spectra |
+| [xtb](https://github.com/grimme-lab/xtb) 6.7.1 | LGPL-3.0-or-later | GFN2-xTB geometry refinement and IR spectra |
+| [OPSIN](https://github.com/dan2097/opsin) 2.9.0 | MIT | IUPAC name → structure and name verification |
+| [py2opsin](https://github.com/JacksonBurns/py2opsin) | MIT | Python wrapper around OPSIN |
+| [JPype](https://jpype.readthedocs.io) | Apache-2.0 | Embedded JVM bridge for OPSIN |
+| [Eclipse Temurin JRE](https://adoptium.net) 21.0.9+10 | GPL-2.0 WITH Classpath-exception-2.0 | Java runtime bundled with the IUPAC fallback |
 
-`xtb` is invoked as an external command-line program. If a release bundles its
-binary, that release must also provide the corresponding xtb source (or a
-written offer) and must not prevent the user from replacing the binary, as the
-LGPL requires. The `xtb` source is available from the link above.
+**xtb (LGPL).** `xtb` is invoked as an external command-line program, and a
+desktop release bundles the unmodified upstream Linux x86-64 binary at
+`resources/structure3d_server/xtb/bin/xtb`. The corresponding source is the
+upstream `v6.7.1` tag (commit `edcfbbe`), available from
+<https://github.com/grimme-lab/xtb/tree/v6.7.1>; anyone distributing a
+release must also pass that source (or a written offer) on, and must not
+prevent the user from replacing the binary with a modified one. The Windows
+build uses a conda-forge `xtb` build instead, with the same obligations.
+
+**Bundled JRE and OPSIN.** The frozen IUPAC fallback ships Temurin's `jre/`
+directory with its own `NOTICE` and `legal/` files, plus OPSIN's
+`opsin-cli-2.9.0-jar-with-dependencies.jar` unmodified. Temurin's
+Classpath-exception terms cover running OPSIN, not the reverse-engineering
+restriction of the bare GPL; nothing in this project modifies either.
 
 ## Data and models
 
-- **NMR prediction** is derived from **nmrshiftdb2** data. The nmrshiftdb2
-  database license applies to that data; see the attribution shown in the
-  prediction result and <https://nmrshiftdb.nmr.uni-koeln.de>.
-- `python/NMRGraph` is a separate project by the same author. Check the
-  redistribution terms of its trained model checkpoints and of the datasets
-  they were trained on before publishing them in a release.
+- **nmrshiftdb2.** The NMR prediction model was trained on chemical shifts
+  from **nmrshiftdb2**, whose data is published under the **nmrshiftdb2
+  Database License** — an Open Database License (ODbL) 1.0 derivative with
+  an added §4.5. That license requires attribution and share-alike for
+  adapted databases. The source database itself is not redistributed here;
+  the app credits nmrshiftdb2 beside every prediction. See
+  <https://nmrshiftdb.nmr.uni-koeln.de> and
+  <https://opendatacommons.org/licenses/odbl/1-0/>.
+- **Model checkpoints.** `python/NMRGraph/data/models/*.pt` (three files,
+  about 1.7 MB each) are this project's own trained weights, produced with
+  NMRGraph's training scripts from that nmrshiftdb2 data. They contain no
+  third-party pre-trained weights. Provenance, checksums and regeneration
+  steps are in
+  [`python/NMRGraph/MODEL_PROVENANCE.md`](python/NMRGraph/MODEL_PROVENANCE.md).
+  They are distributed as part of EnlaceCraft under AGPL-3.0-or-later; the
+  training data's own terms still apply to the data, not to the program.
 - **PubChem** and **MassBank** data are fetched at runtime from their public
   services; they are not bundled. Their own terms apply to the returned data.
 

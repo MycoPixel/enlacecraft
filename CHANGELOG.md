@@ -84,6 +84,14 @@ moves the project to the GNU AGPL-3.0-or-later.
   `THIRD-PARTY-NOTICES.md` the dependencies' licenses.
 - The shortcuts/about overlay shows the license and a link to the source,
   as AGPL §13 asks for.
+- Desktop packages ship `LICENSE` and `THIRD-PARTY-NOTICES.md` beside the
+  app. The notices now name the bundled xtb 6.7.1 (LGPL-3.0-or-later, with
+  the upstream source tag), the Temurin JRE and OPSIN inside the IUPAC
+  fallback, and the provenance of the NMR model weights
+  (`python/NMRGraph/MODEL_PROVENANCE.md`).
+- The NMR result and its report credit nmrshiftdb2, whose database license
+  asks for attribution, and the app no longer claims everything bundled is
+  permissively licensed.
 
 ### Smaller changes
 

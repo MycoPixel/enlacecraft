@@ -1646,6 +1646,16 @@ button.valence-warn--button:hover {
   color: var(--ink-soft);
 }
 
+/* nmrshiftdb2's database licence asks for attribution; keep it visible but
+   quieter than the prediction caveat above it. */
+.nmr-result__credit {
+  margin: 2px 9px 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  opacity: 0.85;
+}
+
 .nmr-result__view-report {
   display: flex;
   align-items: center;

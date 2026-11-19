@@ -19,7 +19,7 @@
       if (window.parent !== window) {
         window.parent.postMessage({ mock: 1, event: 'call', entry: entry }, '*');
       }
-    } catch (e) {
+    } catch {
       /* a closed parent is not an error here */
     }
   }

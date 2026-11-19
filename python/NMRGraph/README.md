@@ -40,12 +40,12 @@ python -c "from rdkit import Chem; print('RDKit OK')"
 
 If that prints `RDKit OK`, the environment is good.
 
-## Model checkpoints (not in git)
+## Model checkpoints
 
-`data/models/*.pt` is gitignored (large binary files - see
-`.gitignore`) and won't come with `git clone`. You need to copy these
-in by hand from wherever they were last trained/saved (USB drive,
-cloud folder, etc.) before the server or CLI will run:
+`data/models/*.pt` holds the three trained checkpoints (about 1.7 MB each).
+They are checked into the EnlaceCraft repository so a clone can run the
+backend without extra steps; the folder is otherwise gitignored so a
+retraining run does not add new weights by accident:
 
 ```
 data/models/gnn_v1.pt          # 13C
@@ -53,8 +53,10 @@ data/models/gnn_h1_ch_v1.pt    # 1H (carbon-attached protons)
 data/models/gnn_h1_v1.pt       # 1H (all protons, incl. exchangeable - higher error, rarely used)
 ```
 
-Without these, `uvicorn src.api.main:app` will fail at startup trying
-to load a checkpoint that doesn't exist.
+Their sizes, SHA-256 hashes, training data and license notes are in
+[MODEL_PROVENANCE.md](MODEL_PROVENANCE.md). Without these files,
+`uvicorn src.api.main:app` will fail at startup trying to load a
+checkpoint that doesn't exist.
 
 ## Running the prediction server
 
@@ -107,7 +109,7 @@ packaging/            PyInstaller spec + build instructions (see packaging/READM
 data/
   raw/                Source NMRShiftDB file (gitignored, not needed unless retraining)
   processed/          Intermediate build artifacts (gitignored)
-  models/             Trained checkpoints (gitignored - see above)
+  models/             Trained checkpoints (tracked in EnlaceCraft - see above)
 ```
 
 ## Training / retraining
@@ -136,13 +138,12 @@ wired in on that side.
 
 ## Working from a second machine
 
-Since checkpoints and raw data are gitignored (by design - they're
-large and don't belong in git history), a fresh `git clone` on a new
-machine gets you the code but not the data. After cloning:
+The checkpoints are tracked in EnlaceCraft, so a fresh `git clone`
+already includes them. The raw nmrshiftdb2 file is not (it is large and
+not redistributed); you only need it for retraining. After cloning:
 
 1. Set up micromamba + the `nmr` environment (see Setup above).
-2. Copy `data/models/*.pt` over from your other machine.
-3. Only if retraining: also copy `data/raw/nmrshiftdb2withsignals.sd`.
+2. Only if retraining: copy `data/raw/nmrshiftdb2withsignals.sd` over.
 
 That's the full list - everything else (the venv, build outputs,
 `data/processed/`) is either recreated by the environment setup or

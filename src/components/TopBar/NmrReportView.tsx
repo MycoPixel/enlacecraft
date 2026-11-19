@@ -411,7 +411,9 @@ export function NmrReportView({
           />
         )}
 
-        <p className="nmr-report-dialog__caveat">{t("nmr.caveat")}</p>
+        <p className="nmr-report-dialog__caveat">
+          {t("nmr.caveat")} {t("nmr.credit")}
+        </p>
       </div>
     </div>,
     document.body

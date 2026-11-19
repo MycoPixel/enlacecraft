@@ -522,6 +522,10 @@ files you create with EnlaceCraft are yours; the license covers the program,
 not your output.
 
 Third-party components and their licenses are listed in
-[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). In short, everything
-bundled here is permissively licensed (MIT / BSD-3-Clause / ISC /
-Apache-2.0 / MPL-2.0) and compatible with the AGPL.
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). Most of the code is
+permissively licensed (MIT / BSD-3-Clause / ISC / Apache-2.0 / MPL-2.0); the
+bundled desktop backends also include xtb (LGPL-3.0-or-later) and the Eclipse
+Temurin JRE (GPL-2.0 with the Classpath Exception), both unmodified and used
+as separate programs. The NMR model was trained on nmrshiftdb2 data, whose own
+database licence requires attribution — the app credits it beside every
+prediction.
