@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// CDXML fidelity matrix (OCTET_DRAW_IMPROVEMENT_PLAN.md Phase 9): a
+// CDXML fidelity matrix (Octet Draw plan, Phase 9): a
 // table-driven import → export → import matrix over the whole fixture
 // corpus, a hostile-input fuzz suite for the importer, and a unicode
 // round-trip check.

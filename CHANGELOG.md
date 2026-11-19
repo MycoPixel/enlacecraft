@@ -213,8 +213,7 @@ closed.
 
 Completes the Octet Draw improvement plan (Phases 6–10: reaction
 intelligence, catalytic cycles, page/workspace control, Office
-interoperability and chemistry assistance — see
-`OCTET_DRAW_IMPROVEMENT_PLAN.md` for the full notes), fixes the reported
+interoperability and chemistry assistance), fixes the reported
 progressive session lag, fixes and widens CDXML import — opening a
 ChemDraw drawing now lands what was actually drawn on the canvas — and
 fixes the reported copy/paste issues (a double paste in text fields, and

@@ -7,7 +7,7 @@ import { pruneCyclesForAtoms } from "./cycles";
 import { nextId } from "./id";
 
 /**
- * R-group definitions and generic-structure expansion (OCTET_DRAW_IMPROVEMENT_PLAN
+ * R-group definitions and generic-structure expansion (Octet Draw plan,
  * Phase 10).
  *
  * Placeholder R labels already exist as ordinary atoms: typing "R"/"R1"/"R'"
