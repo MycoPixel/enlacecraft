@@ -12,7 +12,7 @@ const { createProjectSaveTarget, validateSaveToRequest } = security;
 
 describe("isSafeExternalUrl", () => {
   test.each([
-    "https://github.com/MycoPixel/enlacecraft-releases/releases",
+    "https://github.com/MycoPixel/enlacecraft/releases",
     "https://pubchem.ncbi.nlm.nih.gov/compound/241",
     "mailto:someone@example.com",
   ])("allows %s", (url) => expect(security.isSafeExternalUrl(url)).toBe(true));

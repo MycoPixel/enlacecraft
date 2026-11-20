@@ -257,12 +257,18 @@ why a packaged build doesn't need one). Console output is prefixed
 
 ## Publishing a release
 
-Built installers are published to the public
-[MycoPixel/enlacecraft-releases](https://github.com/MycoPixel/enlacecraft-releases)
-repo (see `package.json`'s `build.publish` config), which is what
+Built installers are published as GitHub Releases on the public
+[MycoPixel/enlacecraft](https://github.com/MycoPixel/enlacecraft) repo
+itself (see `package.json`'s `build.publish` config), which is what
 `electron-updater` (`electron/updater.cjs`) checks against on every launch.
 Publishing a new version there is what makes already-installed copies of the
 app notice an update exists.
+
+> **Moving off `enlacecraft-releases`.** Copies installed before 1.18.0 have
+> an `app-update.yml` that still points at the old separate releases repo, so
+> an update published only here is invisible to them. Publish 1.18.0 to
+> `enlacecraft-releases` once as a bridge (or ask those users to download
+> 1.18.0 by hand); builds from 1.18.0 onward read this repo.
 
 1. **Bump the version** in `package.json` (e.g. `1.1.0` → `1.1.1`). This
    becomes the release tag automatically — there's no separate manual
@@ -272,7 +278,7 @@ app notice an update exists.
 2. **Set a GitHub token** in the terminal you're building from —
    `export GH_TOKEN=...` (Linux) or `$env:GH_TOKEN="..."` (Windows
    PowerShell). Needs a fine-grained PAT scoped to only
-   `enlacecraft-releases`, with Contents: Read and write. This is what lets
+   `enlacecraft`, with Contents: Read and write. This is what lets
    electron-builder create the release on your behalf.
 3. **Build and publish**, on each machine:
    ```
@@ -286,7 +292,7 @@ app notice an update exists.
    both to the same release rather than creating two.
 4. **Review and publish the draft.** electron-builder creates the release as
    a draft, not public, by default. Open
-   [the releases page](https://github.com/MycoPixel/enlacecraft-releases/releases),
+   [the releases page](https://github.com/MycoPixel/enlacecraft/releases),
    confirm the installers AND their small `latest*.yml` manifests are both
    attached (the `.yml` files are what `electron-updater` actually reads —
    an installer with no matching `.yml` silently won't be picked up as an

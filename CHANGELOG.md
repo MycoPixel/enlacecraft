@@ -5,11 +5,72 @@ Release notes for EnlaceCraft. Newest first.
 The version number is the `version` field in `package.json`; each release is
 tagged with it.
 
-## 1.19.0
+## 1.18.0
 
-Adds a reagent table, a `postMessage` API for embedding the editor in another
-page, an ONLYOFFICE plugin that inserts the drawing as an editable object, and
-moves the project to the GNU AGPL-3.0-or-later.
+Adds a reaction builder that draws a whole scheme from names or SMILES, a
+reagent table with computed masses and volumes, a `postMessage` API for
+embedding the editor in another page, and an ONLYOFFICE plugin that inserts
+the drawing as an editable object. Formula text is subscripted automatically
+and the builder checks atom balance. The project moves to the GNU
+AGPL-3.0-or-later, and undo/redo no longer leaves stale selection ids behind.
+
+### Build a reaction from names or SMILES
+
+- A new flask action in the top bar (and a command-palette entry) opens a
+  dialog with separate reactant and product boxes. Each box accepts a
+  compound name — resolved through the same PubChem/local-name path as the
+  search box — or a SMILES string, which works offline.
+- Multiple reactants and products are supported; plus signs are inserted
+  into the gaps automatically rather than typed by hand.
+- Conditions can be entered above and below the arrow, and the arrow's
+  variant, head/tail style and size use the same picker as the sidebar.
+- The finished row is laid out exactly like a hand-drawn reaction, so
+  Clean up reaction, atom mapping, selection and export all continue to
+  work on it. Building the row is one undo step.
+
+### Stoichiometric coefficients
+
+- Every reactant/product box has an optional small coefficient field
+  (`2 H2 + O2`). Empty means no coefficient; integers, decimals and
+  fractions such as `1/2` are accepted.
+- A coefficient is stored as a text annotation with a `coefficientFor`
+  atom-id list, so Clean up reaction can re-anchor it after the row is
+  re-spaced instead of leaving it behind. Plus signs are placed between
+  the previous structure and the next structure's coefficient.
+- Coefficients move with their row in a multi-row scheme grid, are
+  excluded from condition detection, and survive project save/load through
+  the annotation validator.
+- Copying/pasting a coefficient (and saving/pasting a user template) now
+  remaps its atom references to the pasted structure's fresh ids. If the
+  pasted fragment doesn't include the structure, the stale reference is
+  dropped rather than left pointing at the original.
+
+### Formula formatting everywhere
+
+- Chemical-formula digits are now subscripted in any text annotation when
+  you finish editing it, not just in builder-created conditions:
+  `H2SO4` → H₂SO₄, `C12H22O11`, `Et3N`, `NaBH4`, `(NH4)2SO4`.
+- The rule only subscripts a digit run directly after a letter or closing
+  bracket, so quantities, ratios, temperatures and charges stay plain:
+  `3 h`, `24 h`, `1:1`, `80 °C`, `pH 7.4`, `Fe3+`, `SO4-`.
+- Existing bold/italic/colour markup and hand-made `<sub>`/`<sup>` spans
+  are preserved, the formatter is idempotent, and it tracks the preceding
+  character across tag boundaries (`H<b>2</b>SO4`).
+- Condition boxes measure the smaller subscript glyph width, so a formula
+  stays centred over the arrow without wrapping.
+- The reaction interpreter now reads `H<sub>2</sub>SO<sub>4</sub>` as
+  `H2SO4` (sub/sup tags are stripped without inserting spaces), so
+  formatted captions still compare correctly.
+
+### Automatic balance check
+
+- Building a reaction now compares the element totals on both sides,
+  including every row's stoichiometric coefficient and fractions, and
+  reports the result in the status line: balanced, unbalanced with the
+  mismatched elements (`C 2 → 3, H 6 → 4`), or unchecked when a coefficient
+  is not numeric (for example the generic `n`).
+- The check is atom balance only; charge and redox bookkeeping are out of
+  scope.
 
 ### Reagent table
 
@@ -95,81 +156,6 @@ moves the project to the GNU AGPL-3.0-or-later.
 
 ### Smaller changes
 
-- The reagent dialog's limiting radio now shows the row that is actually
-  limiting, including the fallback to the first reactant, and the CSV
-  `Limiting` column agrees with it.
-- A product's mass cell shows the isolated mass after yield beside the
-  theoretical mass (`92.14 → 73.712`).
-- The plugin posts commands to its own origin instead of `*` whenever the
-  plugin has one.
-
-## 1.18.0
-
-Adds a reaction builder that draws a whole scheme from names or SMILES,
-stoichiometric coefficients, formula auto-formatting for text annotations,
-and an automatic atom-balance check. Also fixes undo/redo leaving stale
-selection ids after undoing a generated row or import.
-
-### Build a reaction from names or SMILES
-
-- A new flask action in the top bar (and a command-palette entry) opens a
-  dialog with separate reactant and product boxes. Each box accepts a
-  compound name — resolved through the same PubChem/local-name path as the
-  search box — or a SMILES string, which works offline.
-- Multiple reactants and products are supported; plus signs are inserted
-  into the gaps automatically rather than typed by hand.
-- Conditions can be entered above and below the arrow, and the arrow's
-  variant, head/tail style and size use the same picker as the sidebar.
-- The finished row is laid out exactly like a hand-drawn reaction, so
-  Clean up reaction, atom mapping, selection and export all continue to
-  work on it. Building the row is one undo step.
-
-### Stoichiometric coefficients
-
-- Every reactant/product box has an optional small coefficient field
-  (`2 H2 + O2`). Empty means no coefficient; integers, decimals and
-  fractions such as `1/2` are accepted.
-- A coefficient is stored as a text annotation with a `coefficientFor`
-  atom-id list, so Clean up reaction can re-anchor it after the row is
-  re-spaced instead of leaving it behind. Plus signs are placed between
-  the previous structure and the next structure's coefficient.
-- Coefficients move with their row in a multi-row scheme grid, are
-  excluded from condition detection, and survive project save/load through
-  the annotation validator.
-- Copying/pasting a coefficient (and saving/pasting a user template) now
-  remaps its atom references to the pasted structure's fresh ids. If the
-  pasted fragment doesn't include the structure, the stale reference is
-  dropped rather than left pointing at the original.
-
-### Formula formatting everywhere
-
-- Chemical-formula digits are now subscripted in any text annotation when
-  you finish editing it, not just in builder-created conditions:
-  `H2SO4` → H₂SO₄, `C12H22O11`, `Et3N`, `NaBH4`, `(NH4)2SO4`.
-- The rule only subscripts a digit run directly after a letter or closing
-  bracket, so quantities, ratios, temperatures and charges stay plain:
-  `3 h`, `24 h`, `1:1`, `80 °C`, `pH 7.4`, `Fe3+`, `SO4-`.
-- Existing bold/italic/colour markup and hand-made `<sub>`/`<sup>` spans
-  are preserved, the formatter is idempotent, and it tracks the preceding
-  character across tag boundaries (`H<b>2</b>SO4`).
-- Condition boxes measure the smaller subscript glyph width, so a formula
-  stays centred over the arrow without wrapping.
-- The reaction interpreter now reads `H<sub>2</sub>SO<sub>4</sub>` as
-  `H2SO4` (sub/sup tags are stripped without inserting spaces), so
-  formatted captions still compare correctly.
-
-### Automatic balance check
-
-- Building a reaction now compares the element totals on both sides,
-  including every row's stoichiometric coefficient and fractions, and
-  reports the result in the status line: balanced, unbalanced with the
-  mismatched elements (`C 2 → 3, H 6 → 4`), or unchecked when a coefficient
-  is not numeric (for example the generic `n`).
-- The check is atom balance only; charge and redox bookkeeping are out of
-  scope.
-
-### Smaller changes
-
 - The mass-spectrometry button uses a column-chart icon, distinct from the
   reaction builder's flask.
 - The app version is shown in the brand tooltip and in the shortcuts
@@ -177,6 +163,13 @@ selection ids after undoing a generated row or import.
 - Undo and redo now prune atom, annotation and cycle ids that the restored
   snapshot no longer contains, preventing stale selections after undoing a
   generated reaction, an import or a deletion.
+- The reagent dialog's limiting radio now shows the row that is actually
+  limiting, including the fallback to the first reactant, and the CSV
+  `Limiting` column agrees with it.
+- A product's mass cell shows the isolated mass after yield beside the
+  theoretical mass (`92.14 → 73.712`).
+- The plugin posts commands to its own origin instead of `*` whenever the
+  plugin has one.
 
 ## 1.17.1
 

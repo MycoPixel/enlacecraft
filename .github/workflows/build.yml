@@ -11,14 +11,13 @@
 #
 # IT BUILDS, IT DOESN'T PUBLISH
 # -----------------------------
-# The installers are uploaded as workflow artifacts. Publishing to
-# MycoPixel/enlacecraft-releases is left as a deliberate manual step, so no
-# token with write access to a second repository is needed in CI, and nothing
-# can ship without a human deciding to. To release: download the artifacts,
-# create the release at the package.json version, attach the installer *and*
-# its latest*.yml manifest, then publish the (draft) release - electron-updater
-# reads the .yml, not the installer, so an installer with no manifest silently
-# never registers as an update.
+# The installers are uploaded as workflow artifacts. Publishing to this repo's
+# GitHub Releases is left as a deliberate manual step, so no token with write
+# access is needed in CI, and nothing can ship without a human deciding to. To
+# release: download the artifacts, create the release at the package.json
+# version, attach the installer *and* its latest*.yml manifest, then publish
+# the (draft) release - electron-updater reads the .yml, not the installer, so
+# an installer with no manifest silently never registers as an update.
 #
 # TRIGGERS
 # --------
@@ -249,7 +248,7 @@ jobs:
         if: runner.os == 'Linux'
         # --publish never is explicit on purpose: electron-builder will
         # otherwise try to publish whenever it detects a CI environment, and
-        # this job has no token for the separate releases repo.
+        # this job has no release token.
         run: npm run dist:linux -- --publish never
 
       - name: Build Windows NSIS installer

@@ -3,7 +3,12 @@ import { MonitorDown, Loader2, ExternalLink } from "lucide-react";
 import { ToolDropdown } from "../Sidebar/ToolDropdown";
 import { useT } from "../../i18n/useT";
 
-const RELEASES_REPO = "MycoPixel/enlacecraft-releases";
+// Installers are published as GitHub Releases on the app's own public repo
+// (see `build.publish` in package.json), so the web build's download menu and
+// the desktop updater both follow the same repository. Keeping this in sync
+// with package.json matters: a wrong repo here reaches students as "Couldn't
+// reach GitHub" while the release sits somewhere else.
+const RELEASES_REPO = "MycoPixel/enlacecraft";
 const RELEASES_PAGE_URL = `https://github.com/${RELEASES_REPO}/releases/latest`;
 
 interface ReleaseAsset {

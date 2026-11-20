@@ -332,12 +332,12 @@ describe("links and navigation", () => {
   test("window.open forwards only https:/mailto: to the OS, and always denies the new window", async () => {
     const { state, win } = await load();
     const open = (url) => win.webContents.windowOpenHandler({ url });
-    expect(open("https://github.com/MycoPixel/enlacecraft-releases")).toEqual({ action: "deny" });
+    expect(open("https://github.com/MycoPixel/enlacecraft")).toEqual({ action: "deny" });
     expect(open("mailto:a@b.example")).toEqual({ action: "deny" });
     for (const bad of ["file:///C:/Windows/System32/calc.exe", "smb://x/y", "javascript:alert(1)", "ms-msdt:/id x", "http://example.com", "https://a@evil.example/"]) {
       expect(open(bad)).toEqual({ action: "deny" });
     }
-    expect(state.opened).toEqual(["https://github.com/MycoPixel/enlacecraft-releases", "mailto:a@b.example"]);
+    expect(state.opened).toEqual(["https://github.com/MycoPixel/enlacecraft", "mailto:a@b.example"]);
   });
 
   test("will-navigate: untrusted pages are blocked (https ones open in the real browser); our own pages pass", async () => {

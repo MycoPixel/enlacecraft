@@ -431,13 +431,12 @@ Windows (`.exe`, NSIS) and Linux (`.AppImage`) only; no macOS build, since
 producing one needs actual Mac hardware or a GitHub Actions `macos-latest`
 runner, neither currently in use.
 
-**Distribution**: built installers are published to the separate, public
-[MycoPixel/enlacecraft-releases](https://github.com/MycoPixel/enlacecraft-releases)
-repo (`electron-builder`'s `publish` config in `package.json`), which holds
-nothing except compiled binaries. The webapp's top bar has a
-**download button** (`DesktopDownloadButton.tsx`) that fetches that repo's
-latest release from the GitHub API client-side and links straight to the
-right asset for the visitor's OS.
+**Distribution**: built installers are published as GitHub Releases on this
+same public repo (`electron-builder`'s `publish` config in `package.json`).
+The webapp's top bar has a **download button**
+(`DesktopDownloadButton.tsx`) that fetches the latest release from the
+GitHub API client-side and links straight to the right asset for the
+visitor's OS.
 
 **Auto-update**: the desktop app checks for updates on launch via
 `electron-updater` (`electron/updater.cjs`), downloads any new version

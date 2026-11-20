@@ -5,10 +5,14 @@
     "email": "paulo.castro@usach.cl"
   },
   "desktopName": "enlacecraft.desktop",
-  "version": "1.19.0",
+  "version": "1.18.0",
   "description": "A browser-based molecule drawing application.",
   "private": true,
   "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MycoPixel/enlacecraft.git"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -73,7 +77,7 @@
     "publish": {
       "provider": "github",
       "owner": "MycoPixel",
-      "repo": "enlacecraft-releases"
+      "repo": "enlacecraft"
     },
     "files": [
       "dist/**/*",
